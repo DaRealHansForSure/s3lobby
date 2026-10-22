@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "s3lobby"
+dynamic = ["version"]
+description = "Lobby server for the online lobby of the original The Settlers III"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["settlers", "settlers-3", "lobby", "server", "retro-gaming"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Games/Entertainment :: Real Time Strategy",
+]
+
+[project.scripts]
+s3lobby = "s3lobby.cli:main"
+
+[tool.setuptools]
+packages = ["s3lobby"]
+
+[tool.setuptools.dynamic]
+version = { attr = "s3lobby.__version__" }
