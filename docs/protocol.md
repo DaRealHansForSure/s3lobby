@@ -2,20 +2,17 @@
 
 The original Settlers 3 (GOG "Ultimate Collection") has an online lobby that talked to Blue Byte's
 `siedler3svr.bluebyte.de:3344`, which is long gone. This document describes the protocol as read
-from the game's code, so a replacement server can run on the LAN. The server is
-[tools/s3lobby/server.py](../tools/s3lobby/server.py).
-
-This is about the original game only. Another project's own multiplayer is planned separately in
-[multiplayer-concept.md](multiplayer-concept.md).
+from the game's code, so a replacement server can run on the LAN or on the internet. The server in
+this project, [s3lobby](../README.md), implements it.
 
 - **Binary**: `S3.EXE.orig` of the GOG "Ultimate Collection" (German), 3,842,048 bytes, SHA-256
-  `00a925cf...804d950b`, image base 0x400000 (see [s3-code/README.md](s3-code/README.md#the-binary)).
-  All addresses below are virtual addresses in that file.
+  `00a925cf...804d950b`, image base 0x400000, menu version 1.60. All addresses below are virtual
+  addresses in that file.
 - **Source files** (from the asserts): `E:\Siedler3\Dirk\protocol.cpp` (connection layer),
   `Lobby.cpp` (messages, UDP socket), `lobbyclient.cpp` (client session and handlers).
 - **Status**: read from code (REA with Hopper, capstone), then checked on 2026-10-23 with the GOG
-  game under Wine 10 against [tools/s3lobby/server.py](../tools/s3lobby/server.py): logon, rooms,
-  opening a game, playing it and coming back work. Statements marked *inferred* follow from how
+  game under Wine 10 against this server: logon, rooms, opening a game, playing it and coming back
+  work. Statements marked *inferred* follow from how
   the code uses a value, not from a direct read or a run.
 
 ## Pointing the game at a server
@@ -43,8 +40,8 @@ Windows Registry Editor Version 5.00
 
 The game opens the key with `KEY_ALL_ACCESS` (0xf003f). Run without administrator rights, Windows
 redirects that to the user's VirtualStore copy
-(`HKCU\Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\...`) if one exists; see
-[s3-exe-notes.md](s3-exe-notes.md). Set the value in the copy the game actually reads.
+(`HKCU\Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\...`) if one exists. Set the
+value in the copy the game actually reads.
 
 The address is parsed by `CSocketAddress(host:port)` 0x5eca70: split at `:`, port via `atoi`, host
 via `inet_addr` or, failing that, `gethostbyname`. There is no default port: always write it.
@@ -304,7 +301,7 @@ must fill in the address it sees datagrams come from.
 | 1 | block 1: OpenConnection, CheckFileVersion (to every index server) | block 1: OpenConnection, acks, Result 9 |
 | 2 | GetLobbyServerList | lobby server list: `"ip:port"`, name |
 | 3 | closes, opens a new connection: OpenConnection, Logon | OpenConnection, acks, Result 0x66, own player 0x0e |
-| 4 | AddPlayerToGroup for room 1..4 | AddGroupToGroup (parent 0), AddPlayerToGroup per member incl. the client, the games in the room |
+| 4 | AddPlayerToGroup for its lobby room (1 to 3) and its zones (30 to 38) | AddGroupToGroup (parent 0), AddPlayerToGroup per member incl. the client, the games in the room |
 | 5 | chat to the other members directly | tells members about arrivals (0x0c) and departures (0x0d) |
 | 6 | AddGroupToGroup2 under the room (open a game) | relays it to the room, host address filled in |
 | 7 | game ends: AdjustConnectionTimeout 60000, joins its rooms again (never leaves the game) | takes the player out of its game without telling it (a RemovePlayerFromGroup for a game the client already dropped, as after "Zurück" in the game setup, hangs the game), closes it, answers the joins |
@@ -343,4 +340,5 @@ and compare with the server's `--verbose` log):
 - What the real server named the zone groups 30..38 and rooms 1..3.
 - The meaning of the unknown u32 fields, the Logon flag bits and the dialog texts of the refusal
   codes (texts 0x900xx live in the game's text files).
-- Which registry view the game reads on the owner's PC (WOW6432Node or VirtualStore).
+- Which registry view the game reads when it runs without administrator rights (WOW6432Node or
+  VirtualStore).
