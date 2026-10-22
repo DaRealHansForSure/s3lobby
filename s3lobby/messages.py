@@ -334,6 +334,29 @@ class OwnPlayer:
         return cls(player_id=reader.read_u32())
 
 
+@dataclass(frozen=True)
+class OwnPlayerWithClan:
+    """0x24: like OwnPlayer, for a player who logged on as clan member (handler 0x5d7830).
+
+    The client keeps the clan for the games it creates or joins and hands it to the other players
+    over DirectPlay (0x470250, "CLAN-Pack"). Same rules as OwnPlayer: after the Result, once.
+    """
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.OWN_PLAYER_WITH_CLAN
+    player_id: int
+    clan_id: int
+    clan_name: str
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter().write_u32(self.player_id).write_u32(self.clan_id).write_string(self.clan_name)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> OwnPlayerWithClan:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        return cls(player_id=reader.read_u32(), clan_id=reader.read_u32(), clan_name=reader.read_string())
+
+
 # Groups: rooms, zones and games.
 
 
@@ -502,6 +525,42 @@ class AddPlayerToGroup:
             player_address=reader.read_socket_address(),
             player_name=reader.read_string(),
             extra_text=reader.read_string(),
+        )
+
+
+@dataclass(frozen=True)
+class AddPlayerToGroupWithClan:
+    """0x25: AddPlayerToGroup for a clan member, with the clan after the two texts (handler
+    0x5d5f60, readers 0x5e6550 and 0x5e6740). The member list shows the clan name in its second
+    column (0x449d34). With clan id 0 and an empty name it behaves exactly like 0x0c (0x5d5ea5)."""
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN
+    group_id: int
+    player_id: int
+    player_address: Address
+    player_name: str
+    clan_id: int
+    clan_name: str
+    extra_text: str = ""
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter()
+        writer.write_u32(self.group_id).write_u32(self.player_id).write_socket_address(self.player_address)
+        writer.write_string(self.player_name).write_string(self.extra_text)
+        writer.write_u32(self.clan_id).write_string(self.clan_name)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> AddPlayerToGroupWithClan:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        return cls(
+            group_id=reader.read_u32(),
+            player_id=reader.read_u32(),
+            player_address=reader.read_socket_address(),
+            player_name=reader.read_string(),
+            extra_text=reader.read_string(),
+            clan_id=reader.read_u32(),
+            clan_name=reader.read_string(),
         )
 
 

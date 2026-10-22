@@ -16,6 +16,7 @@ from s3lobby.constants import (
     LOGON_PROTOCOL_VERSION,
     SERVER_ASSIGNS_GROUP_ID,
     GroupFlag,
+    LogonFlag,
     MessageType,
     ResultCode,
 )
@@ -28,14 +29,19 @@ from s3lobby.messages import (
     LobbyServerList,
     Logon,
     OwnPlayer,
+    OwnPlayerWithClan,
+    AddPlayerToGroupWithClan,
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
     Result,
 )
+from s3lobby.database import LobbyDatabase
 from s3lobby.wire import RawMessage
 from tests.support import BackgroundServer, FakeGameClient
 
 GAME_VERSION = 160
+ACCESS_CODE = "TESTCODE2345"
+SERIAL_NUMBER = "0497-2584-2194-4356-2336"
 EDITION_MISSION_AND_GOLD = 4
 LOBBY_ROOM_ID = 3
 GAME_ZONE_ID = 30
@@ -44,23 +50,31 @@ UNKNOWN_HOST_ADDRESS = ("0.0.0.0", 3343)
 GAME_BLOCK_REMAINDER_SIZE = 16 + 5 * 4
 
 
-def log_on(client: FakeGameClient) -> int:
-    """Run the patch check, the server list and the logon like the game; returns the player id."""
+def go_to_lobby_server(client: FakeGameClient) -> None:
+    """The patch check and the server list, then a new connection for the logon, like the game."""
     client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
     Result.decode(client.receive_next(MessageType.RESULT))
     client.send(GetLobbyServerList())
     LobbyServerList.decode(client.receive_next(MessageType.LOBBY_SERVER_LIST))
     client.close_connection()
 
+
+def send_logon(client: FakeGameClient, access_code: str = ACCESS_CODE, flags: int = 0, name: str | None = None) -> Result:
     logon = Logon(
         protocol_version=LOGON_PROTOCOL_VERSION,
-        player_name=client.player_name,
-        password="secret",
-        flags=0,
-        serial_number="0000-0000-0000-0000-0000",
+        player_name=client.player_name if name is None else name,
+        password=access_code,
+        flags=flags,
+        serial_number=SERIAL_NUMBER,
     )
     client.send(logon)
-    Result.decode(client.receive_next(MessageType.RESULT))
+    return Result.decode(client.receive_next(MessageType.RESULT))
+
+
+def log_on(client: FakeGameClient) -> int:
+    """Run the whole way into the lobby like the game; returns the player id."""
+    go_to_lobby_server(client)
+    send_logon(client)
     return OwnPlayer.decode(client.receive_next(MessageType.OWN_PLAYER)).player_id
 
 
@@ -103,6 +117,10 @@ class LobbySessionTest(unittest.TestCase):
     def setUp(self) -> None:
         self.database_folder = tempfile.TemporaryDirectory()
         self.database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
+        self.database = LobbyDatabase(self.database_path)
+        for name in ("Alice", "Bob"):
+            account = self.database.create_account(name)
+            self.database.add_access_code(account.account_id, ACCESS_CODE)
         self.server = BackgroundServer(self.database_path)
         self.server.__enter__()
         self.clients: list[FakeGameClient] = []
@@ -111,6 +129,7 @@ class LobbySessionTest(unittest.TestCase):
         for client in self.clients:
             client.close_socket()
         self.server.__exit__(None, None, None)
+        self.database.close()
         self.database_folder.cleanup()
 
     def new_client(self, player_name: str, nonce: int) -> FakeGameClient:
@@ -140,11 +159,38 @@ class LobbySessionTest(unittest.TestCase):
         client.receive_next(MessageType.RESULT)
         client.close_connection()
 
-        client.send(Logon(LOGON_PROTOCOL_VERSION, "Alice", "secret", 0, "0000-0000-0000-0000-0000"))
+        client.send(Logon(LOGON_PROTOCOL_VERSION, "Alice", ACCESS_CODE, 0, SERIAL_NUMBER))
         first = client.receive_matching(lambda message: message.message_type in log_on_messages)
         second = client.receive_matching(lambda message: message.message_type in log_on_messages)
         self.assertEqual(Result.decode(first).code, ResultCode.LOGON_ACCEPTED)
         self.assertEqual(second.message_type, MessageType.OWN_PLAYER)
+
+    def test_refused_logon_gets_only_the_result_code(self) -> None:
+        """The game shows the dialog text for the code; nothing else may follow (no OwnPlayer)."""
+        client = self.new_client("Alice", nonce=17)
+        go_to_lobby_server(client)
+        result = send_logon(client, access_code="WRONGCODE")
+        self.assertEqual(result.code, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+        self.assertEqual(client.unread_messages_of_type(MessageType.OWN_PLAYER), [])
+
+    def test_clan_member_is_shown_with_the_clan_to_others(self) -> None:
+        """A player who ticked the clan box gets 0x24 instead of 0x0e, and the others see the
+        clan name in the member list through 0x25."""
+        romans = self.database.create_clan("Romans")
+        self.database.set_clan_of_account(self.database.find_account("Bob").account_id, romans.clan_id)
+        alice = self.new_client("Alice", nonce=17)
+        bob = self.new_client("Bob", nonce=42)
+        alice_id = log_on(alice)
+        join_group(alice, LOBBY_ROOM_ID, alice_id)
+
+        go_to_lobby_server(bob)
+        send_logon(bob, flags=LogonFlag.SHOW_AS_CLAN_MEMBER)
+        own_player = OwnPlayerWithClan.decode(bob.receive_next(MessageType.OWN_PLAYER_WITH_CLAN))
+        self.assertEqual((own_player.clan_id, own_player.clan_name), (romans.clan_id, "Romans"))
+        join_group(bob, LOBBY_ROOM_ID, own_player.player_id)
+
+        entry = AddPlayerToGroupWithClan.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN))
+        self.assertEqual((entry.player_name, entry.clan_name), ("Bob", "Romans"))
 
     def test_member_list_carries_the_address_the_server_saw(self) -> None:
         """Clients chat straight to each other's addresses and only know themselves as 0.0.0.0."""

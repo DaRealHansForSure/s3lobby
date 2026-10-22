@@ -82,6 +82,7 @@ class MessageType(IntEnum):
     CHAT_COMMAND = 0x22
     CHAT_COMMAND_ANSWER = 0x23
     OWN_PLAYER_WITH_CLAN = 0x24
+    ADD_PLAYER_TO_GROUP_WITH_CLAN = 0x25
 
 
 # Messages the reliable layer consumes itself; everything else is handed to the lobby.
@@ -122,9 +123,10 @@ GROUP_UPDATE_MESSAGE_TYPES = frozenset(
 class ResultCode(IntEnum):
     """Codes of the Result message (0x09) that this server sends.
 
-    The client's Result handler 0x5cd820 switches on the code through the table at 0x5d0618. Other
-    codes refuse a logon (1, 2, 3, 5, 6, 7, 0x67, 0x68, 0x69, 0x6d, each with its own dialog text)
-    or answer a private chat invitation between two clients (0x64, 0x65).
+    The client's Result handler 0x5cd820 switches on the code through the table at 0x5d0618. A
+    logon refusal shows a dialog with a fixed text from the game's text archive; the text ids are
+    noted here (id 0x900nn is text nn of GFX/siedler3_09.*.dat). Codes 0x64 and 0x65 answer a
+    private chat invitation and travel between two clients, never from the server.
     """
 
     # Answer to CheckFileVersion: the client is up to date, no patch download (branch 0x5cffe1).
@@ -132,6 +134,32 @@ class ResultCode(IntEnum):
 
     # Answer to Logon: the player is in (branch 0x5cdaaa, LogonRetval 0 at 0x5cde49).
     LOGON_ACCEPTED = 0x66
+
+    # Logon refusals.
+    # 0x90069 "The server refuses your combination of username and password."
+    UNKNOWN_NAME_OR_ACCESS_CODE = 3
+    # 0x9009d "Another player with this name or serial number is already logged in ..."
+    ALREADY_LOGGED_ON = 6
+    # 0x9009e "The chosen player name is invalid. Only letters from A to Z ... and spaces"
+    INVALID_PLAYER_NAME = 0x67
+    # 0x900ee "The maximum number of users for this server has been reached."
+    SERVER_FULL = 0x68
+    # 0x900f3 "On account of unacceptable behavior, you have been barred from the Lobby ..."
+    BANNED = 0x69
+    # 0x90139 "You're no clan member. ..." (the player ticked the clan box without being in one)
+    NOT_A_CLAN_MEMBER = 0x6D
+
+
+class LogonFlag(IntFlag):
+    """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
+
+    # The player pressed "create player" in the logon dialog (dialog flag +0xf0, set at 0x43a35c).
+    # This server never creates accounts from the game: they are made on the server side.
+    CREATE_PLAYER = 0x1
+    # Set when the game's edition setting is 1; meaning unknown.
+    EDITION_ONE = 0x2
+    # The "Clan" box in the logon dialog (registry ClanFlag): show the player as a clan member.
+    SHOW_AS_CLAN_MEMBER = 0x4
 
 
 # The first field of every Logon. The game always writes 14 (constructor 0x5e1d50); most likely
@@ -190,6 +218,11 @@ BOARD_LANGUAGE_GROUP_PREFIX = "MessageThemes"
 NEWS_AUDIENCE_GERMAN = "german"
 NEWS_AUDIENCE_OTHER = "other"
 NEWS_AUDIENCES = (NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER)
+
+# Logon attempts: a token bucket per IP and per account name, drawn on by failed attempts only, so
+# a LAN party behind one router can log on together while guessing access codes stays hopeless.
+LOGON_FAILURE_BURST = 10
+LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
 
 # Timing of the reliable layer, in milliseconds.
 

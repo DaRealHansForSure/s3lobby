@@ -74,7 +74,7 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._connections: dict[Address, ReliableConnection] = {}
         self._transport: asyncio.DatagramTransport | None = None
         self._housekeeping_task: asyncio.Task[None] | None = None
-        self._lobby = Lobby(settings.server_name, outbox=self)
+        self._lobby = Lobby(settings.server_name, outbox=self, database=database)
         self._datagram_rate = RateLimiter(DATAGRAMS_PER_SECOND_PER_ADDRESS, DATAGRAM_BURST_PER_ADDRESS)
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
 
@@ -160,7 +160,7 @@ class LobbyServer(asyncio.DatagramProtocol):
             now_seconds = time.monotonic()
             self._datagram_rate.forget_quiet_keys(now_seconds)
             self._warnings.forget_quiet_keys(now_seconds)
-            self._lobby.forget_quiet_warning_keys(now_seconds)
+            self._lobby.forget_quiet_keys(now_seconds)
 
     def _receive_datagram(self, data: bytes, client_address: Address) -> None:
         """Parse and act on one datagram; raises ProtocolError when it breaks a rule."""

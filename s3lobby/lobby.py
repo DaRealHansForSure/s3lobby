@@ -31,8 +31,10 @@ from s3lobby.constants import (
     MessageType,
     ResultCode,
 )
+from s3lobby.database import Clan, LobbyDatabase
 from s3lobby.messages import (
     AddPlayerToGroup,
+    AddPlayerToGroupWithClan,
     ChatCommand,
     ChatCommandAnswer,
     ChatMessage,
@@ -48,12 +50,14 @@ from s3lobby.messages import (
     LobbyServerList,
     Logon,
     OwnPlayer,
+    OwnPlayerWithClan,
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
     Result,
     TextMessage,
 )
 from s3lobby.guards import ThrottledLogger
+from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.wire import Address, ProtocolError, RawMessage
 
 log = logging.getLogger(__name__)
@@ -61,8 +65,6 @@ log = logging.getLogger(__name__)
 # What a host's game reports as its own address before the server fills in the real one: the
 # client binds its socket to INADDR_ANY and so only knows itself as 0.0.0.0.
 UNKNOWN_HOST = "0.0.0.0"
-
-FIRST_PLAYER_ID = 1
 
 
 class LobbyOutbox(Protocol):
@@ -76,11 +78,20 @@ class LobbyOutbox(Protocol):
 
 @dataclass
 class Player:
-    """A logged on player. The address is where the player's datagrams come from."""
+    """A logged on player.
+
+    The player id is the account id, so it stays the same across logons. The address is where the
+    player's datagrams come from. shown_clan is set when the player logged on with the clan box
+    ticked; the other players then see the clan next to the name.
+    """
 
     player_id: int
     name: str
     address: Address
+    serial_number: str
+    is_admin: bool
+    session_id: int
+    shown_clan: Clan | None = None
     group_ids: set[int] = field(default_factory=set)
 
 
@@ -108,13 +119,14 @@ class Group:
 class Lobby:
     """Keeps the lobby's state and answers every lobby message a client sends."""
 
-    def __init__(self, server_name: str, outbox: LobbyOutbox) -> None:
+    def __init__(self, server_name: str, outbox: LobbyOutbox, database: LobbyDatabase) -> None:
         self._server_name = server_name
         self._outbox = outbox
+        self._database = database
+        self._logon_check = LogonCheck(database)
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
-        self._next_player_id = FIRST_PLAYER_ID
         self._next_game_group_id = FIRST_GAME_GROUP_ID
         # Warnings about a client's messages are throttled per client, so a client that sends a
         # stream of bad messages within its rate limit cannot flood the log.
@@ -156,8 +168,10 @@ class Lobby:
                 client_address, time.monotonic(), "%s: internal error while handling %s", client_address, message.type_name
             )
 
-    def forget_quiet_warning_keys(self, now_seconds: float) -> None:
+    def forget_quiet_keys(self, now_seconds: float) -> None:
+        """Let the per client warning and logon limits forget clients that went quiet."""
         self._warnings.forget_quiet_keys(now_seconds)
+        self._logon_check.forget_quiet_keys(now_seconds)
 
     def _warn(self, client_address: Address, message: str, *arguments: object) -> None:
         self._warnings.warning(client_address, time.monotonic(), message, *arguments)
@@ -169,6 +183,7 @@ class Lobby:
         if player is None:
             return
         del self._players_by_id[player.player_id]
+        self._database.record_logout(player.session_id)
         log.info("player %d %r left the lobby", player.player_id, player.name)
         for group_id in list(player.group_ids):
             self._remove_player_from_group(player, group_id, is_player_told=False)
@@ -200,7 +215,6 @@ class Lobby:
     # Lobby server role: logon.
 
     def _log_on_player(self, client_address: Address, message: RawMessage) -> None:
-        # A LAN server welcomes everyone: name, password and serial number are taken as they come.
         logon = Logon.decode(message)
         if logon.protocol_version != LOGON_PROTOCOL_VERSION:
             self._warn(
@@ -210,24 +224,49 @@ class Lobby:
                 logon.protocol_version,
                 LOGON_PROTOCOL_VERSION,
             )
+        # A logon on an address that already has a player starts that player over.
         self.forget_client(client_address)
-        player = Player(player_id=self._next_player_id, name=logon.player_name, address=client_address)
-        self._next_player_id += 1
-        self._players_by_address[client_address] = player
-        self._players_by_id[player.player_id] = player
+        decision = self._logon_check.decide(logon, client_address[0], self._occupancy())
+        if isinstance(decision, RefusedLogon):
+            log.info("%s: logon of %r refused: %s", client_address, logon.player_name, decision.reason)
+            self._outbox.send(client_address, Result(decision.result_code))
+            return
+        player = self._admit_player(client_address, logon, decision)
         log.info(
-            "%s: logon of %r (flags %#x, serial %r) as player %d",
+            "%s: %r logged on as player %d%s",
             client_address,
-            logon.player_name,
-            logon.flags,
-            logon.serial_number,
+            player.name,
             player.player_id,
+            f" of clan {player.shown_clan.name!r}" if player.shown_clan else "",
         )
         # Order matters: the Result makes this server the client's lobby server, and the OwnPlayer
         # handler asserts exactly that (handler 0x5d7300). Joining a group later uses the own player
         # without a check (0x5ca46b), so OwnPlayer is not optional either.
         self._outbox.send(client_address, Result(ResultCode.LOGON_ACCEPTED))
-        self._outbox.send(client_address, OwnPlayer(player.player_id))
+        self._outbox.send(client_address, own_player_message(player))
+
+    def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
+        account = decision.account
+        player = Player(
+            player_id=account.account_id,
+            name=account.name,
+            address=client_address,
+            serial_number=logon.serial_number,
+            is_admin=account.is_admin,
+            session_id=self._database.record_logon(account.account_id),
+            shown_clan=decision.shown_clan,
+        )
+        self._players_by_address[client_address] = player
+        self._players_by_id[player.player_id] = player
+        return player
+
+    def _occupancy(self) -> LobbyOccupancy:
+        players = list(self._players_by_id.values())
+        return LobbyOccupancy(
+            player_count=len(players),
+            casefolded_player_names=frozenset(player.name.casefold() for player in players),
+            serial_numbers=frozenset(player.serial_number for player in players),
+        )
 
     def _log_out_player(self, client_address: Address, message: RawMessage) -> None:
         self.forget_client(client_address)
@@ -442,14 +481,30 @@ def room_announcement(group_id: int) -> GroupAnnouncement:
     )
 
 
-def member_entry(group_id: int, player: Player) -> AddPlayerToGroup:
+def own_player_message(player: Player) -> EncodableMessage:
+    """OwnPlayer, or its clan variant when the player logged on as clan member. Either one, once."""
+    if player.shown_clan is None:
+        return OwnPlayer(player.player_id)
+    return OwnPlayerWithClan(player.player_id, player.shown_clan.clan_id, player.shown_clan.name)
+
+
+def member_entry(group_id: int, player: Player) -> EncodableMessage:
     """A group member as other clients need it: with the address the server sees the player at,
-    because they send chat straight to that address."""
-    return AddPlayerToGroup(
+    because they send chat straight to that address, and with the clan when the player shows one."""
+    if player.shown_clan is None:
+        return AddPlayerToGroup(
+            group_id=group_id,
+            player_id=player.player_id,
+            player_address=player.address,
+            player_name=player.name,
+        )
+    return AddPlayerToGroupWithClan(
         group_id=group_id,
         player_id=player.player_id,
         player_address=player.address,
         player_name=player.name,
+        clan_id=player.shown_clan.clan_id,
+        clan_name=player.shown_clan.name,
     )
 
 

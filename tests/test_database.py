@@ -68,6 +68,15 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual(self.database.revoke_access_codes(account.account_id), 1)
         self.assertFalse(self.database.check_access_code(account.account_id, access_code))
 
+    def test_access_code_is_stored_only_as_a_salted_hash(self) -> None:
+        account = self.database.create_account("Alice")
+        self.database.add_access_code(account.account_id, "SAMECODE2345")
+        self.database.add_access_code(account.account_id, "SAMECODE2345")
+        stored = [row[0] for row in self.database._connection.execute("SELECT code_hash FROM access_codes")]
+        self.assertTrue(all(value.startswith("scrypt$") for value in stored))
+        self.assertTrue(all("SAMECODE2345" not in value for value in stored))
+        self.assertNotEqual(stored[0], stored[1], "each code gets its own salt")
+
     def test_ban_lasts_until_its_end(self) -> None:
         account = self.database.create_account("Alice")
         self.database.ban_account(account.account_id, until=START + timedelta(hours=2), reason="spam")

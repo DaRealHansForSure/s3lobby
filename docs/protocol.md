@@ -204,25 +204,46 @@ Offsets count from the first byte after the header.
 ### Logon
 
 - **0x07 Logon** (constructor 0x5e1d50): u32 14 (*inferred*: protocol version), string name,
-  string password, u32 flags (bit 0 and bit 2 from the dialog, bit 1 set for edition 1), string
-  serial number. The client sends it to every listed server with the first server's name.
+  string password, u32 flags, string serial number. The client sends it to every listed server
+  with the first server's name. Flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4):
+
+  | Bit | Meaning |
+  |---|---|
+  | 0x1 | "create player": the player used the logon dialog's create button (dialog flag +0xf0, set at 0x43a35c after the create dialog 0x43bf90) |
+  | 0x2 | set when the game's edition setting is 1; meaning unknown |
+  | 0x4 | the "Clan" box (registry ClanFlag, label 0x9013d "player is marked as clan member in the chat") |
 - **0x09 Result**: u32 code, u32 value; size exactly 12 (0x5e1e30, 0x5e2080). The handler
   (0x5cd820) switches on the code (table 0x5d0618 / 0x5d05c0):
 
-  | Code | Meaning |
+  | Code | Meaning, with the dialog text the game shows (text id 0x900nn = entry nn of the text archive) |
   |---|---|
   | 0x66 | logon accepted (LogonRetval 0, 0x5cde49), sender becomes the server |
-  | 1, 2, 3, 5, 6, 7, 0x67, 0x68, 0x69, 0x6d | logon refused, each with its own dialog text |
+  | 1, 5 | 0x9006a "An error occurred while connecting to the lobby." |
+  | 2 | 0x9009f "There is already a player with this name. Please choose a different name." |
+  | 3 | 0x90069 "The server refuses your combination of username and password." |
+  | 6 | 0x9009d "Another player with this name or serial number is already logged in ..." |
+  | 7 | 0x90017 "You entered an invalid serial number!" |
+  | 0x67 | 0x9009e "The chosen player name is invalid. Only letters from A to Z ... and spaces" (German text: no two spaces in a row) |
+  | 0x68 | 0x900ee "The maximum number of users for this server has been reached." |
+  | 0x69 | 0x900f3 "On account of unacceptable behavior, you have been barred from the Lobby ..." |
+  | 0x6d | 0x90139 "You're no clan member. ..." |
   | 9 | patch check: no patch |
   | 8 | patch check: failed |
   | 0x64, 0x65 | private chat accepted / refused (client to client, value = player id) |
+
+  The texts live in `GFX/siedler3_09.*.dat`: at offset 0x5c a u16 text count (374) and a u16
+  language count (8), from 0x60 one u32 file offset per text, all texts of language 0 (German)
+  first, then language 1 (English), and so on.
 
 - **0x0e own player**: u32 player id, size exactly 8. Creates the client's own player record and
   asserts it does not exist yet: send it once. Its handler asserts `lpFrom == lpServer`, which only
   holds after Result 0x66, so the server sends `[Result 0x66][own player]` in that order, in one
   block. Joining a group dereferences the own player without a check (0x5ca46b): without 0x0e the
   client crashes there.
-- **0x24 own player with clan**: u32 player id, u32 clan value, string name.
+- **0x24 own player with clan** (handler 0x5d7830): u32 player id, u32 clan id, string clan name.
+  The client accepts either 0x0e or 0x24 after the logon; send exactly one. It keeps the clan for
+  the games it creates or joins and hands it to the other players over DirectPlay (0x470250,
+  "CLAN-Pack"). The client never sends clan data itself, so clans have to come from the server.
 - **0x0a Logout**: empty. The client closes without waiting for an answer.
 
 The client checks nothing in the server's answers except the Result code: name, password and serial
@@ -269,7 +290,11 @@ the AddGroupToGroup (assert `! vJoinedGroups.contains`) and drop the connection.
 - **0x0c AddPlayerToGroup** (constructor 0x5e4e10): u32 group id, u32 player id, sockaddr_in,
   string name, string (never read by the client). Size above 28. The client sends it to join a
   group (0x5ca430); the server sends it for each member.
-- **0x25 / 0x26**: 0x0c plus u32 and string (*inferred*: clan), 0x26 one more u32.
+- **0x25** (handler 0x5d5f60): 0x0c's fields, then u32 clan id and string clan name (readers
+  0x5e6550, 0x5e6740). The room member list shows the clan name in its second column (0x449d34).
+  With clan id 0 and an empty name it behaves exactly like 0x0c (0x5d5ea5).
+- **0x26** (handler 0x5d6520): 0x25 plus u32 player flags. Bit 0 colours the row; together with the
+  clan name "BB" it gets another colour (0x449e09..0x449eb5, *inferred*: Blue Byte staff).
 - **0x0d RemovePlayerFromGroup**: u32 group id, u32 player id; size exactly 12. Sent by the client
   to leave (0x5ca5e0).
 

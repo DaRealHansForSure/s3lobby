@@ -2,7 +2,7 @@
 
 - accounts and their access codes: a player logs on with the account name as player name and an
   access code as password. Codes are random strings the server generates (today with the command
-  line, later through a web interface); only their SHA-256 hash is stored.
+  line, later through a web interface); only a salted scrypt hash of each is stored.
 - clans and who belongs to them
 - the news on the lobby's Home tab, and the message board of the MessageZone tab
 - the chat themes listed on the ChatZone tab
@@ -129,6 +129,17 @@ SCHEMA_UPGRADES = {
 # single spaces between words.
 PLAYER_NAME_PATTERN = re.compile(r"[A-Za-z]+( [A-Za-z]+)*")
 
+# scrypt parameters for access code hashes: about 16 MB and a few tens of milliseconds per check,
+# which only logons pay, and those are rate limited.
+SCRYPT_PREFIX = "scrypt"
+SCRYPT_COST = 2**14
+SCRYPT_BLOCK_SIZE = 8
+SCRYPT_PARALLELISM = 1
+SCRYPT_SALT_BYTES = 16
+SCRYPT_DIGEST_BYTES = 32
+SCRYPT_HASH_FIELD_COUNT = 6
+HASH_FIELD_SEPARATOR = "$"
+
 # Access codes: long enough to be safe from guessing, short enough to type into the game's password
 # field. The alphabet leaves out characters that are easy to mix up (0/O, 1/I/L).
 ACCESS_CODE_LENGTH = 12
@@ -243,9 +254,37 @@ def from_stored_time(text: str | None) -> datetime | None:
 
 
 def hash_access_code(access_code: str) -> str:
-    # Access codes are random and long, so one round of SHA-256 is enough: there is nothing to
-    # guess from a leaked hash, unlike with passwords people choose themselves.
-    return hashlib.sha256(access_code.encode("utf-8")).hexdigest()
+    """A salted scrypt hash, stored with its parameters: "scrypt$n$r$p$salt$hash" in hex.
+
+    Access codes are random, but a slow, salted hash still makes a stolen database useless for
+    guessing them, and keeping the parameters with each hash lets them be raised later.
+    """
+    salt = secrets.token_bytes(SCRYPT_SALT_BYTES)
+    digest = scrypt_digest(access_code, salt, SCRYPT_COST, SCRYPT_BLOCK_SIZE, SCRYPT_PARALLELISM)
+    fields = (SCRYPT_PREFIX, SCRYPT_COST, SCRYPT_BLOCK_SIZE, SCRYPT_PARALLELISM, salt.hex(), digest.hex())
+    return HASH_FIELD_SEPARATOR.join(str(field) for field in fields)
+
+
+def is_matching_access_code(access_code: str, stored_hash: str) -> bool:
+    """True when the access code hashes to the stored hash; compares in constant time."""
+    fields = stored_hash.split(HASH_FIELD_SEPARATOR)
+    if len(fields) != SCRYPT_HASH_FIELD_COUNT or fields[0] != SCRYPT_PREFIX:
+        return False
+    _, cost, block_size, parallelism, salt_hex, digest_hex = fields
+    expected_digest = bytes.fromhex(digest_hex)
+    offered_digest = scrypt_digest(access_code, bytes.fromhex(salt_hex), int(cost), int(block_size), int(parallelism))
+    return hmac.compare_digest(offered_digest, expected_digest)
+
+
+def scrypt_digest(access_code: str, salt: bytes, cost: int, block_size: int, parallelism: int) -> bytes:
+    return hashlib.scrypt(
+        access_code.encode("utf-8"),
+        salt=salt,
+        n=cost,
+        r=block_size,
+        p=parallelism,
+        dklen=SCRYPT_DIGEST_BYTES,
+    )
 
 
 def generate_access_code() -> str:
@@ -389,13 +428,12 @@ class LobbyDatabase:
 
     def check_access_code(self, account_id: int, access_code: str) -> bool:
         """True when the code matches one of the account's active codes; marks that code as used."""
-        offered_hash = hash_access_code(access_code)
         rows = self._connection.execute(
             "SELECT id, code_hash FROM access_codes WHERE account_id = ? AND revoked_at IS NULL",
             (account_id,),
         ).fetchall()
         for row in rows:
-            if hmac.compare_digest(row["code_hash"], offered_hash):
+            if is_matching_access_code(access_code, row["code_hash"]):
                 with self._transaction() as connection:
                     connection.execute(
                         "UPDATE access_codes SET last_used_at = ? WHERE id = ?",
