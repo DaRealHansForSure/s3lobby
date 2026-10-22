@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import sqlite3
@@ -29,6 +30,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
+
+IN_MEMORY_DATABASE = ":memory:"
+# The file holds access code hashes and player data: readable and writable by its owner only.
+DATABASE_FILE_MODE = 0o600
 
 # Bump together with a new entry in SCHEMA_UPGRADES whenever the schema changes.
 SCHEMA_VERSION = 1
@@ -254,6 +259,10 @@ class LobbyDatabase:
     def __init__(self, path: str | Path, clock: Callable[[], datetime] = utc_now) -> None:
         """path may be ":memory:" for a database that lives only as long as this object."""
         self._clock = clock
+        is_new_file = str(path) != IN_MEMORY_DATABASE and not Path(path).exists()
+        if is_new_file:
+            # Create the empty file with its final mode first; SQLite would create it world-readable.
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, DATABASE_FILE_MODE))
         self._connection = sqlite3.connect(str(path))
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")

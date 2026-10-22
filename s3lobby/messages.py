@@ -723,3 +723,39 @@ class GameStatus:
     def decode(cls, message: RawMessage) -> GameStatus:
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(group_id=reader.read_u32(), rest_of_body=reader.read_remaining_bytes())
+
+
+# Logging.
+
+# Messages that can carry a secret: the logon's access code, and the password of a chat group a
+# player creates (third text of the announcement) or joins (extra text of AddPlayerToGroup).
+SECRET_PLACEHOLDER = "<secret removed>"
+
+
+def describe_for_log(message: RawMessage) -> str:
+    """One message for a debug log, with any secret it carries removed.
+
+    Messages without secrets show their body in hex, which is what is needed to compare a session
+    with the game's code. Messages with secrets show their decoded fields with the secret replaced.
+    """
+    match message.message_type:
+        case MessageType.LOGON:
+            return describe_decoded(message, Logon)
+        case MessageType.ADD_PLAYER_TO_GROUP:
+            return describe_decoded(message, AddPlayerToGroup, secret_field="extra_text")
+        case MessageType.ADD_GROUP_TO_GROUP | MessageType.ADD_GROUP_TO_GROUP_2:
+            return describe_decoded(message, GroupAnnouncement, secret_field="third_text")
+        case _:
+            if not message.body:
+                return message.type_name
+            return f"{message.type_name}[{message.body.hex()}]"
+
+
+def describe_decoded(message: RawMessage, message_class: type, secret_field: str | None = None) -> str:
+    try:
+        decoded = message_class.decode(message)
+    except ProtocolError:
+        return f"{message.type_name}[{len(message.body)} bytes, unreadable, not shown]"
+    if secret_field is not None and getattr(decoded, secret_field):
+        decoded = replace(decoded, **{secret_field: SECRET_PLACEHOLDER})
+    return repr(decoded)
