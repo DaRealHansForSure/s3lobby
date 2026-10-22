@@ -215,3 +215,38 @@ HOUSEKEEPING_INTERVAL_SECONDS = 0.25
 # The client picks its connection nonce as rand() % 255 + 1 (0x604404); the server does the same.
 CONNECTION_NONCE_MIN = 1
 CONNECTION_NONCE_MAX = 255
+
+# Limits against hostile or broken senders. All of them are this server's choice: the game stays
+# far below each, and each keeps one sender from using up the server's memory or time, or from
+# using the server to flood a third party whose address it forged.
+
+# Connections in total, and from one IP. Several players behind one router share an IP, so the
+# per IP limit leaves room for a LAN party.
+MAX_CONNECTIONS = 1000
+MAX_CONNECTIONS_PER_IP = 32
+
+# Datagrams per second from one address, as a token bucket: the game sends at most one block per
+# 250 ms plus acknowledgements, so a steady 50 per second with bursts of 200 is never reached.
+DATAGRAMS_PER_SECOND_PER_ADDRESS = 50
+DATAGRAM_BURST_PER_ADDRESS = 200
+
+# Messages in one datagram. The largest block the game sends joins its rooms and nine zones at once,
+# about a dozen messages.
+MAX_MESSAGES_PER_BLOCK = 256
+
+# How far ahead of the oldest missing block a client's block id may be. The game numbers its blocks
+# one by one and waits for acknowledgements, so it is never more than a few ahead; the window keeps
+# the memory for duplicate detection bounded.
+CLIENT_BLOCK_ID_WINDOW = 256
+
+# A client that leaves this many of the server's blocks unacknowledged is not reading them; the
+# connection ends instead of queueing more.
+MAX_UNACKNOWLEDGED_SERVER_BLOCKS = 256
+
+# A connection whose first block from the server is not acknowledged within this time ends. A real
+# game acknowledges within a second; an OpenConnection with a forged sender address never is, and
+# without this limit the server would keep sending retries to the forged address for a minute.
+UNCONFIRMED_CONNECTION_TIMEOUT_MS = 15_000
+
+# A warning about one sender is logged at most this often, so a flood cannot flood the log too.
+WARNING_INTERVAL_SECONDS = 10.0

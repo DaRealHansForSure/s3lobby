@@ -95,6 +95,24 @@ in a row). If the game asks for the serial every time you open the online lobby,
 has overwritten that value with something it cannot read back: restore the value GOG's
 `regs.cmd` writes.
 
+## Security
+
+The server is reachable by anyone who can send it a UDP datagram, with any sender address, and the
+original game clients it talks to were written in 1998. So:
+
+- Every datagram is checked against a rate limit per sender before it is even parsed, and against
+  size and message count limits after. Connections are limited in total and per IP, and a
+  connection whose first answer is never acknowledged (a forged sender) ends after 15 seconds.
+- The state kept per client is bounded: duplicate detection works within a window of block ids, and
+  a client that stops acknowledging is dropped instead of queueing more for it.
+- A malformed message is refused with a warning; warnings about one sender are throttled so they
+  cannot flood the log. A bug triggered by a crafted message is logged with its traceback and the
+  server keeps serving everyone else.
+- Access codes are stored as hashes only. The `--verbose` log removes access codes and chat group
+  passwords before it writes a message. The database file is readable by its owner only.
+
+All limits are constants in `s3lobby/constants.py`, each with the reason for its value.
+
 ## How it works
 
 [docs/protocol.md](docs/protocol.md) describes the protocol: the datagram format, the reliable
@@ -109,6 +127,7 @@ The code follows the same layers:
 | `s3lobby/wire.py` | bytes: message header, blocks, field reader and writer |
 | `s3lobby/messages.py` | one class per message, with `encode` and `decode` |
 | `s3lobby/connection.py` | the reliable layer for one client: numbering, acknowledgements, retries |
+| `s3lobby/guards.py` | rate limits and a throttled log against flooding senders |
 | `s3lobby/lobby.py` | players, rooms, zones and games, and the answer to every request |
 | `s3lobby/server.py` | the UDP socket and one connection per client |
 | `s3lobby/cli.py` | the command line |

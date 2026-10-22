@@ -16,12 +16,14 @@ it is applied, with the address in S3.EXE that shows why.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
+    WARNING_INTERVAL_SECONDS,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
     PRIVATE_CHAT_GROUP_ID,
@@ -51,6 +53,7 @@ from s3lobby.messages import (
     Result,
     TextMessage,
 )
+from s3lobby.guards import ThrottledLogger
 from s3lobby.wire import Address, ProtocolError, RawMessage
 
 log = logging.getLogger(__name__)
@@ -113,6 +116,9 @@ class Lobby:
         self._groups: dict[int, Group] = {}
         self._next_player_id = FIRST_PLAYER_ID
         self._next_game_group_id = FIRST_GAME_GROUP_ID
+        # Warnings about a client's messages are throttled per client, so a client that sends a
+        # stream of bad messages within its rate limit cannot flood the log.
+        self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
         self._handlers: dict[int, Callable[[Address, RawMessage], None]] = {
             MessageType.CHECK_FILE_VERSION: self._answer_patch_check,
             MessageType.GET_LOBBY_SERVER_LIST: self._answer_lobby_server_list,
@@ -138,12 +144,23 @@ class Lobby:
         client's block is still handled, as the game handles each message on its own."""
         handler = self._handlers.get(message.message_type)
         if handler is None:
-            log.warning("%s: no handler for %s (%s)", client_address, message.type_name, message.body.hex())
+            self._warn(client_address, "%s: no handler for %s (%d bytes)", client_address, message.type_name, len(message.body))
             return
         try:
             handler(client_address, message)
         except ProtocolError as error:
-            log.warning("%s: unreadable %s: %s (%s)", client_address, message.type_name, error, message.body.hex())
+            self._warn(client_address, "%s: unreadable %s: %s", client_address, message.type_name, error)
+        except Exception:
+            # A bug, not a broken message: the next message of the block still gets its turn.
+            self._warnings.error_with_traceback(
+                client_address, time.monotonic(), "%s: internal error while handling %s", client_address, message.type_name
+            )
+
+    def forget_quiet_warning_keys(self, now_seconds: float) -> None:
+        self._warnings.forget_quiet_keys(now_seconds)
+
+    def _warn(self, client_address: Address, message: str, *arguments: object) -> None:
+        self._warnings.warning(client_address, time.monotonic(), message, *arguments)
 
     def forget_client(self, client_address: Address) -> None:
         """The client's connection is gone: take its player out of every group. Nobody can tell the
@@ -186,7 +203,8 @@ class Lobby:
         # A LAN server welcomes everyone: name, password and serial number are taken as they come.
         logon = Logon.decode(message)
         if logon.protocol_version != LOGON_PROTOCOL_VERSION:
-            log.warning(
+            self._warn(
+                client_address,
                 "%s: logon protocol version %d, this server knows %d",
                 client_address,
                 logon.protocol_version,
@@ -255,7 +273,7 @@ class Lobby:
             and request.group_id not in self._groups
         )
         if not is_acceptable:
-            log.warning("%s: ignored new group %d under %d", client_address, request.group_id, request.parent_id)
+            self._warn(client_address, "%s: ignored new group %d under %d", client_address, request.group_id, request.parent_id)
             return
 
         announcement = with_real_host_address(request, client_address)
@@ -405,7 +423,7 @@ class Lobby:
     def _find_logged_on_player(self, client_address: Address) -> Player | None:
         player = self._players_by_address.get(client_address)
         if player is None:
-            log.warning("%s: lobby message from a client that has not logged on", client_address)
+            self._warn(client_address, "%s: lobby message from a client that has not logged on", client_address)
         return player
 
 
