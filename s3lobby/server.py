@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from s3lobby.connection import ReliableConnection
 from s3lobby.constants import DEFAULT_SERVER_PORT, HOUSEKEEPING_INTERVAL_SECONDS, MessageType
+from s3lobby.database import LobbyDatabase
 from s3lobby.lobby import Lobby
 from s3lobby.messages import EncodableMessage, OpenConnection
 from s3lobby.wire import Address, ProtocolError, RawMessage, decode_block, describe_message
@@ -23,6 +24,7 @@ from s3lobby.wire import Address, ProtocolError, RawMessage, decode_block, descr
 log = logging.getLogger(__name__)
 
 DEFAULT_SERVER_NAME = "LAN Lobby"
+DEFAULT_DATABASE_PATH = "s3lobby.sqlite3"
 ALL_INTERFACES = "0.0.0.0"
 
 
@@ -44,13 +46,15 @@ class ServerSettings:
     port: int = DEFAULT_SERVER_PORT
     server_name: str = DEFAULT_SERVER_NAME
     public_host: str = ""
+    database_path: str = DEFAULT_DATABASE_PATH
 
 
 class LobbyServer(asyncio.DatagramProtocol):
     """Owns the UDP socket and one reliable connection per client address."""
 
-    def __init__(self, settings: ServerSettings) -> None:
+    def __init__(self, settings: ServerSettings, database: LobbyDatabase) -> None:
         self._settings = settings
+        self._database = database
         self._connections: dict[Address, ReliableConnection] = {}
         self._transport: asyncio.DatagramTransport | None = None
         self._housekeeping_task: asyncio.Task[None] | None = None
@@ -128,6 +132,7 @@ class LobbyServer(asyncio.DatagramProtocol):
                 pass
         if self._transport is not None:
             self._transport.close()
+        self._database.close()
 
     async def _run_housekeeping(self) -> None:
         while True:
@@ -186,12 +191,21 @@ def local_ip_facing(client_address: Address) -> str:
 
 
 async def start_server(settings: ServerSettings) -> LobbyServer:
-    """Bind the socket and start housekeeping; the server then runs until close() is awaited."""
+    """Open the database, bind the socket and start housekeeping; the server then runs until
+    close() is awaited. The database is opened here, on the event loop's thread, because SQLite
+    connections must stay on the thread that opened them."""
+    database = LobbyDatabase(settings.database_path)
+    # Nobody is connected at start: whatever a previous run left open has ended.
+    database.close_open_sessions_and_games()
     loop = asyncio.get_running_loop()
-    _, server = await loop.create_datagram_endpoint(
-        lambda: LobbyServer(settings),
-        local_addr=(settings.bind_host, settings.port),
-    )
+    try:
+        _, server = await loop.create_datagram_endpoint(
+            lambda: LobbyServer(settings, database),
+            local_addr=(settings.bind_host, settings.port),
+        )
+    except OSError:
+        database.close()
+        raise
     server.start_housekeeping()
     return server
 

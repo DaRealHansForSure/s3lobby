@@ -180,6 +180,17 @@ GAME_BLOCK_SIZE_BY_MESSAGE_TYPE = {
     MessageType.ADD_GROUP_TO_GROUP_2: 0x34,
 }
 
+# The languages the MessageZone tab knows. The client looks for a group named "MessageThemes"
+# followed by its own language, and falls back to English (0x453831, 0x4539ce).
+BOARD_LANGUAGES = ("German", "English", "Italian", "French", "Polish", "Spanish", "Korean")
+BOARD_FALLBACK_LANGUAGE = "English"
+BOARD_LANGUAGE_GROUP_PREFIX = "MessageThemes"
+
+# The Home tab shows one of two news texts, picked by the language of the game (0x45351b..0x453606).
+NEWS_AUDIENCE_GERMAN = "german"
+NEWS_AUDIENCE_OTHER = "other"
+NEWS_AUDIENCES = (NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER)
+
 # Timing of the reliable layer, in milliseconds.
 
 # How long to wait for an acknowledgement before sending a block again, per attempt; the last

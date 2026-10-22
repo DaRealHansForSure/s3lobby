@@ -45,10 +45,19 @@ SIZE_THE_CLIENT_ASSERTS = {
 
 
 class BackgroundServer:
-    """Runs a LobbyServer on its own event loop in a thread, for tests that talk to it over UDP."""
+    """Runs a LobbyServer on its own event loop in a thread, for tests that talk to it over UDP.
 
-    def __init__(self, server_name: str = "Test Lobby") -> None:
-        self._settings = ServerSettings(bind_host=LOOPBACK, port=ANY_FREE_PORT, server_name=server_name)
+    database_path names a SQLite file the test may also open itself, for example to create
+    accounts; the server opens its own connection to it.
+    """
+
+    def __init__(self, database_path: str, server_name: str = "Test Lobby") -> None:
+        self._settings = ServerSettings(
+            bind_host=LOOPBACK,
+            port=ANY_FREE_PORT,
+            server_name=server_name,
+            database_path=database_path,
+        )
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._server: LobbyServer | None = None
