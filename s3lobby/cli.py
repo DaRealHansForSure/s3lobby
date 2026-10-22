@@ -1,37 +1,81 @@
-"""Command line entry point: python -m s3lobby, or the s3lobby command after installation."""
+"""Command line: s3lobby serve runs the server, the other subcommands manage its database.
+
+    s3lobby serve --name "Our LAN"
+    s3lobby account add Alice
+    s3lobby clan add Romans
+    s3lobby clan join Romans Alice
+    s3lobby news set --audience german --title "Willkommen" --text "Viel Spass!"
+
+Every subcommand takes --database to choose the SQLite file (default: s3lobby.sqlite3 in the
+current folder). python -m s3lobby works the same as the installed s3lobby command.
+"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
+import sys
 from collections.abc import Sequence
 
-from s3lobby import __version__
-from s3lobby.constants import DEFAULT_SERVER_PORT
-from s3lobby.server import ALL_INTERFACES, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
+from s3lobby import __version__, admin
+from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_SERVER_PORT, NEWS_AUDIENCES
+from s3lobby.database import DatabaseError, LobbyDatabase
+from s3lobby.server import ALL_INTERFACES, DEFAULT_DATABASE_PATH, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
 
+DEFAULT_BAN_HOURS = 24
 LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)-7s %(message)s"
 LOG_TIME_FORMAT = "%H:%M:%S"
+EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
+
+log = logging.getLogger(__name__)
 
 
-def parse_arguments(arguments: Sequence[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="s3lobby",
-        description="Lobby server for the original The Settlers III online lobby.",
+def main(arguments: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    options = parser.parse_args(arguments)
+    if options.command is None:
+        parser.print_help()
+        return EXIT_FAILURE
+    if options.command == "serve":
+        return run_server(options)
+    return run_admin(options)
+
+
+def run_server(options: argparse.Namespace) -> int:
+    configure_logging(options.verbose, options.log_file)
+    settings = ServerSettings(
+        bind_host=options.host,
+        port=options.port,
+        server_name=options.name,
+        public_host=options.public_host,
+        database_path=options.database,
     )
-    parser.add_argument("--host", default=ALL_INTERFACES, help="address to listen on (default: all interfaces)")
-    parser.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT, help="UDP port (default: %(default)s)")
-    parser.add_argument("--name", default=DEFAULT_SERVER_NAME, help="server name shown in the game (default: %(default)s)")
-    parser.add_argument(
-        "--public-host",
-        default="",
-        help="host name or IP that clients from the internet log on to, e.g. your router's public address",
-    )
-    parser.add_argument("--verbose", action="store_true", help="log every datagram with its bytes")
-    parser.add_argument("--log-file", help="also write the log to this file")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    return parser.parse_args(arguments)
+    try:
+        asyncio.run(serve_forever(settings))
+    except KeyboardInterrupt:
+        log.info("stopped")
+    except (OSError, DatabaseError) as error:
+        log.error("cannot serve: %s", error)
+        return EXIT_FAILURE
+    return EXIT_SUCCESS
+
+
+def run_admin(options: argparse.Namespace) -> int:
+    try:
+        database = LobbyDatabase(options.database)
+    except (OSError, DatabaseError) as error:
+        print(f"error: cannot open {options.database}: {error}", file=sys.stderr)
+        return EXIT_FAILURE
+    try:
+        admin.run_admin_command(database, options)
+    except admin.AdminError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_FAILURE
+    finally:
+        database.close()
+    return EXIT_SUCCESS
 
 
 def configure_logging(is_verbose: bool, log_file: str | None) -> None:
@@ -44,20 +88,186 @@ def configure_logging(is_verbose: bool, log_file: str | None) -> None:
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 
-def main(arguments: Sequence[str] | None = None) -> int:
-    options = parse_arguments(arguments)
-    configure_logging(options.verbose, options.log_file)
-    settings = ServerSettings(
-        bind_host=options.host,
-        port=options.port,
-        server_name=options.name,
-        public_host=options.public_host,
+def build_parser() -> argparse.ArgumentParser:
+    database_option = argparse.ArgumentParser(add_help=False)
+    database_option.add_argument(
+        "--database",
+        default=DEFAULT_DATABASE_PATH,
+        help="SQLite file with accounts and lobby content (default: %(default)s)",
     )
-    try:
-        asyncio.run(serve_forever(settings))
-    except KeyboardInterrupt:
-        logging.getLogger(__name__).info("stopped")
-    except OSError as error:
-        logging.getLogger(__name__).error("cannot serve on UDP %s:%d: %s", options.host, options.port, error)
-        return 1
-    return 0
+
+    parser = argparse.ArgumentParser(
+        prog="s3lobby",
+        description="Lobby server for the online lobby of the original The Settlers III.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    commands = parser.add_subparsers(dest="command", metavar="command")
+
+    add_serve_command(commands, database_option)
+    add_account_commands(commands, database_option)
+    add_clan_commands(commands, database_option)
+    add_news_commands(commands, database_option)
+    add_chat_theme_commands(commands, database_option)
+    add_board_commands(commands, database_option)
+    add_setting_commands(commands, database_option)
+    return parser
+
+
+def add_serve_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    serve = commands.add_parser("serve", parents=[database_option], help="run the lobby server")
+    serve.add_argument("--host", default=ALL_INTERFACES, help="address to listen on (default: all interfaces)")
+    serve.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT, help="UDP port (default: %(default)s)")
+    serve.add_argument("--name", default=DEFAULT_SERVER_NAME, help="server name shown in the game (default: %(default)s)")
+    serve.add_argument(
+        "--public-host",
+        default="",
+        help="host name or IP that players from the internet log on to, e.g. your router's public address",
+    )
+    serve.add_argument("--verbose", action="store_true", help="log every datagram (secrets removed)")
+    serve.add_argument("--log-file", help="also write the log to this file")
+
+
+def add_account_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    account = commands.add_parser("account", help="manage player accounts and their access codes")
+    actions = account.add_subparsers(dest="account_command", metavar="action", required=True)
+
+    add = actions.add_parser("add", parents=[database_option], help="create an account and print its first access code")
+    add.add_argument("name", help="player name: letters A to Z and single spaces")
+    add.add_argument("--admin", action="store_true", help="may use the admin chat commands")
+    add.add_argument("--label", default="", help="note to tell this access code from others, e.g. a PC")
+    add.set_defaults(admin_function=admin.add_account)
+
+    code = actions.add_parser("code", parents=[database_option], help="issue another access code")
+    code.add_argument("name")
+    code.add_argument("--label", default="")
+    code.set_defaults(admin_function=admin.issue_access_code)
+
+    revoke = actions.add_parser("revoke-codes", parents=[database_option], help="revoke every access code")
+    revoke.add_argument("name")
+    revoke.set_defaults(admin_function=admin.revoke_access_codes)
+
+    listing = actions.add_parser("list", parents=[database_option], help="list accounts")
+    listing.set_defaults(admin_function=admin.list_accounts)
+
+    remove = actions.add_parser("remove", parents=[database_option], help="delete an account")
+    remove.add_argument("name")
+    remove.set_defaults(admin_function=admin.remove_account)
+
+    make_admin = actions.add_parser("admin", parents=[database_option], help="grant or remove admin rights")
+    make_admin.add_argument("name")
+    make_admin.add_argument("--remove", action="store_true", help="take the admin rights away")
+    make_admin.set_defaults(admin_function=admin.set_admin)
+
+    ban = actions.add_parser("ban", parents=[database_option], help="bar an account from the lobby for a while")
+    ban.add_argument("name")
+    ban.add_argument("--hours", type=float, default=DEFAULT_BAN_HOURS, help="length of the ban (default: %(default)s)")
+    ban.add_argument("--reason", default="", help="note for other admins")
+    ban.set_defaults(admin_function=admin.ban_account)
+
+    unban = actions.add_parser("unban", parents=[database_option], help="lift a ban")
+    unban.add_argument("name")
+    unban.set_defaults(admin_function=admin.unban_account)
+
+
+def add_clan_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    clan = commands.add_parser("clan", help="manage clans and their members")
+    actions = clan.add_subparsers(dest="clan_command", metavar="action", required=True)
+
+    add = actions.add_parser("add", parents=[database_option], help="create a clan")
+    add.add_argument("name")
+    add.set_defaults(admin_function=admin.add_clan)
+
+    remove = actions.add_parser("remove", parents=[database_option], help="delete a clan")
+    remove.add_argument("name")
+    remove.set_defaults(admin_function=admin.remove_clan)
+
+    listing = actions.add_parser("list", parents=[database_option], help="list clans and members")
+    listing.set_defaults(admin_function=admin.list_clans)
+
+    join = actions.add_parser("join", parents=[database_option], help="put an account into a clan")
+    join.add_argument("clan")
+    join.add_argument("account")
+    join.set_defaults(admin_function=admin.join_clan)
+
+    leave = actions.add_parser("leave", parents=[database_option], help="take an account out of its clan")
+    leave.add_argument("account")
+    leave.set_defaults(admin_function=admin.leave_clan)
+
+
+def add_news_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    news = commands.add_parser("news", help="the news on the lobby's Home tab")
+    actions = news.add_subparsers(dest="news_command", metavar="action", required=True)
+
+    set_news = actions.add_parser("set", parents=[database_option], help="set the news for an audience")
+    set_news.add_argument("--audience", choices=NEWS_AUDIENCES, required=True, help="german games, or all others")
+    set_news.add_argument("--title", required=True, help="shown above the text; must not be empty")
+    add_text_source(set_news)
+    set_news.set_defaults(admin_function=admin.set_news)
+
+    show = actions.add_parser("show", parents=[database_option], help="show the current news")
+    show.set_defaults(admin_function=admin.show_news)
+
+
+def add_chat_theme_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    chat_theme = commands.add_parser("chat-theme", help="the themes listed on the ChatZone tab")
+    actions = chat_theme.add_subparsers(dest="chat_theme_command", metavar="action", required=True)
+
+    add = actions.add_parser("add", parents=[database_option], help="add a chat theme")
+    add.add_argument("name")
+    add.add_argument("--description", default="", help="shown in the Description column")
+    add.set_defaults(admin_function=admin.add_chat_theme)
+
+    remove = actions.add_parser("remove", parents=[database_option], help="remove a chat theme")
+    remove.add_argument("name")
+    remove.set_defaults(admin_function=admin.remove_chat_theme)
+
+    listing = actions.add_parser("list", parents=[database_option], help="list chat themes")
+    listing.set_defaults(admin_function=admin.list_chat_themes)
+
+
+def add_board_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    board = commands.add_parser("board", help="the message board on the MessageZone tab")
+    actions = board.add_subparsers(dest="board_command", metavar="action", required=True)
+
+    add_theme = actions.add_parser("add-theme", parents=[database_option], help="add a theme for one language")
+    add_theme.add_argument("language", choices=BOARD_LANGUAGES, help="language of the games that see it")
+    add_theme.add_argument("name")
+    add_theme.add_argument("--description", default="")
+    add_theme.set_defaults(admin_function=admin.add_board_theme)
+
+    remove_theme = actions.add_parser("remove-theme", parents=[database_option], help="remove a theme and its messages")
+    remove_theme.add_argument("theme_id", type=int)
+    remove_theme.set_defaults(admin_function=admin.remove_board_theme)
+
+    listing = actions.add_parser("list", parents=[database_option], help="list themes and messages")
+    listing.set_defaults(admin_function=admin.list_board)
+
+    post = actions.add_parser("post", parents=[database_option], help="post a message to a theme")
+    post.add_argument("theme_id", type=int)
+    post.add_argument("--title", required=True)
+    post.add_argument("--author", default="")
+    add_text_source(post)
+    post.set_defaults(admin_function=admin.post_board_message)
+
+    remove_message = actions.add_parser("remove-message", parents=[database_option], help="remove a message")
+    remove_message.add_argument("message_id", type=int)
+    remove_message.set_defaults(admin_function=admin.remove_board_message)
+
+
+def add_setting_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    setting = commands.add_parser("setting", help="server settings stored in the database")
+    actions = setting.add_subparsers(dest="setting_command", metavar="action", required=True)
+
+    set_value = actions.add_parser("set", parents=[database_option], help="change a setting")
+    set_value.add_argument("key")
+    set_value.add_argument("value")
+    set_value.set_defaults(admin_function=admin.set_setting)
+
+    listing = actions.add_parser("list", parents=[database_option], help="show every setting")
+    listing.set_defaults(admin_function=admin.list_settings)
+
+
+def add_text_source(parser: argparse.ArgumentParser) -> None:
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--text", help="the text itself")
+    source.add_argument("--file", help="a UTF-8 text file holding the text")

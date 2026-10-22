@@ -6,7 +6,9 @@ game when the server gets it wrong.
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
@@ -99,7 +101,9 @@ def open_game(client: FakeGameClient, zone_id: int) -> GroupAnnouncement:
 
 class LobbySessionTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = BackgroundServer()
+        self.database_folder = tempfile.TemporaryDirectory()
+        self.database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
+        self.server = BackgroundServer(self.database_path)
         self.server.__enter__()
         self.clients: list[FakeGameClient] = []
 
@@ -107,6 +111,7 @@ class LobbySessionTest(unittest.TestCase):
         for client in self.clients:
             client.close_socket()
         self.server.__exit__(None, None, None)
+        self.database_folder.cleanup()
 
     def new_client(self, player_name: str, nonce: int) -> FakeGameClient:
         client = FakeGameClient(self.server.address, player_name, nonce)

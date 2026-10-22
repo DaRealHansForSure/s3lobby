@@ -15,7 +15,11 @@ outside this folder.
 - `s3lobby/connection.py`: the reliable layer for one client. No network access, testable with a
   fake clock.
 - `s3lobby/lobby.py`: players, rooms, zones, games; one handler per lobby message type.
-- `s3lobby/server.py`, `s3lobby/cli.py`: asyncio UDP server and command line.
+- `s3lobby/database.py`: the SQLite file: accounts with access codes, clans, news, chat themes,
+  board, sessions, games, game reports, settings. Schema versioned with PRAGMA user_version; a
+  schema change adds an entry to SCHEMA_UPGRADES.
+- `s3lobby/server.py`, `s3lobby/cli.py`, `s3lobby/admin.py`: asyncio UDP server, command line,
+  administration subcommands.
 - `docs/protocol.md`: the protocol as read from the game, with the S3.EXE address of every fact.
 - `tests/`: unittest. `support.py` has a background server and a fake game client.
 
@@ -24,7 +28,8 @@ outside this folder.
 Run from this folder:
 
 - Tests: `python3 -m unittest`
-- Server: `python3 -m s3lobby --verbose --log-file lobby.log`
+- Server: `python3 -m s3lobby serve --verbose --log-file lobby.log`
+- Administration: `python3 -m s3lobby account add NAME` and the other subcommands (`--help`)
 
 Python 3.10 or newer, standard library only. Do not add dependencies.
 
