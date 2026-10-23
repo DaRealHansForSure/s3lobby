@@ -33,10 +33,12 @@
 <div class="app-nav-bar app-nav-bar--admin">
   <nav class="app-nav" aria-label="Admin sections">
     {% for group, items in nav_groups %}
-    <span class="app-nav-group">{{ group }}</span>
-    {% for key, endpoint, label in items %}
-    <a href="{{ url_for(endpoint) }}"{% if active_nav == key %} aria-current="page"{% endif %}>{{ label }}</a>
-    {% endfor %}
+    <div class="app-nav-group" role="group" aria-label="{{ group }}">
+      <span class="app-nav-group-label" aria-hidden="true">{{ group }}</span>
+      {% for key, endpoint, label in items %}
+      <a href="{{ url_for(endpoint) }}"{% if active_nav == key %} aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </div>
     {% endfor %}
   </nav>
 </div>
