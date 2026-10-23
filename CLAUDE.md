@@ -2,9 +2,9 @@
 
 Lobby server for the online lobby of the original The Settlers III (Blue Byte, 1998). It replaces
 Blue Byte's long dead `siedler3svr.bluebyte.de:3344` so unmodified copies of the game can use their
-built-in lobby again. Open source project; for now it lives in `tools/s3lobby/` of another
-repository and is meant to move into a repository of its own, so nothing here may depend on files
-outside this folder.
+built-in lobby again. Open source project in a repository of its own. It began in `tools/s3lobby/`
+of another repository; its history was carried over from there, so the early commits
+describe that layout.
 
 ## Layout
 
@@ -48,6 +48,9 @@ works without Flask), and `cli.py` imports the web app only inside the `web` com
   game (its code or a recorded session). Several odd looking rules exist only because the client
   breaks without them: the order Result before OwnPlayer, the leave confirmation, no confirmation
   when a host comes back from a match, server-assigned game ids. Their comments explain why.
+- The server never tells the game that a patch is needed: every version check gets Result
+  NO_PATCH_NEEDED, whatever version, edition or language it reports, and PATCH_INFORMATION (0x12)
+  is never sent. This is the owner's rule; do not research or build a patch path.
 - Every fact about the protocol cites where it comes from: an address in S3.EXE (GOG release,
   SHA-256 `00a925cf...804d950b`) or "seen in a run". Mark guesses as inferred. Update
   `docs/protocol.md` together with the code.

@@ -91,7 +91,7 @@ class ServerLinesTest(LobbyTestCase):
     def test_game_report_is_stored_and_confirmed(self) -> None:
         """The game shows "Game status stored at the Lobby server." for Result 0x6c."""
         alice, _ = self.player_in_room("Alice", 17, GAME_ZONE)
-        alice.send(GameStatus(group_id=0x100000, rest_of_body=bytes(16)))
+        alice.send(GameStatus(group_id=0x100000, flags=0, winning_team=0, game_time=40_000, map_name="Elbe"))
         self.assertEqual(Result.decode(alice.receive_next(MessageType.RESULT)).code, ResultCode.GAME_STATUS_STORED)
         self.assertEqual(self.database.count_game_reports(), 1)
 

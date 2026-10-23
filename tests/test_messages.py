@@ -8,8 +8,18 @@ from __future__ import annotations
 
 import unittest
 
-from s3lobby.constants import GroupFlag, MessageType, ResultCode
+from s3lobby.constants import (
+    NO_WINNING_TEAM,
+    U32_SIZE,
+    GameStatusFlag,
+    GroupFlag,
+    LadderType,
+    MatchPlayerFlag,
+    MessageType,
+    ResultCode,
+)
 from s3lobby.messages import (
+    MATCH_REPORT_PLAYER_SIZE,
     AcknowledgeMessages,
     AddPlayerToGroup,
     ChatCommandAnswer,
@@ -17,10 +27,14 @@ from s3lobby.messages import (
     CheckFileVersion,
     ImageList,
     GameBlock,
+    GameDescription,
+    GameSettings,
+    GameStatus,
     GroupAnnouncement,
     LobbyServerEntry,
     LobbyServerList,
     Logon,
+    MatchReportPlayer,
     MinMissingAcknowledge,
     OwnPlayer,
     RemoveGroupFromGroup,
@@ -104,6 +118,60 @@ class MessageLayoutTest(unittest.TestCase):
         self.assertEqual(announcement.game_block.host_address, ("0.0.0.0", 3343))
         self.assertEqual(announcement.encode(), raw)
 
+    def test_recorded_game_announcement_holds_a_ladder_game_on_a_random_map(self) -> None:
+        """The recorded host had picked "Ladder: 1 on 1" on a random map with two teams."""
+        raw = RawMessage(MessageType.ADD_GROUP_TO_GROUP_2, RECORDED_GAME_ANNOUNCEMENT)
+        announcement = GroupAnnouncement.decode(raw)
+        settings = GameSettings.from_game_block(announcement.game_block)
+        self.assertEqual(settings.session_guid, bytes.fromhex("a6ba4159c0b5c043b074ca816a1b944e"))
+        self.assertEqual(settings.game_version, 160)
+        self.assertEqual(settings.program_checksum, 0x3D439F21_3C44FE57)
+        self.assertTrue(settings.allows_amazons)
+        self.assertEqual(settings.ladder_type, LadderType.INDIVIDUAL)
+        self.assertTrue(settings.is_ladder_game)
+
+        description = GameDescription.decode(announcement.description)
+        self.assertEqual(description, GameDescription(2, 0, True, "\\Random"))
+        self.assertEqual(description.encode(), announcement.description)
+
+    def test_short_game_block_has_no_amazons_value_or_ladder_type(self) -> None:
+        """AddGroupToGroup and UpdateGroup carry three values after the session id (0x5ea320)."""
+        version_and_checksum = bytes.fromhex("a0000000" "01000000" "02000000")
+        game_block = GameBlock(host_address=("10.0.0.2", 3343), remainder=bytes(16) + version_and_checksum)
+        settings = GameSettings.from_game_block(game_block)
+        self.assertEqual((settings.game_version, settings.program_checksum), (160, 0x2_00000001))
+        self.assertIsNone(settings.allows_amazons)
+        self.assertIsNone(settings.ladder_type)
+        self.assertFalse(settings.is_ladder_game)
+
+    def test_description_that_is_not_one_game_description_is_refused(self) -> None:
+        valid = GameDescription(4, 2, False, "Elbe").encode()
+        other_type = RawMessage(MessageType.OWN_PLAYER, valid[4:]).encode()
+        for description in (b"", bytes(3), valid + valid, other_type, valid[:-1], valid[:-1] + b"x\0" + b"\0"):
+            with self.subTest(description=description):
+                with self.assertRaises(ProtocolError):
+                    GameDescription.decode(description)
+
+    def test_match_report_lists_every_slot(self) -> None:
+        human = MatchReportPlayer(flags=0, lobby_player_id=7, race=0, unused=0, slot=0, team=0)
+        computer = MatchReportPlayer(flags=MatchPlayerFlag.COMPUTER, lobby_player_id=0, race=3, unused=0, slot=1, team=1)
+        report = GameStatus(0x100000, GameStatusFlag.LADDER_GAME, NO_WINNING_TEAM, 12, "Elbe", (human, computer))
+        decoded = GameStatus.decode(report.encode())
+        self.assertEqual(decoded, report)
+        self.assertTrue(decoded.is_ladder_game)
+        self.assertFalse(decoded.has_winner)
+        self.assertEqual([player.is_computer for player in decoded.players], [False, True])
+
+    def test_match_report_whose_count_does_not_fit_is_refused(self) -> None:
+        report = GameStatus(0x100000, 0, 0, 12, "Elbe", (MatchReportPlayer(0, 7, 0, 0, 0, 0),)).encode()
+        player_count_offset = len(report.body) - MATCH_REPORT_PLAYER_SIZE - U32_SIZE
+        for forged_count in (0, 2, 0xFFFFFFFF):
+            body = bytearray(report.body)
+            body[player_count_offset:player_count_offset + U32_SIZE] = forged_count.to_bytes(U32_SIZE, "little")
+            with self.subTest(forged_count=forged_count):
+                with self.assertRaises(ProtocolError):
+                    GameStatus.decode(RawMessage(MessageType.GAME_STATUS, bytes(body)))
+
     def test_recorded_logon_decodes(self) -> None:
         logon = Logon.decode(RawMessage(MessageType.LOGON, RECORDED_LOGON))
         self.assertEqual(logon.protocol_version, 14)
@@ -111,6 +179,11 @@ class MessageLayoutTest(unittest.TestCase):
         self.assertEqual(logon.password, "1234")
         self.assertEqual(logon.serial_number, "0497-2584-2194-4356-2336")
         self.assertNotIn("1234", repr(logon))
+
+    def test_version_check_names_the_language_of_the_game(self) -> None:
+        self.assertEqual(CheckFileVersion(160, 4, 0).language_name, "German")
+        self.assertEqual(CheckFileVersion(160, 4, 7).language_name, "Japanese")
+        self.assertEqual(CheckFileVersion(160, 4, 8).language_name, "language 8")
 
     def test_sizes_the_client_asserts(self) -> None:
         cases = {

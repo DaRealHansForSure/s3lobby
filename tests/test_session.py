@@ -33,6 +33,8 @@ from tests.support import (
     EDITION_MISSION_AND_GOLD,
     GAME_VERSION,
     GAME_ZONE_ID,
+    GERMAN_LANGUAGE_INDEX,
+    GOG_VERSION_CHECK,
     LOBBY_ROOM_ID,
     SERIAL_NUMBER,
     UNKNOWN_HOST_ADDRESS,
@@ -51,7 +53,7 @@ class LobbySessionTest(LobbyTestCase):
         """Without Result NO_PATCH_NEEDED the client stops with "patch check failed"; an empty
         server list stops it with error 0x1e."""
         client = self.new_client("Alice", nonce=17)
-        client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
+        client.send(GOG_VERSION_CHECK)
         self.assertEqual(Result.decode(client.receive_next(MessageType.RESULT)).code, ResultCode.NO_PATCH_NEEDED)
 
         client.send(GetLobbyServerList())
@@ -60,12 +62,29 @@ class LobbySessionTest(LobbyTestCase):
         self.assertEqual(server_list.servers[0].address_text, f"127.0.0.1:{self.server.address[1]}")
         self.assertEqual(server_list.servers[0].name, "Test Lobby")
 
+    def test_version_check_never_offers_a_patch(self) -> None:
+        """The server never tells a game that a patch is needed: there is no patch to offer, and
+        a game told to fetch one stops before the logon. Whatever version, edition and language a
+        game reports, the answer is NO_PATCH_NEEDED."""
+        client = self.new_client("Alice", nonce=17)
+        unusual_checks = (
+            CheckFileVersion(game_version=150, edition=0, language_index=GERMAN_LANGUAGE_INDEX),
+            CheckFileVersion(game_version=0xFFFFFFFF, edition=0xFFFFFFFF, language_index=0xFFFFFFFF),
+            CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, language_index=7),
+        )
+        for version_check in unusual_checks:
+            with self.subTest(version_check=version_check):
+                client.send(version_check)
+                answer = Result.decode(client.receive_next(MessageType.RESULT))
+                self.assertEqual(answer.code, ResultCode.NO_PATCH_NEEDED)
+        client.assert_nothing_arrives(MessageType.PATCH_INFORMATION)
+
     def test_logon_answers_result_before_own_player(self) -> None:
         """OwnPlayer's handler asserts the sender is the client's server, which only the Result
         LOGON_ACCEPTED establishes: the other order drops the connection."""
         client = self.new_client("Alice", nonce=17)
         log_on_messages = {MessageType.RESULT, MessageType.OWN_PLAYER}
-        client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
+        client.send(GOG_VERSION_CHECK)
         client.receive_next(MessageType.RESULT)
         client.close_connection()
 

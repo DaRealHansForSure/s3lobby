@@ -7,6 +7,21 @@ machines.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
+### Added
+
+- The game's language is read from its version check.
+- Game blocks, game descriptions and match reports are decoded in full.
+
+### Changed
+
+- s3lobby lives in a repository of its own.
+
+### Fixed
+
+- The server never tells the game that a patch is needed, whatever version it reports.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added
@@ -60,7 +75,8 @@ machines.
 - `docs/protocol.md`: the protocol with the address in the game's executable for every fact.
 - README, packaging and CLAUDE.md.
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/DaRealHansForSure/s3lobby/releases/tag/v0.1.0
