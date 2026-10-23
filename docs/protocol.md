@@ -181,6 +181,19 @@ CloseConnection moves an open client (state 3) to 4 and tells its lobby layer, o
 (5) to 6. In other states it is a data error, as are AcknowledgeMessages or CloseConnection from a
 peer without a connection (0x608813).
 
+A CloseConnection from the server ends the lobby session cleanly (PP.ReceivedCloseConnection
+0x606050): the connection checks it is in sync first (PP.CheckInSync 0x606310, an error
+otherwise; *inferred*: no blocks of its own still waiting for acknowledgement), moves to state 4
+and calls the session's ConnectionClosed (0x5cc840) with both reasons 0. For the server's address
+that logs out (0x5cc918) and posts status 6 with value 7 (0x5cc972). The lobby screen shows
+status 6 as "The connection to the lobby server dropped." (0x44836a, text 0x900a7), a running
+match as "Lobby connection lost!" (0x540d39, text 0x90146).
+
+s3lobby closes connections this way when an admin removes a player (a kick, a ban of a player who
+is online, a deleted account) and when it stops. It sends the CloseConnection in a numbered block
+that acknowledges everything received so far, after the block with the reason for the player,
+and ignores lobby messages that still arrive on the closing connection.
+
 ## Lobby layer: message bodies
 
 Offsets count from the first byte after the header.

@@ -158,9 +158,13 @@ class FakeGameClient:
 
     def assert_nothing_arrives(self, message_type: MessageType) -> None:
         """Wait a short while and fail if a message of this type arrives in that time."""
+        self.assert_nothing_matching(lambda message: message.message_type == message_type)
+
+    def assert_nothing_matching(self, is_unwanted: Callable[[RawMessage], bool]) -> None:
+        """Wait a short while and fail if a message is_unwanted accepts is here or arrives."""
         self._socket.settimeout(SILENCE_CHECK_SECONDS)
         try:
-            message = self.receive_next(message_type)
+            message = self.receive_matching(is_unwanted)
         except socket.timeout:
             return
         finally:
@@ -250,15 +254,18 @@ def go_to_lobby_server(client: FakeGameClient) -> None:
     client.close_connection()
 
 
-def send_logon(client: FakeGameClient, access_code: str = ACCESS_CODE, flags: int = 0, name: str | None = None) -> Result:
-    logon = Logon(
+def logon_request(client: FakeGameClient, access_code: str = ACCESS_CODE, flags: int = 0, name: str | None = None) -> Logon:
+    return Logon(
         protocol_version=LOGON_PROTOCOL_VERSION,
         player_name=client.player_name if name is None else name,
         password=access_code,
         flags=flags,
         serial_number=SERIAL_NUMBER,
     )
-    client.send(logon)
+
+
+def send_logon(client: FakeGameClient, access_code: str = ACCESS_CODE, flags: int = 0, name: str | None = None) -> Result:
+    client.send(logon_request(client, access_code, flags, name))
     return Result.decode(client.receive_next(MessageType.RESULT))
 
 

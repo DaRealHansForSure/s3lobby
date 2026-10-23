@@ -16,8 +16,12 @@
   </div>
   {% if is_online %}
   <div class="note note--accent" role="note">
-    {{ account.name }} is in the lobby right now. A ban, clan or admin change applies from the next logon.
+    {{ account.name }} is in the lobby right now. A clan or admin change applies from the next
+    logon; a ban removes them from the lobby at once.
   </div>
+  {% if not is_own_account %}
+  <div class="form-actions">{{ action_button(url_for('accounts.kick_account', account_id=account.account_id), "Remove from the lobby", "btn--danger") }}</div>
+  {% endif %}
   {% endif %}
 </section>
 
@@ -112,7 +116,7 @@
       <label class="field">
         <span class="label">Reason</span>
         <input class="input" type="text" name="reason" maxlength="{{ max_ban_reason_length }}">
-        <span class="hint">A note for other admins; the player does not see it.</span>
+        <span class="hint">Shown to the player if they are online, and kept as a note for other admins.</span>
       </label>
     </div>
     <div class="form-actions"><button class="btn btn--danger" type="submit">Ban</button></div>

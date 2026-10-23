@@ -62,7 +62,7 @@ from s3lobby.constants import (
     ResultCode,
 )
 from s3lobby.commands import ChatCommands, fit_answer
-from s3lobby.database import Clan, LobbyDatabase, Setting, to_stored_time, utc_now
+from s3lobby.database import FIRST_PRINTABLE_CHARACTER, Clan, LobbyDatabase, Setting, to_stored_time, utc_now
 from s3lobby.groups import (
     Group,
     GroupKind,
@@ -120,6 +120,8 @@ class LobbyOutbox(Protocol):
 
     def server_address_text_for(self, client_address: Address) -> str: ...
 
+    def close_connection(self, client_address: Address) -> None: ...
+
 
 @dataclass
 class Player:
@@ -151,7 +153,7 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database)
-        self._chat_commands = ChatCommands(database, self._online_player_names, self.announce)
+        self._chat_commands = ChatCommands(database, self._online_player_names, self.announce, self.kick_player)
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
@@ -223,6 +225,28 @@ class Lobby:
         """Send what another process (the command line, a web interface) queued in the database."""
         for text in self._database.take_pending_announcements():
             self.announce(text)
+
+    def carry_out_pending_kicks(self) -> None:
+        """Remove the players that another process, a ban or an account deletion asked to remove
+        (LobbyDatabase.queue_kick). A kick for a player who is not online is simply dropped."""
+        for kick in self._database.take_pending_kicks():
+            self.kick_player(kick.account_id, kick.reason)
+
+    def kick_player(self, player_id: int, reason: str) -> bool:
+        """Tell the player why, take them out of every group and close their connection. The game
+        then shows "The connection to the lobby server dropped." (0x900a7; during a match "Lobby
+        connection lost!", 0x90146): its ConnectionClosed handler logs out and posts status 6
+        (0x5cc840, 0x5cc972). False when the player is not online."""
+        player = self._players_by_id.get(player_id)
+        if player is None:
+            return False
+        line = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([printable_text(reason)]))
+        self._outbox.send(player.address, line)
+        log.info("player %d %r removed from the lobby: %s", player.player_id, player.name, reason)
+        address = player.address
+        self.forget_client(address)
+        self._outbox.close_connection(address)
+        return True
 
     def live_state(self) -> LiveLobbyState:
         """Who is online and which groups exist, for the web interface (see live.py)."""
@@ -855,6 +879,12 @@ class Lobby:
 
     def _warn(self, client_address: Address, message: str, *arguments: object) -> None:
         self._warnings.warning(client_address, time.monotonic(), message, *arguments)
+
+
+def printable_text(text: str) -> str:
+    """The text without control characters, which a chat line cannot carry (a NUL would even end
+    the string early); reasons for kicks and bans are typed freely and never checked before."""
+    return "".join(character for character in text if character >= FIRST_PRINTABLE_CHARACTER)
 
 
 def own_player_message(player: Player) -> EncodableMessage:

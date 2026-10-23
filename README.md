@@ -192,7 +192,8 @@ password field:
 s3lobby account add Alice
 s3lobby account code Alice --label "laptop"     # another code, e.g. for a second PC
 s3lobby account revoke-codes Alice
-s3lobby account ban Alice --hours 24 --reason "spam"
+s3lobby account ban Alice --hours 24 --reason "spam"   # online or not; an online player is removed
+s3lobby account kick Alice --reason "spam"             # remove from the running lobby; may log on again
 s3lobby account admin Alice                      # may use the admin chat commands
 ```
 
@@ -235,9 +236,15 @@ s3lobby announce "Server restart at 22:00"
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
 ```
 
-In the game, players can type `/who`, `/clan` and `/help` into the chat; admins also `/announce
-TEXT`. Answers and announcements show as `[Server]` lines. Match reports the game sends after a
-game are stored in the database.
+In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
+`/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces).
+Answers and announcements show as `[Server]` lines. Match reports the game sends after a game are
+stored in the database.
+
+A removed player (a kick, a ban, a deleted account) gets the reason as a server line and is
+disconnected within a second; the game then says the connection to the lobby server dropped. A
+kicked player may log on again, a banned one is refused until the ban ends. When the server stops,
+every player is told at once instead of waiting a minute for a timeout.
 
 Ladder games ("Liga", "Clanliga") can be opened and played, but they are not ranked: Blue Byte's
 server kept the ladder, this one does not. Their players get a server line saying so, and during
@@ -250,7 +257,8 @@ the same from a browser.
 
 A small web application on the same database: a live view of the lobby for everyone, and pages for
 admins to manage accounts and access codes, clans, news, chat themes, the message board, settings
-and announcements, and to look through past games and match reports.
+and announcements, to remove players from the running lobby, and to look through past games and
+match reports.
 
 ```sh
 .venv/bin/pip install '.[web]'
