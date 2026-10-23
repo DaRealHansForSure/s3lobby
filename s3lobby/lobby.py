@@ -25,7 +25,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from s3lobby.constants import (
     ANNOUNCEMENT_GROUP_ID,
@@ -67,7 +67,15 @@ from s3lobby.constants import (
     ResultCode,
 )
 from s3lobby.commands import ChatCommands, fit_answer
-from s3lobby.database import FIRST_PRINTABLE_CHARACTER, Clan, LobbyDatabase, Setting, to_stored_time, utc_now
+from s3lobby.database import (
+    FIRST_PRINTABLE_CHARACTER,
+    Clan,
+    DatabaseError,
+    LobbyDatabase,
+    Setting,
+    to_stored_time,
+    utc_now,
+)
 from s3lobby.groups import (
     Group,
     GroupKind,
@@ -114,6 +122,8 @@ from s3lobby.reachability import Reachability
 from s3lobby.wire import Address, ProtocolError, RawMessage, readable_text
 
 log = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 # A group shown inside a parent, as the client keeps it: (parent id, group id).
 VisibleGroup = tuple[int, int]
@@ -216,16 +226,27 @@ class Lobby:
 
     def forget_client(self, client_address: Address) -> None:
         """The client's connection is gone: take its player out of every group. Nobody can tell the
-        player anything any more, so only the remaining members hear about it."""
+        player anything any more, so only the remaining members hear about it. The lobby and the
+        other clients come first; the database only keeps the statistics, and a failure there
+        must not leave the others seeing a player who is gone."""
         player = self._players_by_address.pop(client_address, None)
         if player is None:
             return
         del self._players_by_id[player.player_id]
-        self._database.record_logout(player.session_id)
         log.info("player %d %r left the lobby", player.player_id, player.name)
         for group_id in list(player.group_ids):
             self._remove_player_from_group(player, group_id, is_player_told=False)
+        self._do_bookkeeping("recording the logout", lambda: self._database.record_logout(player.session_id))
         self._send_statistics_to_home()
+
+    def _do_bookkeeping(self, what: str, action: Callable[[], T]) -> T | None:
+        """Database work for the statistics, which must not stop the lobby when the database
+        fails: the failure is logged, and None comes back instead of the action's result."""
+        try:
+            return action()
+        except DatabaseError as error:
+            log.warning("database: %s failed: %s", what, error)
+            return None
 
     def announce(self, text: str) -> int:
         """Send a server line to every player in the lobby; returns how many it reached."""
@@ -486,7 +507,10 @@ class Lobby:
             creator_player_id=player.player_id,
         )
         if group.kind == GroupKind.GAME:
-            group.game_record_id = self._database.record_game_opened(readable_text(announcement.name), player.player_id)
+            group.game_record_id = self._do_bookkeeping(
+                "recording the game's opening",
+                lambda: self._database.record_game_opened(readable_text(announcement.name), player.player_id),
+            )
             self._send_statistics_to_home()
         self._groups[group_id] = group
         log.info(
@@ -706,7 +730,9 @@ class Lobby:
         members = self._members_of(home)
         if not members:
             return
-        statistics = self._statistics()
+        statistics = self._do_bookkeeping("reading the statistics", self._statistics)
+        if statistics is None:
+            return
         for member in members:
             self._outbox.send(member.address, statistics)
 
@@ -796,7 +822,8 @@ class Lobby:
             self._unlist_group_from(group, parent_id)
         self._groups.pop(group.group_id, None)
         if group.game_record_id is not None:
-            self._database.record_game_closed(group.game_record_id)
+            game_record_id = group.game_record_id
+            self._do_bookkeeping("recording the game's end", lambda: self._database.record_game_closed(game_record_id))
             self._send_statistics_to_home()
         log.info("%s %d %r closed", group.kind.value, group.group_id, group.announcement.name)
 

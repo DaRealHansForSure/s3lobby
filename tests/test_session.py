@@ -7,6 +7,7 @@ game when the server gets it wrong.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
@@ -17,7 +18,7 @@ from s3lobby.constants import (
     PlayerFlag,
     ResultCode,
 )
-from s3lobby.database import Setting
+from s3lobby.database import DatabaseError, LobbyDatabase, Setting
 from s3lobby.messages import (
     AddPlayerToGroup,
     AddPlayerToGroupWithClan,
@@ -27,6 +28,7 @@ from s3lobby.messages import (
     GroupAnnouncement,
     LobbyServerList,
     Logon,
+    Logout,
     OwnPlayerWithClan,
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
@@ -148,6 +150,19 @@ class LobbySessionTest(LobbyTestCase):
         self.assertEqual((marked.player_name, marked.player_flags), ("Bob", PlayerFlag.HIGHLIGHTED))
         self.assertEqual((marked.clan_id, marked.clan_name), (0, ""))
         carol.assert_nothing_arrives(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS)
+
+    def test_player_leaving_is_seen_by_the_others_even_when_the_database_fails(self) -> None:
+        """The database only keeps statistics; if writing the logout fails, the others must still
+        see the player leave, or their clients keep a player who is gone."""
+        alice = self.new_client("Alice", nonce=17)
+        join_group(alice, LOBBY_ROOM_ID, log_on(alice))
+        bob = self.new_client("Bob", nonce=42)
+        bob_id = log_on(bob)
+        join_group(bob, LOBBY_ROOM_ID, bob_id)
+        with mock.patch.object(LobbyDatabase, "record_logout", side_effect=DatabaseError("database is locked")):
+            bob.send(Logout())
+            departure = RemovePlayerFromGroup.decode(alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP))
+        self.assertEqual(departure.player_id, bob_id)
 
     def test_member_list_carries_the_address_the_server_saw(self) -> None:
         """Clients chat straight to each other's addresses and only know themselves as 0.0.0.0."""

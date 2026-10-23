@@ -33,6 +33,7 @@ from pathlib import Path
 from s3lobby.backends import (
     BackendError,
     ConstraintViolation,
+    DatabaseError,
     Row,
     describe_location,
     open_backend,
@@ -292,10 +293,6 @@ class LobbyStatistics:
     games_last_day: int
 
 
-class DatabaseError(Exception):
-    """A request the stored data does not allow, such as adding an account name twice."""
-
-
 def is_valid_player_name(name: str) -> bool:
     return PLAYER_NAME_PATTERN.fullmatch(name) is not None
 
@@ -386,8 +383,13 @@ def is_matching_access_code(access_code: str, stored_hash: str) -> bool:
     if len(fields) != SCRYPT_HASH_FIELD_COUNT or fields[0] != SCRYPT_PREFIX:
         return False
     _, cost, block_size, parallelism, salt_hex, digest_hex = fields
-    expected_digest = bytes.fromhex(digest_hex)
-    offered_digest = scrypt_digest(access_code, bytes.fromhex(salt_hex), int(cost), int(block_size), int(parallelism))
+    try:
+        expected_digest = bytes.fromhex(digest_hex)
+        salt = bytes.fromhex(salt_hex)
+        offered_digest = scrypt_digest(access_code, salt, int(cost), int(block_size), int(parallelism))
+    except ValueError:
+        # A damaged hash matches no code; it must not turn a logon into a server error.
+        return False
     return hmac.compare_digest(offered_digest, expected_digest)
 
 
@@ -513,9 +515,16 @@ class LobbyDatabase:
         return self.get_setting(setting).strip().lower() in TRUE_SETTING_VALUES
 
     def set_setting(self, setting: Setting, value: str) -> None:
-        check_setting_value(setting, value)
+        self.set_settings({setting: value})
+
+    def set_settings(self, values: dict[Setting, str]) -> None:
+        """Check every value first, then store them all in one transaction: either all change or
+        none does."""
+        for setting, value in values.items():
+            check_setting_value(setting, value)
         with self._backend.transaction():
-            self._backend.upsert("settings", ("name",), {"name": setting.key, "value": value})
+            for setting, value in values.items():
+                self._backend.upsert("settings", ("name",), {"name": setting.key, "value": value})
 
     # Accounts and access codes.
 

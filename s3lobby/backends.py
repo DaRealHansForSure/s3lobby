@@ -16,6 +16,7 @@ optional "mysql" extra, and imports it only when a mysql:// location is opened.
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import time
@@ -27,9 +28,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+log = logging.getLogger(__name__)
+
 IN_MEMORY_DATABASE = ":memory:"
 # The file holds access code hashes and player data: readable and writable by its owner only.
 DATABASE_FILE_MODE = 0o600
+
+# How long a SQLite write waits for another process's lock before it fails.
+SQLITE_BUSY_TIMEOUT_SECONDS = 2.0
 
 MYSQL_SCHEME = "mysql"
 MYSQL_LOCATION_PREFIX = f"{MYSQL_SCHEME}://"
@@ -49,11 +55,17 @@ MARIADB_SERVER_MARKER = "MariaDB"
 Row = dict[str, Any]
 
 
-class BackendError(Exception):
-    """The database cannot be reached or opened: a bad location, a missing driver, a refused logon."""
+class DatabaseError(Exception):
+    """A request the stored data does not allow, such as adding an account name twice, or a
+    database that failed. Callers catch this one type; the database's own errors never leak out."""
 
 
-class ConstraintViolation(Exception):
+class BackendError(DatabaseError):
+    """The database cannot be reached, opened or used: a bad location, a missing driver, a refused
+    logon, a lock that did not clear in time."""
+
+
+class ConstraintViolation(DatabaseError):
     """A write that a unique key or a foreign key of the schema refused."""
 
 
@@ -197,7 +209,9 @@ class SqliteBackend(DatabaseBackend):
             os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, DATABASE_FILE_MODE))
         try:
             # isolation_level None: no implicit transactions; transaction() opens them explicitly.
-            self._connection = sqlite3.connect(path, isolation_level=None)
+            # The timeout bounds how long a write waits for another process's lock; the server's
+            # event loop waits with it, so it is kept short.
+            self._connection = sqlite3.connect(path, isolation_level=None, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
         except sqlite3.Error as error:
             raise BackendError(str(error)) from error
         self._connection.row_factory = row_as_dict
@@ -208,32 +222,41 @@ class SqliteBackend(DatabaseBackend):
             self._connection.execute("PRAGMA journal_mode = WAL")
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> WriteResult:
-        try:
+        with sqlite_errors_translated():
             cursor = self._connection.execute(sql, parameters)
-        except sqlite3.IntegrityError as error:
-            raise ConstraintViolation(str(error)) from error
         return WriteResult(last_row_id=cursor.lastrowid, row_count=cursor.rowcount)
 
     def execute_many(self, sql: str, parameter_rows: Sequence[Sequence[Any]]) -> None:
-        try:
+        with sqlite_errors_translated():
             self._connection.executemany(sql, parameter_rows)
-        except sqlite3.IntegrityError as error:
-            raise ConstraintViolation(str(error)) from error
 
     def fetch_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[Row]:
-        return self._connection.execute(sql, parameters).fetchall()
+        with sqlite_errors_translated():
+            return self._connection.execute(sql, parameters).fetchall()
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
         # IMMEDIATE takes the write lock at once. A deferred transaction that reads first would
         # have to upgrade its lock at the first write, and fails if another process wrote meanwhile.
-        self._connection.execute("BEGIN IMMEDIATE")
+        with sqlite_errors_translated():
+            self._connection.execute("BEGIN IMMEDIATE")
         try:
             yield
+            with sqlite_errors_translated():
+                self._connection.execute("COMMIT")
         except BaseException:
-            self._connection.execute("ROLLBACK")
+            # Also after a failed COMMIT: left open, the transaction would make every later BEGIN fail.
+            self._roll_back()
             raise
-        self._connection.execute("COMMIT")
+
+    def _roll_back(self) -> None:
+        if not self._connection.in_transaction:
+            return
+        try:
+            self._connection.execute("ROLLBACK")
+        except sqlite3.Error as error:
+            # The error that led here matters more; this one is only logged.
+            log.warning("ROLLBACK failed: %s", error)
 
     def _upsert_sql(
         self, table: str, key_columns: Sequence[str], columns: Sequence[str], updated_columns: Sequence[str]
@@ -305,39 +328,52 @@ class MysqlBackend(DatabaseBackend):
         self._last_used_at = time.monotonic()
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> WriteResult:
-        with self._cursor() as cursor:
-            try:
-                cursor.execute(to_pymysql_placeholders(sql), tuple(parameters))
-            except self._driver.err.IntegrityError as error:
-                raise ConstraintViolation(str(error)) from error
+        with self._errors_translated(), self._cursor() as cursor:
+            cursor.execute(to_pymysql_placeholders(sql), tuple(parameters))
             return WriteResult(last_row_id=cursor.lastrowid, row_count=cursor.rowcount)
 
     def execute_many(self, sql: str, parameter_rows: Sequence[Sequence[Any]]) -> None:
         # PyMySQL turns an INSERT run for many rows into multi-row INSERT statements.
-        with self._cursor() as cursor:
-            try:
-                cursor.executemany(to_pymysql_placeholders(sql), [tuple(row) for row in parameter_rows])
-            except self._driver.err.IntegrityError as error:
-                raise ConstraintViolation(str(error)) from error
+        with self._errors_translated(), self._cursor() as cursor:
+            cursor.executemany(to_pymysql_placeholders(sql), [tuple(row) for row in parameter_rows])
 
     def fetch_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[Row]:
-        with self._cursor() as cursor:
+        with self._errors_translated(), self._cursor() as cursor:
             cursor.execute(to_pymysql_placeholders(sql), tuple(parameters))
             return list(cursor.fetchall())
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        self._reconnect_if_idle()
-        self._connection.begin()
+        with self._errors_translated():
+            self._reconnect_if_idle()
+            self._connection.begin()
         self._is_in_transaction = True
         try:
             yield
+            with self._errors_translated():
+                self._connection.commit()
         except BaseException:
-            self._connection.rollback()
+            self._roll_back()
             raise
         finally:
             self._is_in_transaction = False
-        self._connection.commit()
+
+    def _roll_back(self) -> None:
+        try:
+            self._connection.rollback()
+        except self._driver.err.Error as error:
+            # The error that led here matters more; this one is only logged.
+            log.warning("ROLLBACK failed: %s", error)
+
+    @contextmanager
+    def _errors_translated(self) -> Iterator[None]:
+        """PyMySQL's errors as the backend's, like sqlite_errors_translated."""
+        try:
+            yield
+        except self._driver.err.IntegrityError as error:
+            raise ConstraintViolation(str(error)) from error
+        except self._driver.err.Error as error:
+            raise BackendError(f"MySQL: {error}") from error
 
     def _upsert_sql(
         self, table: str, key_columns: Sequence[str], columns: Sequence[str], updated_columns: Sequence[str]
@@ -391,6 +427,18 @@ class MysqlBackend(DatabaseBackend):
         except self._driver.err.Error as error:
             raise BackendError(f"lost the connection to the MySQL server: {error}") from error
         self._last_used_at = time.monotonic()
+
+
+@contextmanager
+def sqlite_errors_translated() -> Iterator[None]:
+    """SQLite's errors as the backend's: a refused key as ConstraintViolation, anything else (a
+    lock that did not clear in time, a full disk) as BackendError."""
+    try:
+        yield
+    except sqlite3.IntegrityError as error:
+        raise ConstraintViolation(str(error)) from error
+    except sqlite3.Error as error:
+        raise BackendError(f"SQLite: {error}") from error
 
 
 def row_as_dict(cursor: sqlite3.Cursor, values: tuple[Any, ...]) -> Row:

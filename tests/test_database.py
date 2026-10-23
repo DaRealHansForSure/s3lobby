@@ -18,6 +18,7 @@ from s3lobby.database import (
     DatabaseError,
     LobbyDatabase,
     Setting,
+    is_matching_access_code,
     is_valid_player_name,
 )
 from s3lobby.migrations import latest_version, load_migrations
@@ -260,6 +261,26 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual([kick.account_id for kick in kicks], [alice.account_id, bob.account_id, alice.account_id])
         self.assertIn("spam", kicks[0].reason)
         self.assertEqual(self.database.take_pending_kicks(), [], "each kick is taken once")
+
+    def test_damaged_stored_hash_matches_no_code_instead_of_failing(self) -> None:
+        """A logon must get a refusal, not a server error, when a stored hash is damaged."""
+        self.assertFalse(is_matching_access_code("ANYCODE23456", "scrypt$16384$8$1$zz$zz"))
+        self.assertFalse(is_matching_access_code("ANYCODE23456", "scrypt$many$8$1$00$00"))
+
+    def test_settings_change_together_or_not_at_all(self) -> None:
+        with self.assertRaises(DatabaseError):
+            self.database.set_settings({Setting.WELCOME_MESSAGE: "Hello", Setting.MAX_PLAYERS: "lots"})
+        self.assertEqual(self.database.get_setting(Setting.WELCOME_MESSAGE), "")
+        self.database.set_settings({Setting.WELCOME_MESSAGE: "Hello", Setting.MAX_PLAYERS: "20"})
+        self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 20)
+
+    def test_failing_database_raises_database_error_not_the_drivers(self) -> None:
+        """The command line and the web interface catch DatabaseError; a driver's own error would
+        reach the user as a traceback."""
+        self.database.close()
+        with self.assertRaises(DatabaseError):
+            self.database.list_accounts()
+        self.database = LobbyDatabase(":memory:", clock=self.clock)
 
     def test_restart_closes_what_the_previous_run_left_open(self) -> None:
         alice = self.database.create_account("Alice")

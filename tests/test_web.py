@@ -316,6 +316,11 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 20)
         self.assertFalse(self.database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS))
 
+    def test_setting_set_to_yes_elsewhere_shows_as_ticked(self) -> None:
+        """Otherwise the next save of the page would quietly turn it off."""
+        self.database.set_setting(Setting.MARK_ADMINS, "yes")
+        self.assertIn('name="mark_admins" checked', self.client.get("/settings").get_data(as_text=True))
+
     def test_announcement_is_queued_for_the_server(self) -> None:
         self.post("/announcements", text="Server restart at 22:00")
         self.assertEqual(self.database.take_pending_announcements(), ["Server restart at 22:00"])
