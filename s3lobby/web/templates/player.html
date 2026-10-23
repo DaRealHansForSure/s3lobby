@@ -48,6 +48,23 @@
 </section>
 {% endif %}
 
+{% if page.races %}
+<section>
+  <div class="section-head"><h2>Races</h2><p>The races {{ page.name }} played in counted Liga matches.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Race</th><th class="num">Played</th><th class="num">Won</th><th>Win rate</th></tr></thead>
+      <tbody>
+        {% for row in page.races %}
+        <tr><td>{{ row.name }}</td><td class="num">{{ row.played }}</td><td class="num">{{ row.won }}</td>
+          <td><div class="cell-bar">{{ share_bar(row.win_rate) }}<span class="num">{{ row.win_rate }} %</span></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <section>
   <div class="section-head"><h2>Games</h2><p>Newest first, with the result from the match's last report.</p></div>
   {% if page.games %}

@@ -48,6 +48,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   many more there are.
 - Kicks, bans, removals, voiding and deciding a ladder game, and ending or deleting a season ask
   for a confirmation in a dialog first.
+- Statistics of the ladder: how often each race is played and wins, and which maps are played and
+  how long their matches take, on the Ladder page ("Races and maps"), on each player page (their
+  races) and with `s3lobby ladder stats` (migration 0013 keeps each result's map).
+- Long lists in the admin area (accounts, games, ladder games) come in pages of 50; the accounts
+  page has a name search.
 - `scripts/start.sh --follow` shows the lobby's log right after starting it.
 
 ### Removed

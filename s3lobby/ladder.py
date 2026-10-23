@@ -33,6 +33,7 @@ from s3lobby.constants import (
     SeasonCounts,
 )
 from s3lobby.messages import GameStatus, MatchReportPlayer
+from s3lobby.wire import readable_text
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,8 @@ class Evaluation:
     game_ticks: int = 0
     played_at: datetime | None = None
     players: tuple[ResultPlayer, ...] = ()
+    # The map the match was played on, as the reports name it (a random map starts with a backslash).
+    map_name: str = ""
 
 
 def ladder_minutes(game_ticks: int) -> float:
@@ -179,12 +182,14 @@ def evaluate_game(facts: GameFacts, settings: LadderSettings, now: datetime) -> 
                 facts.game_id, ladder_type, LadderState.DISPUTED, "the reports name different winners",
                 game_ticks=reference.game_time, played_at=end_reports[0].received_at,
                 players=result_players(slots, reference.winning_team, players_by_account),
+                map_name=readable_text(reference.map_name),
             )
         if slot_teams(report.status.players) != slot_teams(slots):
             return Evaluation(
                 facts.game_id, ladder_type, LadderState.DISPUTED, "the reports name different players or teams",
                 game_ticks=reference.game_time, played_at=end_reports[0].received_at,
                 players=result_players(slots, reference.winning_team, players_by_account),
+                map_name=readable_text(reference.map_name),
             )
 
     # Every human slot either reported or is marked as having left; until then, and before the
@@ -210,6 +215,7 @@ def evaluate_game(facts: GameFacts, settings: LadderSettings, now: datetime) -> 
         game_ticks=reference.game_time,
         played_at=end_reports[0].received_at,
         players=result_players(slots, reference.winning_team, players_by_account),
+        map_name=readable_text(reference.map_name),
     )
 
 
@@ -589,3 +595,62 @@ def report_can_count(status: GameStatus) -> bool:
         return False
     teams = {slot.team for slot in status.players}
     return len(teams) == LADDER_TEAM_COUNT
+
+
+
+@dataclass(frozen=True)
+class RaceStatistic:
+    """How one race fared in a season's counted Liga results: how often it was played and won."""
+
+    race: int
+    played: int
+    won: int
+
+
+@dataclass(frozen=True)
+class MapStatistic:
+    """How often a map was played in a season's counted results, and how long a match took there."""
+
+    map_name: str
+    played: int
+    average_minutes: float
+
+
+def race_statistics(
+    results: Iterable[Evaluation], season: Season = INFINITE_SEASON, account_id: int | None = None
+) -> list[RaceStatistic]:
+    """Each race's plays and wins in the counted Liga results of a season, most played first; with
+    account_id, only that player's own slots."""
+    played: dict[int, int] = {}
+    won: dict[int, int] = {}
+    for result in results:
+        if result.state != LadderState.COUNTED or result.ladder_type != LadderType.INDIVIDUAL:
+            continue
+        if not season.includes(result):
+            continue
+        for player in result.players:
+            if account_id is not None and player.account_id != account_id:
+                continue
+            played[player.race] = played.get(player.race, 0) + 1
+            if player.has_won:
+                won[player.race] = won.get(player.race, 0) + 1
+    statistics = [RaceStatistic(race, count, won.get(race, 0)) for race, count in played.items()]
+    statistics.sort(key=lambda statistic: (-statistic.played, statistic.race))
+    return statistics
+
+
+def map_statistics(results: Iterable[Evaluation], season: Season = INFINITE_SEASON) -> list[MapStatistic]:
+    """Each map's counted results in a season, Liga and Clanliga, most played first, with the
+    average length of a match on the game's clock."""
+    counts: dict[str, int] = {}
+    ticks: dict[str, int] = {}
+    for result in results:
+        if result.state != LadderState.COUNTED or not season.includes(result):
+            continue
+        counts[result.map_name] = counts.get(result.map_name, 0) + 1
+        ticks[result.map_name] = ticks.get(result.map_name, 0) + result.game_ticks
+    statistics = [
+        MapStatistic(map_name, count, ladder_minutes(ticks[map_name]) / count) for map_name, count in counts.items()
+    ]
+    statistics.sort(key=lambda statistic: (-statistic.played, statistic.map_name))
+    return statistics
