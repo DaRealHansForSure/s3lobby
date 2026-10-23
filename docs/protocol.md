@@ -179,7 +179,16 @@ game answers like any peer, PP.OpenIncoming 0x6045c0); the probe then closes wit
 
 ### Timing
 
-- At most one send pass per peer every 250 ms.
+- Each poll of the lobby thread (after every datagram, or every 500 ms, 0x5c4564..0x5c4659) packs
+  everything queued into one new block with the next id (FlushQueue 0x604ff0, called at 0x604a67
+  before any timing check): there is no limit on blocks waiting for acknowledgement, and a
+  message never joins a block already sent. Only sending is paced: at most one send pass per peer
+  every 250 ms, in which every due block goes out as a datagram of its own, the first one carrying
+  the acknowledgements (0x604b24..0x604d4a). s3lobby accepts client block ids within 32 of the
+  oldest one missing; a client could only go further under heavy loss while it keeps sending, and
+  a refused block is not acknowledged, so the client sends it again later.
+- Blocks that only acknowledge carry MessageId with the client's last used id, not a new one
+  (SendAckBlock 0x604ebb..0x604ecb).
 - Retries of a block after 750, 1500, 3000, 5000, 5000, ... ms (table 0x65d498, 0x6017c0).
 - After 5 s without hearing the peer the client stops resending data and only sends ack probes; at
   60 s it drops the peer (state 7). Any datagram resets that timer (table 0x65d47c).
@@ -198,17 +207,35 @@ CloseConnection moves an open client (state 3) to 4 and tells its lobby layer, o
 peer without a connection (0x608813).
 
 A CloseConnection from the server ends the lobby session cleanly (PP.ReceivedCloseConnection
-0x606050): the connection checks it is in sync first (PP.CheckInSync 0x606310, an error
-otherwise; *inferred*: no blocks of its own still waiting for acknowledgement), moves to state 4
-and calls the session's ConnectionClosed (0x5cc840) with both reasons 0. For the server's address
+0x606050): an open client (state 3) checks it is in sync first (PP.CheckInSync 0x606310 via
+InSync 0x606550), that is, that no earlier block of the *server's* is still missing on its side
+(+0x170, ids received above the contiguous point, set by RegisterReceivedId 0x605a40), and throws
+sync error 0x600 otherwise (0x6064be). Then it moves to state 4 and calls the session's
+ConnectionClosed (0x5cc840) with both reasons 0. For the server's address
 that logs out (0x5cc918) and posts status 6 with value 7 (0x5cc972). The lobby screen shows
 status 6 as "The connection to the lobby server dropped." (0x44836a, text 0x900a7), a running
 match as "Lobby connection lost!" (0x540d39, text 0x90146).
 
+The rest of the state machine (state at +0x278; IsClosed 0x604980 is true for 0, 7 and 8):
+- PP.Close (0x604790, through LP.Close 0x608ea0): state 3 queues CloseConnection and goes to 5,
+  state 4 queues it and goes to 6; any other state asserts 'Invalid state'.
+- ReceivedCloseConnection in state 5 goes to 6 without a check; in a state other than 3 or 5 it
+  asserts '(state == iStateOpen) || (state == iStateCloseMe)'.
+- State 6 ends (state 0, 0x604d55..0x604d76) once nothing of its own is unacknowledged (+0x94),
+  no acknowledgement is owed (+0x18c), the peer's MinMissingAcknowledge equals the next id
+  expected (+0x19c == +0x194 + 1), and an acknowledgement-only block arrived (+0x1a0, set by
+  ReceivedBlock 0x605a27; 0x604a6c..0x604a8d). Until then it keeps sending acknowledgement blocks;
+  after 60 s it times out (state 7).
+- New messages are dropped silently outside states 1 to 4 (PP.Queue 0x6051a0).
+- After the server closes, ConnectionClosed logs out (0x5cc918 to 0x5c5e80): the client sends one
+  numbered block with Logout and CloseConnection (state 4 to 6).
+
 s3lobby closes connections this way when an admin removes a player (a kick, a ban of a player who
-is online, a deleted account) and when it stops. It sends the CloseConnection in a numbered block
-that acknowledges everything received so far, after the block with the reason for the player,
-and ignores lobby messages that still arrive on the closing connection.
+is online, a deleted account) and when it stops. The reason for the player goes first; the
+CloseConnection follows once the client has acknowledged every earlier block, so a lost reason
+line cannot trip the sync check above (when the server stops it cannot wait and sends it at once).
+It goes in a numbered block that acknowledges everything received so far, and lobby messages that
+still arrive on the closing connection are ignored.
 
 ## Lobby layer: message bodies
 
@@ -236,7 +263,9 @@ Offsets count from the first byte after the header.
 
 ### Logon
 
-- **0x07 Logon** (constructor 0x5e1d50): u32 14 (*inferred*: protocol version), string name,
+- **0x07 Logon** (constructor 0x5e1d50): u32 14 (a constant, `push 0xe` at 0x5e1d74; the client
+  never sends another value and never compares it with anything from the server; *inferred*: a
+  protocol version), string name,
   string password, u32 flags, string serial number. The client sends it to every listed server
   with the first server's name. Flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4):
 
@@ -252,7 +281,7 @@ Offsets count from the first byte after the header.
   |---|---|
   | 0x66 | logon accepted (LogonRetval 0, 0x5cde49), sender becomes the server |
   | 1, 5 | 0x9006a "An error occurred while connecting to the lobby." |
-  | 2 | 0x9009f "There is already a player with this name. Please choose a different name." |
+  | 2 | 0x9009f "There is already a player with this name. Please choose a different name." after the create button, else 0x90069 like code 3 (0x43bcfd..0x43bdc9) |
   | 3 | 0x90069 "The server refuses your combination of username and password." |
   | 6 | 0x9009d "Another player with this name or serial number is already logged in ..." |
   | 7 | 0x90017 "You entered an invalid serial number!" |
@@ -461,9 +490,11 @@ private address is shown to a receiver on the internet at the configured public 
   - banner id 0: nothing happens (0x449894);
   - otherwise the pair is compared with the registry values BannerId and BannerSubId (0x5ebfd0),
     never the url: a new picture needs a new id or sub id;
-  - the new pair is stored before the download ends (0x44998f), so a failed download is not
-    retried in that session (inferred), and saved again on success (0x448998), with the picture as
-    `Banner\Banner.png`;
+  - the new pair is stored on the lobby screen before the download ends (0x44998f) and kept in the
+    configuration only on success (0x448960, 0x413ba0), with the picture as `Banner\Banner.png`.
+    After a failure the finished download stays registered (0x448983), so that lobby screen fetches
+    no banner again; the next lobby screen (constructor 0x43e800 clears it at 0x4400ab and reloads
+    the configured pair at 0x441668) tries again (*inferred*: on the next entry into the lobby);
   - the url: the first six characters are skipped unchecked, the host runs to the first slash
     after them, the path from there (0x46501f..0x465110). The client connects anonymously on port
     21 (only Blue Byte's old host 193.158.243.3 got a special login, 0x4659fd..0x465a0f), with
@@ -523,8 +554,12 @@ once per logon, as a server line, that chat there reaches nobody (off until a ru
   (0x53ae66, once). Body: u32 group id (the lobby game), u32 flags (1 ladder game, game settings
   +0x2a; 2 not valid for the ladder: a ladder slot without lobby player id, 0x5405ec, or the lobby
   manager's mark +0x675), u32 winning team (0xffffffff while more than one team is left: a team
-  counts while it still owns something of the types 0xf, 0x10 or 0x12, 0x5406e7..0x540768;
-  *inferred*: buildings), u32
+  counts while it still owns a finished military building, 0x5406e7..0x540768: the game's
+  building records (count 0x1499e60, 0x3a bytes each, owner +0, type +6) of type 0x10 BigTower,
+  0x12 Castle (the computer player's "Baue BigTower" and "Baue Castle", 0x57da96, 0x57db52) and
+  0xf (*inferred*: the small tower) whose +0x21 is 0 (set 1 when placed, 0x4dd33f, 0 by 0x4dbc50;
+  *inferred*: finished), counted for the owner's team when that player plays (+0x11943dc); one team
+  with any is the winner, more than one or none leave 0xffffffff), u32
   game time (the game's tick counter, global 0x7dfd48: one tick per 64 ms, the logic thread's
   timer at 0x53d761, shown by the game's own clock as (ticks * 64) / 1000 seconds at 0x4b3fa2; it
   stands still while the game waits for its players), string map (the map file of the game
@@ -533,7 +568,7 @@ once per logon, as a server line, that chat there reaches nobody (off until a ru
 
   | Field | Meaning |
   |---|---|
-  | flags | 1 computer opponent (slot state 2), 2 slot state 3 (*inferred*: a player who left), 4 the race was "Random" in the setup and the race field holds the one drawn (setup record +0x64 is 0xff, 0x540625..0x54063e; seen in a run) |
+  | flags | 1 computer opponent (slot state 2), 2 slot state 3: a human who left the DirectPlay session after it was closed to new players (written only by PARAMS: DestroyPlayer 0x434b19 when "NET: OnDeletePlayer" 0x470980 reports it with the session closed, set at 0x471571; *inferred*: closed because the match started), 4 the race was "Random" in the setup and the race field holds the one drawn (setup record +0x64 is 0xff, 0x540625..0x54063e; seen in a run) |
   | lobby player id | the id the lobby gave the slot's player (0x1195d7c table) |
   | race | 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons: the setup's texts for these values (0x9002d..0x9002f at 0x49053c..0x4907b1, 0x90155 at 0x4908e5); any other value it shows as "Random" (0x4909f0) |
   | unused | always 0 (0x54061d) |

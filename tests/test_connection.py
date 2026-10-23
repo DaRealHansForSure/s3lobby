@@ -61,6 +61,31 @@ class ReliableConnectionTest(unittest.TestCase):
         acknowledgement = client_block(1, AcknowledgeMessages((1,)).encode(), MinMissingAcknowledge(2).encode())
         self.connection.receive_block(acknowledgement, START_MS)
 
+    def test_close_started_by_the_server_waits_for_earlier_blocks(self) -> None:
+        """An open client throws a sync error on a CloseConnection while an earlier block of the
+        server's is missing (CheckInSync 0x606310): a kick's reason line lost on the way would
+        turn the clean close into an error."""
+        self.open_connection()
+        self.connection.queue_lobby_message(ChatCommandAnswer(0, ("You were removed.",)))
+        [reason_block] = self.connection.take_datagrams_to_send(START_MS)
+        self.connection.begin_closing(START_MS, waits_for_acknowledgements=True)
+        held_back = self.connection.take_datagrams_to_send(START_MS)
+        self.assertFalse(any(messages_of_type(datagram, MessageType.CLOSE_CONNECTION) for datagram in held_back))
+        reason_block_id = MessageId.decode(decode_block(reason_block)[0]).block_id
+        acknowledgement = client_block(1, AcknowledgeMessages((reason_block_id,)).encode())
+        self.connection.receive_block(acknowledgement, START_MS)
+        released = self.connection.take_datagrams_to_send(START_MS)
+        self.assertTrue(any(messages_of_type(datagram, MessageType.CLOSE_CONNECTION) for datagram in released))
+
+    def test_answer_to_the_client_close_goes_out_at_once(self) -> None:
+        """A client that sent CloseConnection is closing already and takes the answer as it is."""
+        self.open_connection()
+        self.connection.queue_lobby_message(Result(9))
+        self.connection.take_datagrams_to_send(START_MS)
+        self.connection.begin_closing(START_MS)
+        datagrams = self.connection.take_datagrams_to_send(START_MS)
+        self.assertTrue(any(messages_of_type(datagram, MessageType.CLOSE_CONNECTION) for datagram in datagrams))
+
     def test_first_block_is_number_one_and_opens_the_connection(self) -> None:
         received = self.connection.receive_block(
             client_block(1, OpenConnection(CLIENT_NONCE).encode(), GetLobbyServerList().encode()),

@@ -489,7 +489,7 @@ def player_flag_notes(flags: int) -> tuple[str, ...]:
     if flags & MatchPlayerFlag.COMPUTER:
         notes.append("computer")
     if flags & MatchPlayerFlag.SLOT_STATE_3:
-        notes.append("left (inferred)")
+        notes.append("left the match")
     if flags & MatchPlayerFlag.RANDOM_RACE:
         notes.append("race drawn at random")
     known_flags = MatchPlayerFlag.COMPUTER | MatchPlayerFlag.SLOT_STATE_3 | MatchPlayerFlag.RANDOM_RACE

@@ -219,16 +219,17 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    def close_connection(self, client_address: Address) -> None:
+    def close_connection(self, client_address: Address, is_server_stopping: bool = False) -> None:
         """End the connection from the server's side: whatever is queued for the client goes out
-        first, then CloseConnection in a block of its own, retried until the client acknowledges
-        it. Closing an open connection moves the client to state 4 and on to its logout
+        first, then, once the client acknowledged all of that, CloseConnection in a block of its
+        own, retried until the client acknowledges it. A server that is stopping cannot wait for
+        acknowledgements and sends it at once. Closing an open connection moves the client to state 4 and on to its logout
         (PP.ReceivedCloseConnection 0x606050, ConnectionClosed 0x5cc840)."""
         connection = self._connections.get(client_address)
         if connection is None or connection.is_closing:
             return
         self._send_due_datagrams(connection)
-        connection.begin_closing(monotonic_ms())
+        connection.begin_closing(monotonic_ms(), waits_for_acknowledgements=not is_server_stopping)
         self._send_due_datagrams(connection)
         log.info("%s: connection closed by the server", client_address)
 
@@ -472,7 +473,7 @@ class LobbyServer(asyncio.DatagramProtocol):
         if self._transport is None:
             return
         for client_address in list(self._connections):
-            self.close_connection(client_address)
+            self.close_connection(client_address, is_server_stopping=True)
 
     def _send_due_datagrams(self, connection: ReliableConnection) -> None:
         if self._transport is None:
