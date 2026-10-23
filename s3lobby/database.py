@@ -171,7 +171,8 @@ SCRYPT_HASH_FIELD_COUNT = 6
 HASH_FIELD_SEPARATOR = "$"
 
 # Access codes: long enough to be safe from guessing, short enough to type into the game's password
-# field. The alphabet leaves out characters that are easy to mix up (0/O, 1/I/L).
+# field. The alphabet leaves out characters that are easy to mix up (0/O, 1/I/L). It has capitals
+# only, so comparing codes without regard to case (normalize_access_code) costs no strength.
 ACCESS_CODE_LENGTH = 12
 ACCESS_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -423,9 +424,15 @@ def is_matching_access_code(access_code: str, stored_hash: str) -> bool:
     return hmac.compare_digest(offered_digest, expected_digest)
 
 
+def normalize_access_code(access_code: str) -> str:
+    """The form a code is hashed in: capitals, so a player may type it in any case."""
+    return access_code.upper()
+
+
 def scrypt_digest(access_code: str, salt: bytes, cost: int, block_size: int, parallelism: int) -> bytes:
+    # Normalizing here, where both storing and checking pass, keeps the two from ever disagreeing.
     return hashlib.scrypt(
-        access_code.encode("utf-8"),
+        normalize_access_code(access_code).encode("utf-8"),
         salt=salt,
         n=cost,
         r=block_size,

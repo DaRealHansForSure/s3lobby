@@ -71,6 +71,15 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual(self.database.revoke_access_codes(account.account_id), 1)
         self.assertFalse(self.database.check_access_code(account.account_id, access_code))
 
+    def test_access_code_is_checked_without_regard_to_case(self) -> None:
+        account = self.database.create_account("Alice")
+        access_code = self.database.issue_access_code(account.account_id)
+        for typed_code in (access_code, access_code.lower(), access_code.swapcase().capitalize()):
+            with self.subTest(typed_code=typed_code):
+                self.assertTrue(self.database.check_access_code(account.account_id, typed_code))
+        self.database.add_access_code(account.account_id, "lowercode234")
+        self.assertTrue(self.database.check_access_code(account.account_id, "LOWERCODE234"))
+
     def test_access_code_is_stored_only_as_a_salted_hash(self) -> None:
         account = self.database.create_account("Alice")
         self.database.add_access_code(account.account_id, "SAMECODE2345")
