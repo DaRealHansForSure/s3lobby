@@ -89,11 +89,14 @@ from s3lobby.groups import (
     game_row_colour,
     is_ladder_game,
     kind_of_new_group,
+    ladder_type_of,
     room_announcement,
     stored_game_announcement,
     with_real_host_address,
 )
 from s3lobby.guards import RateLimiter, ThrottledLogger
+from s3lobby.ladder import report_can_count
+from s3lobby.ladder_book import LadderBook
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
@@ -193,6 +196,7 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database, is_development_mode=is_development_mode)
+        self._ladder_book = LadderBook(database)
         self._chat_commands = ChatCommands(
             database, self._online_player_names, self.announce, self.kick_player, outbox.reachability_of
         )
@@ -574,7 +578,11 @@ class Lobby:
             group.game_record_id = self._do_bookkeeping(
                 "recording the game's opening",
                 lambda: self._database.record_game_opened(
-                    readable_text(announcement.name), player.player_id, group_id, stored_game_announcement(announcement)
+                    readable_text(announcement.name),
+                    player.player_id,
+                    group_id,
+                    stored_game_announcement(announcement),
+                    ladder_type_of(announcement),
                 ),
             )
             self._send_statistics_to_home()
@@ -777,9 +785,14 @@ class Lobby:
             status.game_time,
         )
         result_code = ResultCode.GAME_STATUS_STORED
-        if status.is_ladder_game:
-            # Stored like any report, but the game must not take it for a ranked ladder result: it
-            # shows "Game not valid for ladder." during the match (0x540b89).
+        if status.is_ladder_game and not self._is_ladder_enabled():
+            # Stored and evaluated like any report, but until the admins switch the ladder on the
+            # game must not take it for a ranked result: it shows "Game not valid for ladder."
+            # during the match (0x540b89).
+            result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
+        elif status.is_ladder_game and not report_can_count(status):
+            # A report that can never count (computer opponents, the game's own invalid mark) is
+            # told so at once; whether a good one counts is decided once every report is in.
             result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
         self._outbox.send(client_address, Result(result_code))
 
@@ -789,8 +802,10 @@ class Lobby:
         if game_record_id is None:
             return
         announcement = stored_game_announcement(group.announcement)
+        ladder_type = ladder_type_of(group.announcement)
         self._do_bookkeeping(
-            "recording the game's setup", lambda: self._database.record_game_announcement(game_record_id, announcement)
+            "recording the game's setup",
+            lambda: self._database.record_game_announcement(game_record_id, announcement, ladder_type),
         )
 
     def _record_game_player(self, group: Group, player: Player) -> None:
@@ -799,9 +814,50 @@ class Lobby:
         if game_record_id is None or player.player_id in group.recorded_player_ids:
             return
         group.recorded_player_ids.add(player.player_id)
+        # The ladder needs the clan the player shows now (Clanliga) and which copy of the game it
+        # plays (two copies of one installation never count against each other).
+        clan_id = player.shown_clan.clan_id if player.shown_clan is not None else None
+        installation = group.installation_of(player.serial_number)
         self._do_bookkeeping(
-            "recording a game's player", lambda: self._database.record_game_player(game_record_id, player.player_id)
+            "recording a game's player",
+            lambda: self._database.record_game_player(game_record_id, player.player_id, clan_id, installation),
         )
+
+    def evaluate_ladder_games(self) -> None:
+        """Turn ladder games whose reports are in (or whose time ran out) into results. The games
+        this server still has open are passed on, so a game left open by an earlier run of the
+        server can be told apart from one still being played."""
+        open_game_ids = [
+            group.game_record_id
+            for group in self._groups.values()
+            if group.kind == GroupKind.GAME and group.game_record_id is not None
+        ]
+        stored = self._ladder_book.evaluate_waiting_games(open_game_ids)
+        if not stored or not self._is_ladder_enabled():
+            return
+        # The players of each decided game who are online hear how it ended, as a server line: the
+        # game itself has no place to show a ladder result after the match.
+        for decided in stored:
+            account_ids = {player.account_id for player in decided.evaluation.players}
+            if not account_ids:
+                account_ids = {
+                    player.account_id
+                    for player in self._database.list_game_players(decided.evaluation.game_id)
+                    if player.account_id is not None
+                }
+            lines = self._ladder_book.match_lines(decided.evaluation, decided.game_name)
+            if not lines:
+                continue
+            answer = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer(lines))
+            for account_id in account_ids:
+                player = self._players_by_id.get(account_id)
+                if player is not None:
+                    self._outbox.send(player.address, answer)
+
+    def _is_ladder_enabled(self) -> bool:
+        """Whether the admins switched the ladder on (setting ladder_enabled): only then does the
+        game hear that a ladder report was stored, and players how their match counted."""
+        return self._database.get_boolean_setting(Setting.LADDER_ENABLED)
 
     def _online_player_names(self) -> list[str]:
         """The names of everyone logged on, for the chat commands."""
@@ -865,7 +921,8 @@ class Lobby:
         a server line: the host when opening it or when turning it into one during the setup, a
         joiner when joining."""
         is_ladder = group.kind == GroupKind.GAME and is_ladder_game(group.announcement)
-        if not is_ladder:
+        # With the ladder switched on, ladder games are ranked, so there is nothing to warn about.
+        if not is_ladder or self._is_ladder_enabled():
             return
         line = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([LADDER_NOT_SUPPORTED_TEXT]))
         for player in players:

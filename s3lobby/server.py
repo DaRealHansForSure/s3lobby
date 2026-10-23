@@ -36,6 +36,7 @@ from s3lobby.constants import (
     DEVELOPMENT_PASSWORD,
     DEFAULT_SERVER_PORT,
     HOUSEKEEPING_INTERVAL_SECONDS,
+    LADDER_EVALUATION_INTERVAL_SECONDS,
     MAX_CONNECTIONS,
     MAX_CONNECTIONS_PER_IP,
     MAX_MESSAGES_PER_BLOCK,
@@ -124,6 +125,10 @@ class LobbyServer(asyncio.DatagramProtocol):
         # An IPv6 socket name carries flow info and scope id after host and port; keep the pair.
         host, port = self._transport.get_extra_info("sockname")[:2]
         return (host, port)
+
+    def evaluate_ladder_games(self) -> None:
+        """Turn ladder games whose reports are in into results (s3lobby/ladder.py)."""
+        self._lobby.evaluate_ladder_games()
 
     def close_abandoned_chat_groups(self, seconds_from_now: float = 0.0) -> None:
         """Close the chat groups that stayed empty long enough; tests look ahead with
@@ -350,6 +355,7 @@ class LobbyServer(asyncio.DatagramProtocol):
         last_live_state_check_seconds = time.monotonic()
         last_public_host_lookup_seconds = time.monotonic()
         last_forwarding_renewal_seconds = time.monotonic()
+        last_ladder_evaluation_seconds = time.monotonic()
         while True:
             await asyncio.sleep(HOUSEKEEPING_INTERVAL_SECONDS)
             is_renewal_due = time.monotonic() - last_forwarding_renewal_seconds >= UPNP_RENEW_SECONDS
@@ -364,6 +370,9 @@ class LobbyServer(asyncio.DatagramProtocol):
                 self._run_guarded("sending announcements", self._lobby.send_pending_announcements)
                 self._run_guarded("carrying out kicks", self._lobby.carry_out_pending_kicks)
                 self._run_guarded("closing abandoned chat groups", self.close_abandoned_chat_groups)
+            if time.monotonic() - last_ladder_evaluation_seconds >= LADDER_EVALUATION_INTERVAL_SECONDS:
+                last_ladder_evaluation_seconds = time.monotonic()
+                self._run_guarded("evaluating ladder games", self.evaluate_ladder_games)
             if time.monotonic() - last_live_state_check_seconds >= LIVE_STATE_WRITE_INTERVAL_SECONDS:
                 last_live_state_check_seconds = time.monotonic()
                 self._run_guarded(

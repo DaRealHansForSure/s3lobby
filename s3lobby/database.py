@@ -48,7 +48,10 @@ from s3lobby.constants import (
     MAX_TEXT_MESSAGE_BYTES,
     NEWS_AUDIENCES,
     TEXT_ENCODING,
+    LadderState,
+    SeasonCounts,
 )
+from s3lobby.ladder import Evaluation, LadderSettings, ResultPlayer, Season
 from s3lobby.live import LiveLobbyState, StoredLiveState
 from s3lobby.migrations import Migration, MigrationError, MigrationStatus, current_version, migrate, read_status
 
@@ -67,6 +70,10 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "games",
     "game_reports",
     "game_players",
+    "ladder_results",
+    "ladder_result_players",
+    "ladder_seasons",
+    "ladder_events",
     "settings",
     "pending_announcements",
     "live_state",
@@ -76,6 +83,11 @@ TABLES_IN_DEPENDENCY_ORDER = (
 
 # Shown for a game's player whose account was deleted since.
 DELETED_ACCOUNT_NAME = "(deleted account)"
+# The ladder states a result is stored in; WAITING is not a result.
+STORED_LADDER_STATES = frozenset({LadderState.COUNTED, LadderState.DISPUTED, LadderState.VOID})
+# Lengths of the ladder's columns that hold text the server writes (VARCHAR in MySQL).
+MAX_LADDER_REASON_LENGTH = 255
+MAX_LADDER_EVENT_KEY_LENGTH = 191
 
 # The game's own rule for player names (refusal text 0x9009e): letters A to Z in either case, and
 # single spaces between words.
@@ -140,6 +152,22 @@ class Setting(Enum):
     # bug of the game, 0x452455). Off by default: no run with the real game has seen a server line
     # on that tab yet.
     BOARD_CHAT_HINT = "board_chat_hint"
+    # The ladder (s3lobby/ladder.py, docs/ladder.md). LADDER_ENABLED tells the game a valid result
+    # was stored (Result 0x6c) instead of "not valid for ladder" (0x6a), and drops the "not ranked"
+    # line; off until a run with the real game has shown the answer. The ladder evaluates every
+    # ladder game either way.
+    LADDER_ENABLED = "ladder_enabled"
+    LADDER_MINIMUM_MINUTES = "ladder_minimum_minutes"
+    LADDER_REPORT_TIMEOUT_MINUTES = "ladder_report_timeout_minutes"
+    LADDER_PAIR_DAILY_LIMIT = "ladder_pair_daily_limit"
+    LADDER_START_RATING = "ladder_start_rating"
+    LADDER_K = "ladder_k"
+    LADDER_K_PROVISIONAL = "ladder_k_provisional"
+    LADDER_PROVISIONAL_GAMES = "ladder_provisional_games"
+    LADDER_ACTIVE_DAYS = "ladder_active_days"
+    LADDER_CLAN_MEMBER_DAYS = "ladder_clan_member_days"
+    LADDER_INACTIVE_DAYS = "ladder_inactive_days"
+    LADDER_MAX_CUSTOM_SEASONS = "ladder_max_custom_seasons"
 
     @property
     def key(self) -> str:
@@ -162,6 +190,18 @@ SETTING_DEFAULTS = {
     Setting.MARK_ADMINS: "true",
     Setting.BOARD_CHAT_HINT: "false",
     Setting.CHECK_REACHABILITY: "false",
+    Setting.LADDER_ENABLED: "false",
+    Setting.LADDER_MINIMUM_MINUTES: "10",
+    Setting.LADDER_REPORT_TIMEOUT_MINUTES: "10",
+    Setting.LADDER_PAIR_DAILY_LIMIT: "3",
+    Setting.LADDER_START_RATING: "1000",
+    Setting.LADDER_K: "16",
+    Setting.LADDER_K_PROVISIONAL: "32",
+    Setting.LADDER_PROVISIONAL_GAMES: "10",
+    Setting.LADDER_ACTIVE_DAYS: "30",
+    Setting.LADDER_CLAN_MEMBER_DAYS: "3",
+    Setting.LADDER_INACTIVE_DAYS: "60",
+    Setting.LADDER_MAX_CUSTOM_SEASONS: "50",
 }
 
 # A label tells an account's access codes apart, such as "laptop"; the reason for a ban is shown to
@@ -180,9 +220,34 @@ FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
 # The numeric settings travel to the game as u32 fields.
 INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BANNER_SUB_ID})
 BOOLEAN_SETTINGS = frozenset(
-    {Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS, Setting.CHECK_REACHABILITY, Setting.BOARD_CHAT_HINT}
+    {
+        Setting.UNIQUE_SERIAL_NUMBERS,
+        Setting.MARK_ADMINS,
+        Setting.CHECK_REACHABILITY,
+        Setting.BOARD_CHAT_HINT,
+        Setting.LADDER_ENABLED,
+    }
 )
 MAX_INTEGER_SETTING = 0xFFFFFFFF
+# The ladder's numbers are days, minutes, counts and Elo points. They get a far lower ceiling than
+# the protocol's u32 values: a span of four billion days does not fit a datetime and would stop
+# the ladder.
+LADDER_INTEGER_SETTINGS = frozenset(
+    {
+        Setting.LADDER_MINIMUM_MINUTES,
+        Setting.LADDER_REPORT_TIMEOUT_MINUTES,
+        Setting.LADDER_PAIR_DAILY_LIMIT,
+        Setting.LADDER_START_RATING,
+        Setting.LADDER_K,
+        Setting.LADDER_K_PROVISIONAL,
+        Setting.LADDER_PROVISIONAL_GAMES,
+        Setting.LADDER_ACTIVE_DAYS,
+        Setting.LADDER_CLAN_MEMBER_DAYS,
+        Setting.LADDER_INACTIVE_DAYS,
+        Setting.LADDER_MAX_CUSTOM_SEASONS,
+    }
+)
+MAX_LADDER_SETTING = 100_000
 
 LINE_BREAK = "\n"
 
@@ -290,16 +355,22 @@ class GameRecord:
     group_id: int | None = None
     announcement: bytes | None = None
     player_names: tuple[str, ...] = ()
+    ladder_type: int | None = None
 
 
 @dataclass(frozen=True)
 class GamePlayerRecord:
     """A player who joined a game. account_id is None and name DELETED_ACCOUNT_NAME when the
-    account was deleted since (the foreign key clears it)."""
+    account was deleted since (the foreign key clears it). clan_id is the clan the player showed
+    when joining, clan_joined_at since when the player was in it, and installation a number shared
+    by the players of the game whose copies have one serial number (all None before migration 0010)."""
 
     name: str
     joined_at: datetime
     account_id: int | None = None
+    clan_id: int | None = None
+    clan_joined_at: datetime | None = None
+    installation: int | None = None
 
 
 @dataclass(frozen=True)
@@ -315,6 +386,19 @@ class GameReportRecord:
     received_at: datetime
     report: bytes = b""
     game_id: int | None = None
+    sender_account_id: int | None = None
+
+
+@dataclass(frozen=True)
+class LadderResultRecord:
+    """A stored ladder result: what the ladder made of a game, with the game's name, who decided it
+    (empty for the server) and when."""
+
+    result_id: int
+    evaluation: Evaluation
+    game_name: str
+    decided_at: datetime
+    decided_by_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -401,6 +485,10 @@ def check_setting_value(setting: Setting, value: str) -> None:
         if not is_whole_number_text(value) or int(value) > MAX_INTEGER_SETTING:
             raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_INTEGER_SETTING}")
         return
+    if setting in LADDER_INTEGER_SETTINGS:
+        if not is_whole_number_text(value) or int(value) > MAX_LADDER_SETTING:
+            raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_LADDER_SETTING}")
+        return
     if setting in BOOLEAN_SETTINGS:
         if value.strip().lower() not in TRUE_SETTING_VALUES | FALSE_SETTING_VALUES:
             raise DatabaseError(f"{setting.key} must be true or false")
@@ -464,6 +552,13 @@ def from_optional_stored_time(text: str | None) -> datetime | None:
     if text is None:
         return None
     return from_stored_time(text)
+
+
+def to_optional_stored_time(moment: datetime | None) -> str | None:
+    """A moment as stored, or None for a column left empty: a season that runs until it is ended."""
+    if moment is None:
+        return None
+    return to_stored_time(moment)
 
 
 def hash_access_code(access_code: str) -> str:
@@ -960,6 +1055,11 @@ class LobbyDatabase:
     def set_clan_of_account(self, account_id: int, clan_id: int | None) -> None:
         """Put an account into a clan, or take it out with clan_id None. One clan per account."""
         with self._backend.transaction():
+            # Putting a member into the clan it is in already keeps the date it joined: Clanliga
+            # counts a player for a clan only after some days in it.
+            current = self._backend.fetch_one("SELECT clan_id FROM clan_members WHERE account_id = ?", (account_id,))
+            if current is not None and clan_id is not None and current["clan_id"] == clan_id:
+                return
             # account_id is the key of clan_members, so the old membership goes first; both steps
             # share one transaction, so the account is never seen without a clan in between.
             self._backend.execute("DELETE FROM clan_members WHERE account_id = ?", (account_id,))
@@ -979,6 +1079,14 @@ class LobbyDatabase:
         if row is None:
             return None
         return clan_from_row(row)
+
+    def list_clan_memberships(self) -> dict[int, list[int]]:
+        """Every clan's member account ids, in one query (the ladder's clan strength needs them all)."""
+        rows = self._backend.fetch_all("SELECT clan_id, account_id FROM clan_members ORDER BY account_id")
+        members_by_clan: dict[int, list[int]] = {}
+        for row in rows:
+            members_by_clan.setdefault(row["clan_id"], []).append(row["account_id"])
+        return members_by_clan
 
     def list_clan_member_names(self, clan_id: int) -> list[str]:
         """The names of the clan's members, sorted."""
@@ -1103,29 +1211,56 @@ class LobbyDatabase:
     # Games and their reports.
 
     def record_game_opened(
-        self, name: str, host_account_id: int | None, group_id: int | None = None, announcement: bytes | None = None
+        self,
+        name: str,
+        host_account_id: int | None,
+        group_id: int | None = None,
+        announcement: bytes | None = None,
+        ladder_type: int | None = None,
     ) -> int:
         """Note a game the lobby opened, for the statistics and the web interface; returns its
         record id. group_id is the lobby's id for the game, announcement the game as the lobby shows it
-        (see GameRecord)."""
+        (see GameRecord), ladder_type the ladder the host chose (None for a normal game)."""
         with self._backend.transaction():
             result = self._backend.execute(
-                "INSERT INTO games (name, host_account_id, opened_at, group_id, announcement) VALUES (?, ?, ?, ?, ?)",
-                (name, host_account_id, to_stored_time(self._clock()), group_id, announcement),
+                "INSERT INTO games (name, host_account_id, opened_at, group_id, announcement, ladder_type) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (name, host_account_id, to_stored_time(self._clock()), group_id, announcement, ladder_type),
             )
         return result.last_row_id
 
-    def record_game_announcement(self, game_record_id: int, announcement: bytes) -> None:
-        """Keep the game as the lobby shows it now, after the host changed its setup."""
-        with self._backend.transaction():
-            self._backend.execute("UPDATE games SET announcement = ? WHERE id = ?", (announcement, game_record_id))
-
-    def record_game_player(self, game_record_id: int, account_id: int) -> None:
-        """Note a player who joined a game; the lobby records each player once per game."""
+    def record_game_announcement(
+        self, game_record_id: int, announcement: bytes, ladder_type: int | None = None
+    ) -> None:
+        """Keep the game as the lobby shows it now, after the host changed its setup, and the ladder
+        it is now (the host may switch between a normal and a ladder game until the match starts)."""
         with self._backend.transaction():
             self._backend.execute(
-                "INSERT INTO game_players (game_id, account_id, joined_at) VALUES (?, ?, ?)",
-                (game_record_id, account_id, to_stored_time(self._clock())),
+                "UPDATE games SET announcement = ?, ladder_type = ? WHERE id = ?",
+                (announcement, ladder_type, game_record_id),
+            )
+
+    def record_game_player(
+        self, game_record_id: int, account_id: int, clan_id: int | None = None, installation: int | None = None
+    ) -> None:
+        """Note a player who joined a game; the lobby records each player once per game. clan_id is
+        the clan the player shows, installation the number of the player's copy of the game within
+        this game (see GamePlayerRecord). Since when the player is in the clan is copied from the
+        membership as it is now, so a later change of clan does not rewrite it."""
+        with self._backend.transaction():
+            self._backend.execute(
+                "INSERT INTO game_players (game_id, account_id, joined_at, clan_id, clan_joined_at, installation) "
+                "VALUES (?, ?, ?, ?, "
+                "(SELECT joined_at FROM clan_members WHERE account_id = ? AND clan_id = ?), ?)",
+                (
+                    game_record_id,
+                    account_id,
+                    to_stored_time(self._clock()),
+                    clan_id,
+                    account_id,
+                    clan_id,
+                    installation,
+                ),
             )
 
     def record_game_closed(self, game_record_id: int) -> None:
@@ -1154,7 +1289,7 @@ class LobbyDatabase:
 
     GAME_COLUMNS = (
         "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at, "
-        "games.group_id, games.announcement "
+        "games.group_id, games.announcement, games.ladder_type "
         "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
     )
     GAME_REPORT_COLUMNS = (
@@ -1162,7 +1297,7 @@ class LobbyDatabase:
         # report whose sender's account was deleted since, with a NULL name.
         "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
         "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report, "
-        "game_reports.game_id "
+        "game_reports.game_id, game_reports.account_id AS sender_account_id "
         "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
     )
 
@@ -1194,7 +1329,8 @@ class LobbyDatabase:
     def list_game_players(self, game_id: int) -> list[GamePlayerRecord]:
         """Who joined a game and when, in the order they joined (the host first)."""
         rows = self._backend.fetch_all(
-            "SELECT accounts.name, game_players.joined_at, game_players.account_id FROM game_players "
+            "SELECT accounts.name, game_players.joined_at, game_players.account_id, game_players.clan_id, "
+            "game_players.clan_joined_at, game_players.installation FROM game_players "
             "LEFT JOIN accounts ON accounts.id = game_players.account_id "
             "WHERE game_players.game_id = ? ORDER BY game_players.id",
             (game_id,),
@@ -1204,6 +1340,9 @@ class LobbyDatabase:
                 name=row["name"] or DELETED_ACCOUNT_NAME,
                 joined_at=from_stored_time(row["joined_at"]),
                 account_id=row["account_id"],
+                clan_id=row["clan_id"],
+                clan_joined_at=from_optional_stored_time(row["clan_joined_at"]),
+                installation=row["installation"],
             )
             for row in rows
         ]
@@ -1255,6 +1394,238 @@ class LobbyDatabase:
         if row is None:
             return None
         return bytes(row["report"])
+
+    # The ladder (s3lobby/ladder.py): results, custom seasons, and the events the server wrote about.
+
+    def now(self) -> datetime:
+        """The time by the database's clock, the one every stored time comes from; tests move it."""
+        return self._clock()
+
+    def get_ladder_settings(self) -> LadderSettings:
+        """The ladder's numbers as the admins set them."""
+        return LadderSettings(
+            minimum_minutes=self.get_integer_setting(Setting.LADDER_MINIMUM_MINUTES),
+            report_timeout_minutes=self.get_integer_setting(Setting.LADDER_REPORT_TIMEOUT_MINUTES),
+            pair_daily_limit=self.get_integer_setting(Setting.LADDER_PAIR_DAILY_LIMIT),
+            start_rating=self.get_integer_setting(Setting.LADDER_START_RATING),
+            k=self.get_integer_setting(Setting.LADDER_K),
+            k_provisional=self.get_integer_setting(Setting.LADDER_K_PROVISIONAL),
+            provisional_games=self.get_integer_setting(Setting.LADDER_PROVISIONAL_GAMES),
+            active_days=self.get_integer_setting(Setting.LADDER_ACTIVE_DAYS),
+            clan_member_days=self.get_integer_setting(Setting.LADDER_CLAN_MEMBER_DAYS),
+            inactive_days=self.get_integer_setting(Setting.LADDER_INACTIVE_DAYS),
+        )
+
+    def list_unresolved_ladder_games(self) -> list[GameRecord]:
+        """Ladder games without a result yet, oldest first: still open, waiting for reports, or cut
+        off by a restart."""
+        rows = self._backend.fetch_all(
+            self.GAME_COLUMNS
+            + "WHERE games.ladder_type IS NOT NULL AND games.ladder_type <> 0 "
+            "AND NOT EXISTS (SELECT 1 FROM ladder_results WHERE ladder_results.game_id = games.id) "
+            "ORDER BY games.id",
+        )
+        return [game_record_from_row(row, []) for row in rows]
+
+    def store_ladder_result(self, evaluation: Evaluation, decided_by_account_id: int | None = None) -> None:
+        """Keep what the ladder made of a game, replacing an earlier result of the same game (an
+        admin's decision replaces the server's). Raises ValueError for a game still waiting: that
+        is not a result."""
+        if evaluation.state not in STORED_LADDER_STATES:
+            raise ValueError(f"a ladder result cannot be {evaluation.state.value}")
+        played_at = evaluation.played_at or self._clock()
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM ladder_results WHERE game_id = ?", (evaluation.game_id,))
+            result = self._backend.execute(
+                "INSERT INTO ladder_results (game_id, ladder_type, state, reason, winning_team, game_ticks, "
+                "played_at, decided_at, decided_by_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    evaluation.game_id,
+                    evaluation.ladder_type,
+                    evaluation.state.value,
+                    evaluation.reason[:MAX_LADDER_REASON_LENGTH],
+                    evaluation.winning_team,
+                    evaluation.game_ticks,
+                    to_stored_time(played_at),
+                    to_stored_time(self._clock()),
+                    decided_by_account_id,
+                ),
+            )
+            for player in evaluation.players:
+                self._backend.execute(
+                    "INSERT INTO ladder_result_players (result_id, account_id, clan_id, team, race, slot, "
+                    "has_won, has_left) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        result.last_row_id,
+                        player.account_id,
+                        player.clan_id,
+                        player.team,
+                        player.race,
+                        player.slot,
+                        int(player.has_won),
+                        int(player.has_left),
+                    ),
+                )
+
+    LADDER_RESULT_COLUMNS = (
+        "SELECT ladder_results.id, ladder_results.game_id, ladder_results.ladder_type, ladder_results.state, "
+        "ladder_results.reason, ladder_results.winning_team, ladder_results.game_ticks, ladder_results.played_at, "
+        "ladder_results.decided_at, games.name AS game_name, accounts.name AS decided_by_name "
+        "FROM ladder_results JOIN games ON games.id = ladder_results.game_id "
+        "LEFT JOIN accounts ON accounts.id = ladder_results.decided_by_account_id "
+    )
+
+    def ladder_results_version(self) -> tuple[int, int]:
+        """A cheap fingerprint of the stored results: their number and the newest row id. Every new,
+        decided or voided result is a new row (store_ladder_result replaces), so the fingerprint
+        changes with each and a cache of ratings knows when to compute them again."""
+        row = self._backend.fetch_one("SELECT COUNT(*) AS result_count, MAX(id) AS newest_id FROM ladder_results")
+        return row["result_count"], row["newest_id"] or 0
+
+    def list_ladder_results(self) -> list[LadderResultRecord]:
+        """Every ladder result in the order the matches were played, with its players. Two queries
+        for all of them: a small lobby has a few thousand at most, and ratings need them all."""
+        rows = self._backend.fetch_all(
+            self.LADDER_RESULT_COLUMNS + "ORDER BY ladder_results.played_at, ladder_results.id"
+        )
+        return self._ladder_results_from_rows(rows)
+
+    def find_ladder_result(self, game_id: int) -> LadderResultRecord | None:
+        """The result of one game, or None while it has none."""
+        rows = self._backend.fetch_all(self.LADDER_RESULT_COLUMNS + "WHERE ladder_results.game_id = ?", (game_id,))
+        results = self._ladder_results_from_rows(rows)
+        if not results:
+            return None
+        return results[0]
+
+    def _ladder_results_from_rows(self, rows: list[Row]) -> list[LadderResultRecord]:
+        """The results the rows describe, with their players fetched in one query."""
+        if not rows:
+            return []
+        result_ids = [row["id"] for row in rows]
+        id_placeholders = placeholders(len(result_ids))
+        player_rows = self._backend.fetch_all(
+            "SELECT result_id, account_id, clan_id, team, race, slot, has_won, has_left FROM ladder_result_players "
+            f"WHERE result_id IN ({id_placeholders}) ORDER BY slot",
+            tuple(result_ids),
+        )
+        players_by_result: dict[int, list[ResultPlayer]] = {}
+        for row in player_rows:
+            players_by_result.setdefault(row["result_id"], []).append(
+                ResultPlayer(
+                    account_id=row["account_id"],
+                    clan_id=row["clan_id"],
+                    team=row["team"],
+                    race=row["race"],
+                    slot=row["slot"],
+                    has_won=bool(row["has_won"]),
+                    has_left=bool(row["has_left"]),
+                )
+            )
+        return [
+            LadderResultRecord(
+                result_id=row["id"],
+                evaluation=Evaluation(
+                    game_id=row["game_id"],
+                    ladder_type=row["ladder_type"],
+                    state=LadderState(row["state"]),
+                    reason=row["reason"],
+                    winning_team=row["winning_team"],
+                    game_ticks=row["game_ticks"],
+                    played_at=from_stored_time(row["played_at"]),
+                    players=tuple(players_by_result.get(row["id"], [])),
+                ),
+                game_name=row["game_name"],
+                decided_at=from_stored_time(row["decided_at"]),
+                decided_by_name=row["decided_by_name"] or "",
+            )
+            for row in rows
+        ]
+
+    def add_ladder_season(
+        self,
+        name: str,
+        starts_at: datetime,
+        ends_at: datetime | None,
+        counts: SeasonCounts,
+        created_by_account_id: int | None = None,
+    ) -> Season:
+        """Create a custom season. Raises DatabaseError for a name the game cannot show, dates in the
+        wrong order, a name in use, or more seasons than the setting allows."""
+        check_season(name, starts_at, ends_at)
+        limit = self.get_integer_setting(Setting.LADDER_MAX_CUSTOM_SEASONS)
+        existing = self._backend.fetch_one("SELECT COUNT(*) AS season_count FROM ladder_seasons")["season_count"]
+        if existing >= limit:
+            raise DatabaseError(f"there are {existing} custom seasons already, the most is {limit}")
+        try:
+            with self._backend.transaction():
+                result = self._backend.execute(
+                    "INSERT INTO ladder_seasons (name, starts_at, ends_at, counts, created_at, created_by_account_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        name,
+                        to_stored_time(starts_at),
+                        to_optional_stored_time(ends_at),
+                        counts.value,
+                        to_stored_time(self._clock()),
+                        created_by_account_id,
+                    ),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"a season named {name!r} exists already") from error
+        return Season(result.last_row_id, name, starts_at, ends_at, counts)
+
+    def update_ladder_season(
+        self, season_id: int, name: str, starts_at: datetime, ends_at: datetime | None, counts: SeasonCounts
+    ) -> None:
+        """Change a custom season; ratings follow at once, since they are computed from the results.
+        Raises DatabaseError as add_ladder_season does, or for a season that does not exist."""
+        check_season(name, starts_at, ends_at)
+        try:
+            with self._backend.transaction():
+                result = self._backend.execute(
+                    "UPDATE ladder_seasons SET name = ?, starts_at = ?, ends_at = ?, counts = ? WHERE id = ?",
+                    (name, to_stored_time(starts_at), to_optional_stored_time(ends_at), counts.value, season_id),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"a season named {name!r} exists already") from error
+        if result.row_count == 0:
+            raise DatabaseError(f"there is no season {season_id}")
+
+    def delete_ladder_season(self, season_id: int) -> None:
+        """Delete a custom season. Its results stay: they count in the infinite season and in any
+        other season whose dates include them."""
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM ladder_seasons WHERE id = ?", (season_id,))
+
+    def list_ladder_seasons(self) -> list[Season]:
+        """Every custom season, newest start first."""
+        rows = self._backend.fetch_all(
+            "SELECT id, name, starts_at, ends_at, counts FROM ladder_seasons ORDER BY starts_at DESC, id DESC"
+        )
+        return [season_from_row(row) for row in rows]
+
+    def find_ladder_season(self, name: str) -> Season | None:
+        """The custom season with this name, in any case, or None."""
+        row = self._backend.fetch_one(
+            "SELECT id, name, starts_at, ends_at, counts FROM ladder_seasons WHERE LOWER(name) = LOWER(?)", (name,)
+        )
+        if row is None:
+            return None
+        return season_from_row(row)
+
+    def record_ladder_event(self, event_key: str) -> bool:
+        """Note that the server wrote about an event (a season's end, a weekly summary); True the
+        first time, False when it was noted already, so the text is never written twice."""
+        try:
+            with self._backend.transaction():
+                self._backend.execute(
+                    "INSERT INTO ladder_events (event_key, happened_at) VALUES (?, ?)",
+                    (event_key[:MAX_LADDER_EVENT_KEY_LENGTH], to_stored_time(self._clock())),
+                )
+        except ConstraintViolation:
+            return False
+        return True
 
     # Announcements from outside the server process.
 
@@ -1423,6 +1794,27 @@ def game_record_from_row(row: Row, player_names: list[str]) -> GameRecord:
         group_id=row["group_id"],
         announcement=announcement,
         player_names=tuple(player_names),
+        ladder_type=row["ladder_type"],
+    )
+
+
+def check_season(name: str, starts_at: datetime, ends_at: datetime | None) -> None:
+    """Raise DatabaseError unless a custom season can be stored: a name the game can show (it is
+    named in chat answers and on the board) and an end after the start."""
+    check_title("season name", name)
+    check_game_text("season name", name, MAX_GROUP_TEXT_LENGTH)
+    if ends_at is not None and ends_at <= starts_at:
+        raise DatabaseError("a season must end after it starts")
+
+
+def season_from_row(row: Row) -> Season:
+    """The custom season a ladder_seasons row describes."""
+    return Season(
+        season_id=row["id"],
+        name=row["name"],
+        starts_at=from_stored_time(row["starts_at"]),
+        ends_at=from_optional_stored_time(row["ends_at"]),
+        counts=SeasonCounts(row["counts"]),
     )
 
 
@@ -1437,4 +1829,5 @@ def game_report_record_from_row(row: Row) -> GameReportRecord:
         received_at=from_stored_time(row["received_at"]),
         report=bytes(row["report"]),
         game_id=row["game_id"],
+        sender_account_id=row["sender_account_id"],
     )

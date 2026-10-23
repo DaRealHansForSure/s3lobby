@@ -8,7 +8,7 @@ explains how the pieces fit together.
 Values the game does not dictate, but this server chooses, say so in their comment.
 """
 
-from enum import IntEnum, IntFlag
+from enum import Enum, IntEnum, IntFlag
 
 # Network addresses.
 
@@ -181,8 +181,9 @@ class ResultCode(IntEnum):
     # shows answers to GameStatus only during a ladder game (0x540a18) and ignores them otherwise.
     GAME_STATUS_STORED = 0x6C
     # Answer to GameStatus of a ladder game: 0x90149 "Game status inconsistencies. Game not valid for
-    # ladder." (Result handler 0x5d056c, shown in the match at 0x540b89). This server keeps no
-    # ladder, so it gives this answer to every ladder report.
+    # ladder." (Result handler 0x5d056c, shown in the match at 0x540b89). Given to every ladder
+    # report while the ladder is switched off (setting ladder_enabled), and to a report that can
+    # never count while it is on.
     GAME_NOT_VALID_FOR_LADDER = 0x6A
 
 
@@ -400,8 +401,8 @@ class LadderType(IntEnum):
     """The last value of a long game block: what the host picked under "Normal Game",
     "Ladder: 1 on 1" and "Ladder Game: Clans" in the game setup (radio buttons 0x4848b4..0x48493b,
     passed by CreateGame at 0x46180b..0x46181e). The game list shows "Liga" and "Clanliga" for 1 and
-    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server keeps no
-    ladder."""
+    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server ranks
+    them itself (s3lobby/ladder.py)."""
 
     NONE = 0
     INDIVIDUAL = 1
@@ -484,6 +485,12 @@ WRONG_GROUP_PASSWORDS_PER_SECOND = 1 / 60
 # up a game; each goes on to every player who sees the game in a zone.
 GROUP_UPDATE_BURST = 20
 GROUP_UPDATES_PER_SECOND = 2
+# Ladder questions in the chat (/rank, /top, /clanrank, /seasons) per player: plenty for a person,
+# while a client sending them in a loop cannot keep the server reading the database.
+LADDER_COMMAND_BURST = 5
+LADDER_COMMANDS_PER_SECOND = 0.5
+# How many places /top and the server's texts name.
+LADDER_TOP_COUNT = 5
 
 # Access code checks for game logons, all clients together. Each costs a scrypt hash of tens of
 # milliseconds on the event loop; beyond this budget a logon is refused rather than stalling every
@@ -539,8 +546,8 @@ LIVE_STATE_STALE_SECONDS = 30.0
 # in; the id only names the group in the client's chat log file (0x5d2420).
 ANNOUNCEMENT_GROUP_ID = 0
 
-# Server line for the players of a ladder game: Blue Byte's server ranked ladder games, this one
-# keeps no ladder.
+# Server line for the players of a ladder game while the ladder is switched off (setting
+# ladder_enabled): the server ranks in the background, but the game is told nothing counts.
 LADDER_NOT_SUPPORTED_TEXT = "Ladder games are not supported on this server: you can play, but the result is not ranked."
 
 # Server line for a player who opens the MessageZone (setting board_chat_hint). The game looks up the
@@ -556,6 +563,10 @@ BOARD_CHAT_HINT_TEXT = (
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.
 HOUSEKEEPING_INTERVAL_SECONDS = 0.25
+
+# How often the server looks at ladder games waiting for a result (s3lobby/ladder.py). A result is
+# due minutes after a match at the earliest, so half a minute is soon enough and costs nothing.
+LADDER_EVALUATION_INTERVAL_SECONDS = 30.0
 
 # The client picks its connection nonce as rand() % 255 + 1 (0x604404); the server does the same.
 CONNECTION_NONCE_MIN = 1
@@ -637,3 +648,42 @@ EMPTY_CHAT_GROUP_KEEP_SECONDS = 120.0
 
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4
+
+# The ladder (s3lobby/ladder.py, docs/ladder.md). Not numbers of the protocol: the game keeps no
+# ladder, so these are this server's own rules.
+
+class LadderState(str, Enum):
+    """What became of a ladder game. WAITING is never stored: it is a game still waiting for its
+    reports or its timeout."""
+
+    COUNTED = "counted"
+    DISPUTED = "disputed"
+    VOID = "void"
+    WAITING = "waiting"
+
+
+class SeasonCounts(str, Enum):
+    """Which ladders a custom season counts."""
+
+    LIGA = "liga"
+    CLANLIGA = "clanliga"
+    BOTH = "both"
+
+
+# Elo: a rating difference of ELO_SCALE points means the stronger side is expected to win ten times
+# as often as the weaker one.
+ELO_SCALE = 400
+ELO_BASE = 10
+# Clan strength from Liga: the average of this many best members.
+CLAN_STRENGTH_MEMBER_COUNT = 3
+# A Liga game has exactly two players on two teams; a Clanliga game exactly two teams.
+LIGA_PLAYER_COUNT = 2
+LADDER_TEAM_COUNT = 2
+# Clanliga teams have one to four players each.
+MAX_CLANLIGA_TEAM_SIZE = 4
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_DAY = 86400
+MILLISECONDS_PER_SECOND = 1000
+# The version of the ladder's JSON output (`s3lobby ladder ... --format json`): raised whenever a
+# change would break a tool that reads it.
+LADDER_JSON_FORMAT = 1

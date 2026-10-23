@@ -36,6 +36,11 @@ another project; its history was carried over, so the early commits describe tha
   reach a player directly, from a second UDP port.
 - `s3lobby/live.py`: the running lobby as JSON; the server writes it to the database once a second
   when it changed, the web interface reads it. The two processes share nothing but the database.
+- `s3lobby/ladder.py`, `s3lobby/ladder_book.py`, `s3lobby/ladder_admin.py`: the ladder
+  (docs/ladder.md). `ladder.py` holds the rules as pure functions (when a game counts, Elo, seasons,
+  standings, clan strength); `ladder_book.py` (LadderBook) feeds them from the database, stores
+  results, and builds the views with names every front end shows; `ladder_admin.py` is `s3lobby
+  ladder`. Ratings are never stored, always replayed from the results.
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,
   `templates/`, `static/`). Public live lobby, everything else for admins only.
 - `docs/protocol.md`: the protocol as read from the game, with the S3.EXE address of every fact.
@@ -201,12 +206,11 @@ number can still slip in an ordinary action; admin commands are safe through /co
 
 ## Future work
 
-- Ladder games with a real ranking (owner's wish, see the README's Roadmap). Today ladder games are
-  played but unranked: players get a server line, and a ladder GameStatus is stored and answered
-  with 0x6A. Building blocks that exist: `GameStatus` decodes flags, winning team and every slot
-  (player id = account id, team, race, computer flag); reports are stored in `game_reports`;
-  `/games` already decodes them. Still to decide: when a result counts (every player's report
-  agreeing, both teams human, the match long enough), how to rank (wins, an Elo-like rating),
-  clan ladder for LadderType.CLANS, where to show it (web page, Home news text, a chat command),
-  and only then answering ladder reports with 0x6C instead of 0x6A, which the game shows as "Game
-  status stored at the Lobby server." (0x540a3e).
+- The ladder's own texts (docs/ladder.md, step 4): the board theme the server writes (season
+  starts and ends, a weekly summary; plain text, line breaks only), the ladder block under the
+  news, the announcement when a custom season ends, the optional logon line, and the line about a
+  decided dispute at the next logon. Each written once per event through `record_ladder_event`.
+- A run with the real game for the ladder: a Liga match between two machines played to the end and
+  one where the loser quits (does the stayer's report mark the leaver with slot state 3?), a
+  Clanliga 2 on 2, and `ladder_enabled` on to see the game show 0x6c. Only then may the setting
+  default to on.

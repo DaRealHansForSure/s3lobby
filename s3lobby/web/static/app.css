@@ -177,3 +177,72 @@
   font-size: var(--size-sm);
   max-width: var(--measure);
 }
+
+/* The ladder (ladder.html, ladder_games.html). Colours come from the kit's tokens and are set by
+   class, never by a style attribute: the Content-Security-Policy forbids inline styles. */
+
+/* Category colours for the rating chart's lines and legend keys, in the kit's order. */
+.seg-1 { --seg: var(--data-1); }
+.seg-2 { --seg: var(--data-2); }
+.seg-3 { --seg: var(--data-4); }
+
+/* A row of filters above a table, aligned on the fields' bottom edge. */
+.toolbar { align-items: end; margin-bottom: var(--space-5); }
+
+/* A count inside a tab, for the admins' state filter. */
+.tab .badge { margin-left: var(--space-2); }
+
+/* The first three places, as cards. */
+.podium .card { display: grid; gap: var(--space-2); align-content: start; }
+.podium-place { font-size: var(--size-3xl); font-weight: 700; line-height: 1; color: var(--text-muted); }
+.podium-rating { font-family: var(--font-code); font-size: var(--size-2xl); font-weight: 700; }
+
+/* A side's last results: one square each, oldest first. */
+.form-strip { display: inline-flex; gap: var(--space-1); vertical-align: middle; }
+.form-strip .result {
+  display: inline-block;
+  width: var(--space-3);
+  height: var(--space-3);
+  border: 1px solid var(--border-strong);
+}
+.form-strip .result--won { background: var(--good-fill); }
+.form-strip .result--lost { background: var(--bad-fill); }
+.form-strip .result--left { background: var(--warn-fill); }
+
+/* A share as a small bar: an SVG, so its width needs no inline style. */
+.bar { display: inline-block; width: 6rem; height: var(--space-2); vertical-align: middle; }
+.bar .bar-track { fill: var(--surface-alt); }
+.bar .bar-fill { fill: var(--data-2); }
+.bar--wide { width: 100%; }
+.cell-bar { display: flex; align-items: center; gap: var(--space-2); }
+.cell-bar .num { flex: none; white-space: nowrap; }
+
+/* Ratings over time. */
+.chart .series { fill: none; stroke-width: 2; }
+.chart .series-1 { stroke: var(--data-1); }
+.chart .series-2 { stroke: var(--data-2); }
+.chart .series-3 { stroke: var(--data-4); }
+.chart .start-line { stroke: var(--border-strong); stroke-dasharray: 4 4; }
+.chart .grid-line { stroke: var(--border); }
+.chart .axis-label { text-anchor: end; }
+
+/* A season as a card: name and state, dates, progress, and its actions. */
+.season-card { display: grid; gap: var(--space-3); align-content: start; }
+.season-card .row { justify-content: space-between; }
+.season-card .season-actions { justify-content: flex-start; }
+
+/* A form that opens in place (void a result, edit a season), with no script. */
+.row-details { display: inline-block; text-align: start; }
+.row-details > summary { list-style: none; cursor: pointer; }
+.row-details > summary::-webkit-details-marker { display: none; }
+.row-details[open] > form { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* Fields with hints of different lengths: line the fields up on their labels. */
+.form-grid--top { align-items: start; }
+
+/* Tabs that are links to other views of a page: no underline, and the current one marked like a
+   selected tab. */
+a.tab { text-decoration: none; }
+a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+.toolbar .form-actions { margin-top: 0; }
+.toolbar .field { margin-bottom: 0; }

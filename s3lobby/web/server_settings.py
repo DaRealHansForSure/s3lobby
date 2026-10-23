@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from flask import Blueprint, flash, redirect, render_template, url_for
+from flask import Blueprint, flash, redirect, render_template, request, url_for
 from werkzeug.wrappers import Response
 
-from s3lobby.database import TRUE_SETTING_VALUES, DatabaseError, Setting, check_setting_value
+from s3lobby.database import TRUE_SETTING_VALUES, DatabaseError, LobbyDatabase, Setting, check_setting_value
 from s3lobby.web.auth import redirect_visitors_to_logon
 from s3lobby.web.lobby_view import read_live_lobby_page
 from s3lobby.web.storage import apply_change, get_database, sentence_from_error
@@ -90,6 +90,61 @@ SETTING_FIELDS = (
         "tried with the real game.",
         is_checkbox=True,
     ),
+    SettingField(
+        Setting.LADDER_ENABLED,
+        "Ladder: tell the game a result was stored",
+        "Answer a valid ladder report with \"Game status stored at the Lobby server.\" instead of \"not "
+        "valid for ladder\", and stop telling players that ladder games are not ranked. The ladder ranks "
+        "games either way. Not yet tried with the real game.",
+        is_checkbox=True,
+    ),
+    SettingField(
+        Setting.LADDER_MINIMUM_MINUTES,
+        "Ladder: minimum game time",
+        "Minutes on the game's clock. Shorter matches, and players leaving earlier, count for nobody.",
+    ),
+    SettingField(
+        Setting.LADDER_REPORT_TIMEOUT_MINUTES,
+        "Ladder: report timeout",
+        "Minutes after a game closed in which its players' end reports may still arrive.",
+    ),
+    SettingField(
+        Setting.LADDER_PAIR_DAILY_LIMIT,
+        "Ladder: results per pair and day",
+        "Counted results between the same two players or clans in one day; more are void (win trading).",
+    ),
+    SettingField(Setting.LADDER_START_RATING, "Ladder: start rating", "Everyone's rating before the first result."),
+    SettingField(Setting.LADDER_K, "Ladder: K", "How far one result moves an established rating."),
+    SettingField(
+        Setting.LADDER_K_PROVISIONAL,
+        "Ladder: K while provisional",
+        "How far one result moves a new player's rating.",
+    ),
+    SettingField(
+        Setting.LADDER_PROVISIONAL_GAMES,
+        "Ladder: provisional results",
+        "A rating is provisional until it rests on this many results.",
+    ),
+    SettingField(
+        Setting.LADDER_ACTIVE_DAYS,
+        "Ladder: active days for clan strength",
+        "A member counts for a clan's strength from Liga only with a Liga result this recent.",
+    ),
+    SettingField(
+        Setting.LADDER_CLAN_MEMBER_DAYS,
+        "Ladder: days in a clan for Clanliga",
+        "A player counts for a clan in Clanliga only after this many days in it.",
+    ),
+    SettingField(
+        Setting.LADDER_INACTIVE_DAYS,
+        "Ladder: inactive days",
+        "Players without a result for this long leave the infinite season's standings until they play.",
+    ),
+    SettingField(
+        Setting.LADDER_MAX_CUSTOM_SEASONS,
+        "Ladder: most custom seasons",
+        "How many custom seasons may exist at once.",
+    ),
 )
 
 
@@ -123,7 +178,8 @@ def show_settings() -> str:
 def save_settings() -> Response:
     """Check every value first and save only when all pass, so a typo in one field never leaves
     the settings half changed."""
-    new_values = {field.setting: setting_value_from_form(field) for field in SETTING_FIELDS}
+    database = get_database()
+    new_values = {field.setting: setting_value_from_form(field, database) for field in SETTING_FIELDS}
     has_error = False
     for setting, value in new_values.items():
         try:
@@ -139,13 +195,17 @@ def save_settings() -> Response:
     return redirect(url_for("server_settings.show_settings"))
 
 
-def setting_value_from_form(field: SettingField) -> str:
-    """The value the form sent for a setting; a checkbox becomes the stored on or off value."""
+def setting_value_from_form(field: SettingField, database: LobbyDatabase) -> str:
+    """The value the form sent for a setting; a checkbox becomes the stored on or off value. A text
+    field the form does not send keeps its stored value, so a page loaded before a setting existed
+    cannot wipe it."""
     # A browser leaves an unticked checkbox out of the form, so "off" has to be written explicitly.
     if field.is_checkbox:
         if form_flag(field.setting.key):
             return CHECKED_SETTING_VALUE
         return UNCHECKED_SETTING_VALUE
+    if field.setting.key not in request.form:
+        return database.get_setting(field.setting)
     return form_text(field.setting.key)
 
 

@@ -1,9 +1,16 @@
-# Ladder concept ("Liga" and "Clanliga")
+# The ladder ("Liga" and "Clanliga")
 
-Status: a concept, nothing of it is built yet. It describes how s3lobby will rank ladder games with
-the data the unmodified game already sends, and in which steps it is built. Facts about the game
-cite `docs/protocol.md` or an S3.EXE address; everything else is design. The owner's decisions of
-2026-10-23 are listed at the end and built into the text.
+Status: built, except the texts the server writes on its own (board, news, announcements, the
+logon line and the line about a decided dispute; see "Building it in steps"), and not yet tried
+with the real game. This document describes how s3lobby ranks ladder games with the data the
+unmodified game already sends. Facts about the game cite `docs/protocol.md` or an S3.EXE address;
+everything else is design. The owner's decisions of 2026-10-23 are listed at the end and built into
+the text.
+
+Where it lives: the rules in `s3lobby/ladder.py` (pure functions), reading and writing the
+database in `s3lobby/ladder_book.py` (LadderBook), the server's evaluation in `Lobby.evaluate_ladder_games`
+every 30 seconds, `s3lobby ladder` in `s3lobby/ladder_admin.py`, the chat commands in
+`s3lobby/commands.py`, the web pages in `s3lobby/web/ladder_pages.py`.
 
 ## What the game gives us
 
@@ -34,11 +41,12 @@ castle), and a player's buildings count only while that player still plays (prot
 +0x11943dc). A match therefore ends either when one side is wiped out or when the other side's
 players left; there is no surrender and no draw in the report.
 
-## Today
+## Before the ladder
 
-Every report is stored in `game_reports` and linked to its game (migration 0008); the web
-interface decodes it. A ladder report is answered with 0x6a, and every player of a ladder game
-gets a server line that ladder games are not ranked.
+Every report was stored in `game_reports` and linked to its game (migration 0008); the web
+interface decodes it. A ladder report was answered with 0x6a, and every player of a ladder game got
+a server line that ladder games are not ranked. With `ladder_enabled` off, the game still hears
+exactly that.
 
 ## 1. When a ladder result counts
 
@@ -168,6 +176,10 @@ The game has two places for longer texts, and both suit the ladder in different 
 most 1200 bytes per text (`MAX_TEXT_MESSAGE_BYTES`) and come in a German and an English form,
 because the game picks the news by its language (0x45351b) and the board by its language group.
 
+- **Board texts are plain text.** The board screen adds a message line by line to its text
+  widget (0x447a58..0x447a80 calls 0x420a40), which splits only at line breaks (0x0a, 0x420cb0);
+  no markup (BBCode, colour codes or the like) was found on that path. Line breaks are the only
+  formatting; whether long lines wrap on screen is to be seen in a run.
 - **The board (MessageZone), for things worth keeping.** A theme "Ladder" (German "Liga") that the
   server writes itself and admins cannot post into. It gets one message per event, not per match:
   a custom season starting (name, dates, what counts), a custom season ending (final top five and
@@ -314,8 +326,14 @@ should be able to build their own pages, bots or tools on it. So:
   won, left.
 - `ladder_seasons`: name, start, end (null while open), ladders counted, created by. The
   infinite season is not a row: it is all results.
-- `accounts.clan_joined_at`: when the account joined its current clan (null for the members of
-  today; they count as members since before the ladder started).
+- `games.ladder_type`: the ladder the host chose, as the game was last shown.
+- `game_players.clan_id`, `clan_joined_at`, `installation`: the clan a player showed when joining a
+  game, since when they were in it (copied from `clan_members.joined_at`, which saving the same
+  clan again no longer resets), and a number for their copy of the game (equal for one serial
+  number, which is never stored).
+- `ladder_events`: texts the server wrote on its own, once per event.
+- `ladder_result_players.account_id` has no foreign key: a deleted account keeps its id there, so
+  its opponents' ratings replay exactly as they were played.
 - No rating table: ratings are computed from the results when asked and cached in memory by the
   web interface and the server; the number of results of a small lobby keeps this cheap.
 
@@ -348,6 +366,12 @@ styles, so the real pages can take them over into `app.css` as they are.
 3. **Tell the game.** With `ladder_enabled` on, valid end reports get 0x6c and the "not ranked"
    line goes away. Off by default until a run with the real game shows the message (project rule
    for anything the game has not seen from this server).
+4. **The lobby's own texts** (still to build): the board theme with season starts, season ends and
+   a weekly summary, the ladder block under the news, the announcement when a custom season ends,
+   the optional logon line, and the line about a decided dispute at the next logon.
+
+Steps 1 to 3 are built (2026-10-23): evaluation, standings, chat commands, the command line, the
+web pages, and the answer to the game behind `ladder_enabled`.
 
 ## To confirm in a run first
 

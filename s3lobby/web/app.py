@@ -18,7 +18,7 @@ from s3lobby.constants import (
 )
 from s3lobby.database import PLAYER_NAME_PATTERN, TRUE_SETTING_VALUES
 from s3lobby.server import DEFAULT_DATABASE_PATH
-from s3lobby.web import accounts, auth, content, games, lobby_view, server_settings
+from s3lobby.web import accounts, auth, content, games, ladder_pages, lobby_view, server_settings
 from s3lobby.web.auth import install_logon_failure_limiter
 from s3lobby.web.security import add_security_headers, check_csrf_token
 from s3lobby.web.storage import close_database
@@ -106,6 +106,8 @@ def create_app(
         content.blueprint,
         server_settings.blueprint,
         games.blueprint,
+        ladder_pages.public_blueprint,
+        ladder_pages.admin_blueprint,
     ):
         app.register_blueprint(blueprint)
     return app
