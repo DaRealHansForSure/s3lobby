@@ -8,7 +8,7 @@ explains how the pieces fit together.
 Values the game does not dictate, but this server chooses, say so in their comment.
 """
 
-from enum import IntEnum, IntFlag
+from enum import Enum, IntEnum, IntFlag
 
 # Network addresses.
 
@@ -637,3 +637,39 @@ EMPTY_CHAT_GROUP_KEEP_SECONDS = 120.0
 
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4
+
+# The ladder (s3lobby/ladder.py, docs/ladder.md). Not numbers of the protocol: the game keeps no
+# ladder, so these are this server's own rules.
+
+class LadderState(str, Enum):
+    """What became of a ladder game. WAITING is never stored: it is a game still waiting for its
+    reports or its timeout."""
+
+    COUNTED = "counted"
+    DISPUTED = "disputed"
+    VOID = "void"
+    WAITING = "waiting"
+
+
+class SeasonCounts(str, Enum):
+    """Which ladders a custom season counts."""
+
+    LIGA = "liga"
+    CLANLIGA = "clanliga"
+    BOTH = "both"
+
+
+# Elo: a rating difference of ELO_SCALE points means the stronger side is expected to win ten times
+# as often as the weaker one.
+ELO_SCALE = 400
+ELO_BASE = 10
+# Clan strength from Liga: the average of this many best members.
+CLAN_STRENGTH_MEMBER_COUNT = 3
+# A Liga game has exactly two players on two teams; a Clanliga game exactly two teams.
+LIGA_PLAYER_COUNT = 2
+LADDER_TEAM_COUNT = 2
+# Clanliga teams have one to four players each.
+MAX_CLANLIGA_TEAM_SIZE = 4
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_DAY = 86400
+MILLISECONDS_PER_SECOND = 1000
