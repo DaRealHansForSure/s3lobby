@@ -247,16 +247,19 @@ class Lobby:
     # Index server role.
 
     def _answer_patch_check(self, client_address: Address, message: RawMessage) -> None:
-        # Result NO_PATCH_NEEDED is the simplest answer the client accepts: its handler marks the
-        # answer as received and takes this server as its index server (0x5cff1c, 0x5cff27). The
-        # alternative, a patch information message, is easy to get wrong (every accessor asserts
-        # a minimum size) and only needed to offer an FTP patch.
+        # The server never says a patch is needed: there is none to offer, and a game told to fetch
+        # one stops before the logon. Every version check, whatever version, edition and language
+        # it reports, gets Result NO_PATCH_NEEDED: the client's handler marks the answer as received
+        # and takes this server as its index server (0x5cff1c, 0x5cff27). PATCH_INFORMATION (0x12)
+        # is never sent. Games of another version still cannot join each other's games: the game
+        # block carries a checksum of the game's program that the joining client compares.
         request = CheckFileVersion.decode(message)
         log.info(
-            "%s: patch check, game version %d, edition %d: no patch needed",
+            "%s: patch check, game version %d, edition %d, %s: no patch needed",
             client_address,
             request.game_version,
             request.edition,
+            request.language_name,
         )
         self._outbox.send(client_address, Result(ResultCode.NO_PATCH_NEEDED))
 
@@ -525,14 +528,27 @@ class Lobby:
         return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
 
     def _store_game_status(self, client_address: Address, message: RawMessage) -> None:
-        """A client reports how its match went (sent from 0x540500). The report is kept as the
-        client wrote it, for a ladder to read later, and the client is told it was stored."""
+        """A client reports on its match, once at the start and once when a single team is left
+        (0x540500). The report is kept as the client wrote it, and the client is told it was
+        stored; the game shows that answer only during a ladder game (0x540a18)."""
         status = GameStatus.decode(message)
         player = self._find_logged_on_player(client_address)
         if player is None:
             return
         self._database.store_game_report(player.player_id, status.group_id, message.body)
-        log.info("player %d %r reported the match of group %d", player.player_id, player.name, status.group_id)
+        outcome = "no winner yet"
+        if status.has_winner:
+            outcome = f"team {status.winning_team} won"
+        log.info(
+            "player %d %r reported the match of group %d: map %r, %s, %d slot(s), game time %d",
+            player.player_id,
+            player.name,
+            status.group_id,
+            status.map_name,
+            outcome,
+            len(status.players),
+            status.game_time,
+        )
         self._outbox.send(client_address, Result(ResultCode.GAME_STATUS_STORED))
 
     def _online_player_names(self) -> list[str]:

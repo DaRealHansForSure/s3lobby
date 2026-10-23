@@ -48,6 +48,9 @@ works without Flask), and `cli.py` imports the web app only inside the `web` com
   game (its code or a recorded session). Several odd looking rules exist only because the client
   breaks without them: the order Result before OwnPlayer, the leave confirmation, no confirmation
   when a host comes back from a match, server-assigned game ids. Their comments explain why.
+- The server never tells the game that a patch is needed: every version check gets Result
+  NO_PATCH_NEEDED, whatever version, edition or language it reports, and PATCH_INFORMATION (0x12)
+  is never sent. This is the owner's rule; do not research or build a patch path.
 - Every fact about the protocol cites where it comes from: an address in S3.EXE (GOG release,
   SHA-256 `00a925cf...804d950b`) or "seen in a run". Mark guesses as inferred. Update
   `docs/protocol.md` together with the code.

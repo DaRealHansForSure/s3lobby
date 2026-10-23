@@ -187,12 +187,15 @@ Offsets count from the first byte after the header.
 ### Patch check (index server)
 
 - **0x11 CheckFileVersion** (constructor 0x5e8380): u32 version (0xa0 = 160, global 0x6970f0),
-  u32 edition ([0x7a7ff8]: 2 Mission CD, 3 Plus, 4 both), u32 unknown (config + 0x28).
+  u32 edition ([0x7a7ff8]: 2 Mission CD, 3 Plus, 4 both), u32 language (config + 0x28, passed at
+  0x43af70): the index into the languages of the game's text archive, 0 German, 1 English,
+  2 Italian, 3 French, 4 Polish, 5 Spanish, 6 Korean, 7 Japanese. At start the game clamps it to the
+  archive's language count (0x42e94b..0x42e97b). A German game sends 0 (seen in a run).
 - **Answer**: Result (below) with code 9 means "no patch" (0x5cffe1): the handler marks the answer
   as received and takes the sender as server (0x5cff1c, 0x5cff27); the patch flag stays 0.
 - **0x12 patch information** (0x5ccc50) is the alternative answer: u32 patch flag (0 = no patch),
-  then string lists for the FTP patch. Every accessor asserts `size > 16`, so it is easy to get
-  wrong; the server uses Result 9.
+  then string lists for the FTP patch. s3lobby never sends it and never says a patch is needed:
+  every version check, whatever it reports, gets Result 9.
 
 ### Lobby server list
 
@@ -253,19 +256,34 @@ can be accepted as they come.
 
 - **0x0f AddGroupToGroup** (constructor 0x5e2d60): u32 parent, u32 group id, u32 flags, u32 maximum
   player count, three strings (name, description column, password), then optional parts by flag:
-  - `0x400`: game block, 0x2c bytes: sockaddr_in of the host, 16 bytes (*inferred*: DirectPlay
-    session GUID), 3 x u32.
-  - `0x40000`: description, u32 length then that many bytes (the client stores a whole serialized
-    game description message there; a server forwards it unchanged).
+  - `0x400`: game block, 0x2c bytes: sockaddr_in of the host, the DirectPlay session GUID (16
+    bytes), u32 game version (160, global 0x6970f0), then the checksum of the game's program as two
+    u32, low half first (0x40b417, 0x61b6e0, a 64-bit value computed at start over the program).
+    A client whose own checksum differs shows the game with its version and cannot join it
+    (0x44b19d, 0x4436ac).
+  - `0x40000`: description, u32 length then that many bytes: a serialized game description (below).
+    A server forwards it unchanged.
   - `0x4000000`: the receiver asks for the group's images (GetImageList).
 
   Parent 0 tells the receiver it has joined that group (handler 0x5d2790); a parent that is a joined
   room makes the group visible inside it. Sent with group id 0 from another client, it is a private
   chat invitation.
-- **0x20 AddGroupToGroup2** (constructor 0x5e3b40): as 0x0f, game block 0x34 bytes (5 x u32).
+- **0x20 AddGroupToGroup2** (constructor 0x5e3b40): as 0x0f, but the game block is 0x34 bytes:
+  after the checksum come u32 Amazons (bit 0: the host allowed the Amazons, so the game needs the
+  add-on; the game list marks it, 0x44b1e6..0x44b232) and u32 ladder type: 0 normal game,
+  1 "Ladder: 1 on 1", 2 "Ladder Game: Clans", the host's choice in the game setup
+  (0x4848b4..0x48493b, CreateGame 0x46180b..0x46181e), shown in the game list as "", "Liga" and
+  "Clanliga" (0x44b843, 0x44b97a).
+- **Game description** (CLMGameDescription, constructor 0x4504e0): a whole message of type 0,
+  header included, written by CreateGame (0x4547cc) and again by UpdateGameSettings (0x454df4)
+  whenever the host changes the setup: u32 number of teams (the setup's team list, settings +0x50),
+  u32 number of computer opponents (slots in state 2, 0x435ca0), u32 1 for a ladder game, string
+  map name (the map's name, or a backslash and the random map's name for a random map,
+  0x4616da..0x461796). The game list shows the map and the team count from it (0x44b160,
+  0x44b500). Seen in a run: 2 teams, 0 computer opponents, ladder 1, `\Random`.
 - **0x19 UpdateGroup** (constructor 0x5ea320): u32 group id, u32 update mask, u32 flags, u32 maximum
-  player count, three strings, the 0x2c game block and the description (u32 length, bytes), both
-  always present. Mask (0x5dbf80): 1 name, 2 second text, 4 third text, 8 flags, 0x10 maximum,
+  player count, three strings, the 0x2c game block (the short form: no Amazons value and no ladder
+  type) and the description (u32 length, bytes), both always present. Mask (0x5dbf80): 1 name, 2 second text, 4 third text, 8 flags, 0x10 maximum,
   0x20 game block, 0x40 description. **0x21** is the same with the 0x34 game block.
 - **0x10 RemoveGroupFromGroup**: u32 parent, u32 group id; size exactly 12.
 - **0x1a group counters** (handler 0x5d8580): u32 group id, u32 players, u32 maximum, u32 flags
@@ -277,10 +295,10 @@ can be accepted as they come.
 and partly seen in runs:
 
 1. The host sends AddGroupToGroup2 with parent = the zone it is in (or a chat group), group id
-   0xffffffff, flags 0x840401 and a game block of five values (version 160, two check values, the
-   Amazons add-on flag, the league type 0/1/2 shown as "", "Liga", "Clanliga"). The description
-   holds the teams and the map name. Chat groups are opened the same way (CreateGame 0x5ca7d0,
-   called from 0x5dd5b9), without a game block.
+   0xffffffff, flags 0x840401, the maximum player count (the number of human slots: slots in state
+   1, 0x435ac0; seen in runs: 2 for 1 vs 1, 1 for Human vs Computer), the long game block and the
+   game description. Chat groups are opened the same way (CreateGame 0x5ca7d0, called from
+   0x5dd5b9), without a game block.
 2. The server picks the id, sends the group back to the host with parent 0, and shows it in the
    zone with its counters.
 3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
@@ -413,10 +431,30 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 
 ### Other
 
-- **0x1f GameStatus** (0x540500): u32 group id, 3 x u32 (flags with 1 = league game, winning team,
-  ...), string, u32 n, n x 6 u32 per player. No answer expected; Result 0x6c shows "Game status
-  stored at the Lobby server" in the game, 0x6a "Game status inconsistencies. Game not valid for
-  ladder" (0x540a3e).
+- **0x1f GameStatus** (Logic.SendGameStatus 0x540500, constructor 0x5ec280): a report on the
+  match. Every client of a lobby game sends one when the match starts (unconditionally, 0x53da69,
+  right after "CLogicThread: Initialisierung abgeschlossen") and one when a single team is left
+  (0x53ae66, once). Body: u32 group id (the lobby game), u32 flags (1 ladder game, game settings
+  +0x2a; 2 not valid for the ladder: a ladder slot without lobby player id, 0x5405ec, or the lobby
+  manager's mark +0x675), u32 winning team (0xffffffff while more than one team is left: a team
+  counts while it still owns buildings of the types 0xf, 0x10 or 0x12, 0x5406e7..0x540768), u32
+  game time (the game's tick counter, global 0x7dfd48), string map (the map file of the game
+  settings, +0x2c via 0x436a60), u32 n, then n records of six u32 per slot in the match
+  (0x5ec316..0x5ec505):
+
+  | Field | Meaning |
+  |---|---|
+  | flags | 1 computer opponent (slot state 2), 2 slot state 3 (*inferred*: a player who left), 4 no player number in the match (0x540625..0x540680) |
+  | lobby player id | the id the lobby gave the slot's player (0x1195d7c table) |
+  | race | 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons (*inferred* from the setup's race choices 0x48c2a3 and the per-race tables indexed with it, 0x4dd2fc) |
+  | unused | always 0 (0x54061d) |
+  | slot | slot number, 0 to 19 |
+  | team | the slot's team, numbered as the winning team |
+
+  Slot states in the setup (names at 0x48fd26..0x490309): 0 free, 1 human, 2 computer opponent,
+  4 closed. The game shows the answer only during a ladder game (0x540a18): Result 0x6c as "Game
+  status stored at the Lobby server." (0x540a3e), 0x6a as "Game status inconsistencies. Game not
+  valid for ladder." (0x540b89). For other games it ignores the answer.
 
 ## Session sequence
 
@@ -434,8 +472,9 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 ## Starting a game
 
 The lobby only brokers. The host creates a DirectPlay session (0x4611e0), then announces it as a
-group (0x20, flag 0x400) with its address and the session GUID (*inferred*). A joining client reads
-both (group fields +0x30, +0x54) and `JoinLobbyGame` 0x467e00 builds a `CTCPConnectionShortcut`
+group (0x20, flag 0x400) with its address and the session GUID (every recorded game had a new one).
+A joining client reads both (group fields +0x30, +0x54, CGroup.GetSessionGuid 0x5db4c0) and
+`JoinLobbyGame` 0x467e00 builds a `CTCPConnectionShortcut`
 "Internet connection to " + host IP (0x5bacb0), then opens the session by GUID over DirectPlay's
 default ports. The match itself never passes through the lobby server. In game, each slot's lobby
 id is the player id (0x53d438); a league game with lobby id 0 logs `LOBBY: Invalid lobby id in

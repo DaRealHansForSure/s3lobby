@@ -158,8 +158,35 @@ class ResultCode(IntEnum):
     # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
     WRONG_GROUP_PASSWORD = 0x62
 
-    # Answer to GameStatus: the game shows 0x90148 "Game status stored at the Lobby server." (0x540a3e).
+    # Answer to GameStatus: 0x90148 "Game status stored at the Lobby server." (0x540a3e). The game
+    # shows answers to GameStatus only during a ladder game (0x540a18) and ignores them otherwise.
     GAME_STATUS_STORED = 0x6C
+
+
+class GameStatusFlag(IntFlag):
+    """Bits of GameStatus's flags (Logic.SendGameStatus 0x540500)."""
+
+    # The match is a ladder game (game settings +0x2a, 0x540770..0x54077e).
+    LADDER_GAME = 0x1
+    # Not valid for the ladder: a ladder slot has no lobby player id (0x5405ec, 0x5407b1), or the
+    # lobby manager marked the game (its byte +0x675, 0x54078a).
+    NOT_VALID_FOR_LADDER = 0x2
+
+
+class MatchPlayerFlag(IntFlag):
+    """Bits of a GameStatus player record's flags (0x540625..0x540680)."""
+
+    # The slot is a computer opponent (slot state 2; the setup names the states at 0x48fd26..0x490309:
+    # 0 free, 1 human, 2 computer opponent, 4 closed).
+    COMPUTER = 0x1
+    # The slot is in state 3, which the setup never shows (inferred: a human player who left).
+    SLOT_STATE_3 = 0x2
+    # The slot has no player number in the match (its number is 0xff, 0x540631).
+    NO_PLAYER_NUMBER = 0x4
+
+
+# GameStatus's winning team while more than one team is still in the match (0x540747..0x540768).
+NO_WINNING_TEAM = 0xFFFFFFFF
 
 
 class LogonFlag(IntFlag):
@@ -279,13 +306,43 @@ GROUP_COUNTERS_FULL = 0x1
 
 
 # Size of the game block, socket address included, per announcement or update type: the 2 variants
-# carry two more u32 values (5 instead of 3).
+# carry two more u32 values (5 instead of 3). After the address come the DirectPlay session GUID,
+# the game version and the checksum of the game's program (low half first); the long block adds the
+# Amazons value and the ladder type (constructors 0x5e3b40, 0x5ea320).
 GAME_BLOCK_SIZE_BY_MESSAGE_TYPE = {
     MessageType.ADD_GROUP_TO_GROUP: 0x2C,
     MessageType.ADD_GROUP_TO_GROUP_2: 0x34,
     MessageType.UPDATE_GROUP: 0x2C,
     MessageType.UPDATE_GROUP_2: 0x34,
 }
+
+SESSION_GUID_SIZE = 16
+
+# Bit 0 of the game block's Amazons value: the host allowed the Amazons, so the game needs the
+# "Quest of the Amazons" add-on; the game list marks such games (0x44b1e6..0x44b232, text 0x9016b).
+AMAZONS_ALLOWED_BIT = 0x1
+
+
+class LadderType(IntEnum):
+    """The last value of a long game block: what the host picked under "Normal Game",
+    "Ladder: 1 on 1" and "Ladder Game: Clans" in the game setup (radio buttons 0x4848b4..0x48493b,
+    passed by CreateGame at 0x46180b..0x46181e). The game list shows "Liga" and "Clanliga" for 1 and
+    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server keeps no
+    ladder."""
+
+    NONE = 0
+    INDIVIDUAL = 1
+    CLANS = 2
+
+
+# A game's description is a serialized message of its own, typed 0 (CLMGameDescription, constructor
+# 0x4504e0). It only ever travels inside a group's description, never as a lobby message.
+GAME_DESCRIPTION_MESSAGE_TYPE = 0
+
+# The languages of the game's text archive (GFX/siedler3_09.*.dat), in the archive's order. The game
+# keeps the index of its language in its configuration (offset 0x28) and clamps it to the archive's
+# language count at start (0x42e94b..0x42e97b); CheckFileVersion reports it as its third value.
+GAME_LANGUAGES = ("German", "English", "Italian", "French", "Polish", "Spanish", "Korean", "Japanese")
 
 # The languages the MessageZone tab knows. The client looks for a group named "MessageThemes"
 # followed by its own language, and falls back to English (0x453831, 0x4539ce).
