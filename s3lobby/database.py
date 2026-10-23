@@ -130,7 +130,8 @@ class Setting(Enum):
     BANNER_ID = "banner_id"
     BANNER_SUB_ID = "banner_sub_id"
     # Admins' rows in the room member lists are drawn in another colour (AddPlayerToGroup 0x26).
-    # Off by default: no run with the real game has shown this message yet.
+    # Off by default, as it was the first message no run had shown; 0x26 has since been seen working
+    # for a highlighted clan.
     MARK_ADMINS = "mark_admins"
     # After each logon from the internet, probe whether other players can reach the player
     # directly (reachability.py). Off by default: no run with the real game has seen the probe.

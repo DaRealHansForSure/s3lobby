@@ -70,8 +70,8 @@ SETTING_FIELDS = (
     SettingField(
         Setting.MARK_ADMINS,
         "Mark admins in the member lists",
-        "Draw admins' rows in the room member lists in another colour. Not yet tried with the real "
-        "game: turn it off again if players lose their connection when an admin enters a room.",
+        "Draw admins' rows in the room member lists in green (blue for an admin who shows the clan "
+        "BB). The message is the one highlighted clans use, which a run with the game confirmed.",
         is_checkbox=True,
     ),
     SettingField(

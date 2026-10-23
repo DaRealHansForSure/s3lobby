@@ -435,11 +435,12 @@ the AddGroupToGroup (assert `! vJoinedGroups.contains`) and drop the connection.
 - **0x26** (handler 0x5d6520): 0x25 plus u32 player flags, right after the clan name (the flags
   getter 0x5e7900 skips the three strings and 31 bytes of fixed fields). Bit 0 draws the row's
   name and clan in green (0xff00, 0x449da1..0x449dbe); with the clan name exactly "BB" (text at
-  0x69a568) they get 0xff3300 instead (0x449de2..0x449eb5; *inferred*: Blue Byte staff). No other
-  bit and no other colour exists, so clans cannot have colours of their own. s3lobby sends bit 0
-  for admins when the setting `mark_admins` is on, and for players who show a clan an admin marked
-  green (`s3lobby clan highlight`, the Clans page); both are off by default, as no run has shown
-  0x26 yet.
+  0x69a568) they get 0xff3300 instead (0x449de2..0x449eb5; *inferred*: Blue Byte staff), which is
+  blue: the game's colours are Windows colour values, blue byte first (seen in a run: a member of
+  the highlighted clan "BB" listed in blue, the connection unharmed). No other bit and no other
+  colour exists, so clans cannot have colours of their own. s3lobby sends bit 0 for admins when
+  the setting `mark_admins` is on, and for players who show a clan an admin marked green
+  (`s3lobby clan highlight`, the Clans page).
 - **0x0d RemovePlayerFromGroup**: u32 group id, u32 player id; size exactly 12. Sent by the client
   to leave (0x5ca5e0).
 
