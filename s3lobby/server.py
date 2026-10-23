@@ -265,6 +265,21 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._send_due_datagrams(connection)
         log.info("%s: connection closed by the server", client_address)
 
+    def close_connection_later(self, client_address: Address, delay_seconds: float) -> None:
+        """Close the connection after delay_seconds, but only the connection there is now: a client
+        that opened a new one meanwhile (logged on again) keeps it."""
+        connection = self._connections.get(client_address)
+        if connection is None:
+            return
+        asyncio.get_running_loop().call_later(
+            delay_seconds, self._close_connection_if_unchanged, client_address, connection
+        )
+
+    def _close_connection_if_unchanged(self, client_address: Address, connection: ReliableConnection) -> None:
+        """The delayed half of close_connection_later."""
+        if self._connections.get(client_address) is connection:
+            self.close_connection(client_address)
+
     def server_address_text_for(self, client_address: Address) -> str:
         """The "host:port" a client should log on to: the configured public host, or else the local
         IP the operating system would use to reach that client."""
