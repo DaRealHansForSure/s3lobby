@@ -218,6 +218,12 @@ class MatchPlayerFlag(IntFlag):
     RANDOM_RACE = 0x4
 
 
+# One step of a match's game time (GameStatus's game_time, the tick counter 0x7dfd48): the logic
+# thread's timer runs every 64 ms (0x53d761), and the game's own clock shows the counter as
+# (ticks * 64) / 1000 seconds (0x4b3fa2..0x4b3fb6). Game time stops while the game waits for its
+# players, so it can lag behind the clock on the wall, never run ahead.
+GAME_TICK_MS = 64
+
 # GameStatus's winning team while more than one team is still in the match (0x540747..0x540768).
 NO_WINNING_TEAM = 0xFFFFFFFF
 
@@ -410,9 +416,13 @@ UNKNOWN_TEXT_TITLE = "Not available"
 # Keeps a text message within one unfragmented datagram on any network; longer texts are cut.
 MAX_TEXT_MESSAGE_BYTES = 1200
 
-# The banner's url must start like this; the game skips the first six characters and splits the rest
-# into host and path at the first slash (0x449938).
+# The banner's url must start like this; the game skips the first six characters without checking
+# them and splits the rest into host and path at the first slash (0x46501f..0x465110). The host is
+# used as it is, on port 21 and anonymously (0x4659fd..0x465a0f): no ":port", no "user@".
 BANNER_URL_PREFIX = "ftp://"
+# The game ignores a banner with id 0 (0x449894); it downloads one whenever its id or sub id
+# differs from the pair it saw last, never because the url changed (0x5ebfd0).
+NO_BANNER_ID = 0
 
 # Logon attempts: a token bucket per IP and per account name from that IP, drawn on by failed
 # attempts only, so a LAN party behind one router can log on together while guessing access codes

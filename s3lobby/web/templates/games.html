@@ -56,14 +56,14 @@
   <div class="section-head">
     <h2>Match reports</h2>
     <p>Every player's game reports once when the match starts and once when a single team is left.
-    Game time is the game's own tick counter. The original bytes stay downloadable.</p>
+    Played is the game's own clock, 64 ms per tick. The original bytes stay downloadable.</p>
   </div>
   {% if reports %}
   <div class="scroll-x">
     <table class="table">
       <thead>
         <tr>
-          <th>Received</th><th>From</th><th>Game</th><th>Map</th><th>Outcome</th><th class="num">Game time</th>
+          <th>Received</th><th>From</th><th>Game</th><th>Map</th><th>Outcome</th><th class="num">Played</th>
           <th>Players</th><th class="cell-actions"></th>
         </tr>
       </thead>
@@ -87,7 +87,7 @@
               {% for note in report.flag_notes %}<span class="badge">{{ note }}</span>{% endfor %}
             </div>
           </td>
-          <td class="num">{{ report.game_time }}</td>
+          <td class="num" title="{{ report.game_time }} ticks">{{ report.played_text }}</td>
           <td>{{ report_players(report.players) }}</td>
           {% else %}
           <td colspan="4"><span class="badge badge--warn">unreadable</span> {{ report.size }} bytes</td>

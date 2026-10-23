@@ -368,14 +368,27 @@ def check_setting_value(setting: Setting, value: str) -> None:
             raise DatabaseError(f"{setting.key} must be true or false")
         return
     if setting == Setting.BANNER_URL:
-        if value and not value.startswith(BANNER_URL_PREFIX):
-            raise DatabaseError(f"{setting.key} must start with {BANNER_URL_PREFIX}, or be empty for no banner")
+        if value:
+            check_banner_url(value)
         check_game_text(setting.key, value, MAX_TEXT_MESSAGE_BYTES)
         return
     if setting == Setting.WELCOME_MESSAGE:
         check_game_text(setting.key, value, MAX_ANNOUNCEMENT_LENGTH)
         return
     raise AssertionError(f"no check for setting {setting.key}")
+
+
+def check_banner_url(url: str) -> None:
+    """Raise DatabaseError unless the game can fetch this url: ftp://HOST/PATH, the host without a
+    port or a user, since the game takes it as it is and connects anonymously on port 21."""
+    usage = f"{Setting.BANNER_URL.key} must look like {BANNER_URL_PREFIX}HOST/PATH, or be empty for no banner"
+    if not url.startswith(BANNER_URL_PREFIX):
+        raise DatabaseError(usage)
+    host, slash, path = url[len(BANNER_URL_PREFIX):].partition("/")
+    if not host or not slash or not path:
+        raise DatabaseError(usage)
+    if ":" in host or "@" in host:
+        raise DatabaseError(f"{Setting.BANNER_URL.key}: the game fetches from port 21 without a user, so the host must have neither")
 
 
 def ban_kick_reason(until: datetime, reason: str) -> str:

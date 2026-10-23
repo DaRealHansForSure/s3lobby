@@ -18,6 +18,7 @@ from http import HTTPStatus
 from flask import Blueprint, Response, abort, render_template
 
 from s3lobby.constants import (
+    GAME_TICK_MS,
     UNLIMITED_PLAYERS,
     GameStatusFlag,
     LadderType,
@@ -101,6 +102,8 @@ class ReportRow:
     map_name: str = ""
     outcome_text: str = ""
     game_time: int = 0
+    # The game time as minutes and seconds of play (GAME_TICK_MS per tick).
+    played_text: str = ""
     winning_team: int | None = None
     flag_notes: tuple[str, ...] = ()
     players: tuple[ReportPlayerRow, ...] = ()
@@ -433,6 +436,7 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str], gam
         map_name=readable_text(status.map_name),
         outcome_text=outcome_text(status),
         game_time=status.game_time,
+        played_text=duration_text(timedelta(milliseconds=status.game_time * GAME_TICK_MS)),
         winning_team=status.winning_team if status.has_winner else None,
         flag_notes=report_flag_notes(status.flags),
         players=tuple(players),

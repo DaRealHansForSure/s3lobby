@@ -37,7 +37,7 @@
           <td>
             {% if decided_report %}
             {{ decided_report.received_at | moment }}: {{ decided_report.outcome_text }}
-            <span class="muted">at game time {{ decided_report.game_time }}</span>
+            <span class="muted">after {{ decided_report.played_text }} of play</span>
             {% else %}
             <span class="muted">no winner reported</span>
             {% endif %}
@@ -48,7 +48,7 @@
       </tbody>
     </table>
   </div>
-  <p class="meta">Game time is the game's own tick counter; how long one tick lasts is not known yet.</p>
+  <p class="meta">Time of play is the game's own clock: 64 ms per tick of game time, which stands still while the game waits for its players.</p>
 </section>
 
 <section>
@@ -135,7 +135,7 @@
   <div class="scroll-x">
     <table class="table">
       <thead>
-        <tr><th>Received</th><th>From</th><th>Outcome</th><th class="num">Game time</th><th>Players</th><th class="cell-actions"></th></tr>
+        <tr><th>Received</th><th>From</th><th>Outcome</th><th class="num">Played</th><th>Players</th><th class="cell-actions"></th></tr>
       </thead>
       <tbody>
         {% for report in reports %}
@@ -149,7 +149,7 @@
               {% for note in report.flag_notes %}<span class="badge">{{ note }}</span>{% endfor %}
             </div>
           </td>
-          <td class="num">{{ report.game_time }}</td>
+          <td class="num" title="{{ report.game_time }} ticks">{{ report.played_text }}</td>
           <td>
             {% for player in report.players %}
             <div>Team {{ player.team }}, slot {{ player.slot }}: {{ player.name }} ({{ player.race }})</div>

@@ -212,7 +212,14 @@ class LobbyDatabaseTest(unittest.TestCase):
         refused_values = {
             Setting.MAX_PLAYERS: ("-1", "ten", str(2**32)),
             Setting.UNIQUE_SERIAL_NUMBERS: ("maybe",),
-            Setting.BANNER_URL: ("http://example.org/banner.png",),
+            # The game connects to the host as it is, anonymously on port 21, and needs a path.
+            Setting.BANNER_URL: (
+                "http://example.org/banner.png",
+                "ftp://example.org",
+                "ftp://example.org/",
+                "ftp://example.org:2121/banner.png",
+                "ftp://anonymous@example.org/banner.png",
+            ),
             Setting.WELCOME_MESSAGE: ("x" * (MAX_ANNOUNCEMENT_LENGTH + 1),),
         }
         for setting, values in refused_values.items():

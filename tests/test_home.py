@@ -85,6 +85,25 @@ class HomeTabTest(LobbyTestCase):
         images = ImageList.decode(client.receive_next(MessageType.IMAGE_LIST))
         self.assertEqual((images.images[0].banner_id, images.images[0].url), (7, "ftp://192.168.1.10/banner/lobby.png"))
 
+    def test_banner_with_id_zero_is_not_offered(self) -> None:
+        """The game ignores a banner with id 0 (0x449894): Home must not ask for one."""
+        self.database.set_setting(Setting.BANNER_URL, "ftp://192.168.1.10/banner/lobby.png")
+        client = self.new_client("Alice", 17)
+        player_id = log_on(client)
+        client.send(AddPlayerToGroup(HOME_GROUP_ID, player_id, ("0.0.0.0", 0), ""))
+        home = GroupAnnouncement.decode(client.receive_next(MessageType.ADD_GROUP_TO_GROUP))
+        self.assertFalse(home.flags & GroupFlag.REQUESTS_IMAGES)
+
+    def test_image_list_only_for_a_group_the_player_is_in(self) -> None:
+        """The game takes an image list only for a group it is in and drops the connection
+        otherwise (0x5d5258..0x5d5296), for instance after it left Home again."""
+        self.database.set_setting(Setting.BANNER_URL, "ftp://192.168.1.10/banner/lobby.png")
+        self.database.set_setting(Setting.BANNER_ID, "7")
+        client = self.new_client("Alice", 17)
+        log_on(client)
+        client.send(GetImageList(HOME_GROUP_ID))
+        client.assert_nothing_arrives(MessageType.IMAGE_LIST)
+
 
 if __name__ == "__main__":
     unittest.main()

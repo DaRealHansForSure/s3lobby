@@ -8,6 +8,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
+- A banner with id 0, which the game ignores, is no longer offered, and a banner address must be
+  `ftp://HOST/PATH` without port or user, the only form the game can fetch.
 - A player who opens a chat group or a game is told its id (Result 0xc), as the game expects:
   the chat group is their channel at once, so chat, whisper and new games work without leaving
   and joining again, and the game setup's updates name the game.
@@ -38,6 +40,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Changed
 
+- Match reports and game pages show the time of play in minutes and seconds: one tick of the
+  game's time is 64 ms, read from the game.
 - `s3lobby serve --verbose --log-file FILE` writes the datagrams only into the file; the console
   shows INFO, so it stays readable during a test run.
 - A slot's flag 0x4 means its race was "Random" in the setup (the report holds the race drawn);
@@ -47,6 +51,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Security
 
+- The image list (the Home tab's banner) is sent only for a group the player is in; the game drops
+  the connection for any other.
 - Datagrams forged with a logged on player's address can no longer act for the player or end their
   session with a single blind try: lobby messages outside numbered blocks are refused (the game
   never sends any), block numbers are accepted only within 32 of the expected one, and a new

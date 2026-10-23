@@ -237,7 +237,9 @@ s3lobby setting list
 
 The Home tab shows the news for the game's language (German, or the other text for every other
 language) and a statistics table of players and games. An advert banner can be shown too: the game
-downloads it by anonymous FTP whenever the banner id changes.
+downloads it by anonymous FTP whenever the banner id or sub id changes, never for a new address
+alone. The address is `ftp://HOST/PATH` without a port or a user (the game always connects
+anonymously on port 21, in active mode), and the id must not be 0, which the game ignores.
 
 ```sh
 s3lobby setting set banner_url ftp://192.168.1.10/banner.png
