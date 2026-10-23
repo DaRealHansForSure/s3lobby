@@ -149,6 +149,13 @@ scripts/stop.sh            # clean stop: players are told, UPnP forwardings remo
 scripts/stop.sh --force    # also kill whatever still runs after 10 seconds
 ```
 
+To start the server and the web interface together in the background, from the checkout:
+
+```sh
+scripts/start.sh           # datagrams in lobby.log, output in lobby-console.log and web-console.log
+scripts/start.sh --dev     # both in development mode
+```
+
 ## Choosing a database
 
 By default everything lives in one SQLite file, `s3lobby.sqlite3`, readable by its owner only.
