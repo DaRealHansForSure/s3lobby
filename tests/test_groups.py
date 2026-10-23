@@ -37,6 +37,7 @@ from s3lobby.messages import (
     ChatCommandAnswer,
     GameBlock,
     GameDescription,
+    GameStatus,
     GroupAnnouncement,
     GroupCounters,
     GroupUpdate,
@@ -44,6 +45,7 @@ from s3lobby.messages import (
     RemovePlayerFromGroup,
     Result,
 )
+from s3lobby.wire import RawMessage
 from tests.support import (
     GAME_ZONE_ID,
     UNKNOWN_HOST_ADDRESS,
@@ -121,6 +123,24 @@ class GameTest(LobbyTestCase):
         open_game(self.bob, GAME_ZONE_ID)
         self.game_for_host = receive_announcement(self.bob)
         self.game_in_zone = receive_announcement(self.alice)
+
+    def test_game_is_recorded_with_setup_players_and_reports(self) -> None:
+        """The Games page shows what the lobby kept of a game: its setup without the host's address,
+        everyone who joined, host first, and the reports of its match linked to it."""
+        self.alice.send(AddPlayerToGroup(self.game_for_host.group_id, self.alice_id, ("0.0.0.0", 0), ""))
+        receive_announcement(self.alice)
+        self.bob.send(GameStatus(self.game_for_host.group_id, 0, 0, 68, "\\Random"))
+        self.bob.receive_next(MessageType.RESULT)
+        self.bob.receive_next(MessageType.RESULT)
+
+        [game] = self.database.list_recent_games(limit=1)
+        self.assertEqual(game.group_id, self.game_for_host.group_id)
+        self.assertEqual(game.player_names, ("Bob", "Alice"))
+        stored = GroupAnnouncement.decode(RawMessage(MessageType.ADD_GROUP_TO_GROUP_2, game.announcement))
+        self.assertEqual(stored.name, "Bob's game")
+        self.assertEqual(stored.game_block.host_address, ("0.0.0.0", 0))
+        [report] = self.database.list_recent_game_reports(limit=1)
+        self.assertEqual(report.game_id, game.game_id)
 
     def test_host_is_told_its_game_for_the_setup(self) -> None:
         """The game setup keeps the host's new game in an empty slot until Result 0xc names it

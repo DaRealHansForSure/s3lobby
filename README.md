@@ -275,7 +275,9 @@ the same from a browser.
 A small web application on the same database: a live view of the lobby for everyone, and pages for
 admins to manage accounts and access codes, clans, news, chat themes, the message board, settings
 and announcements, to remove players from the running lobby, and to look through past games and
-match reports.
+match reports: each game with the setup its host chose (type, map, teams, computer opponents,
+player limit, Amazons, version), who joined it, when its match started and how it ended, and
+every report decoded field by field.
 
 ```sh
 .venv/bin/pip install '.[web]'

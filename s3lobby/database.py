@@ -66,12 +66,16 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "lobby_sessions",
     "games",
     "game_reports",
+    "game_players",
     "settings",
     "pending_announcements",
     "live_state",
     "pending_kicks",
     "web_sessions",
 )
+
+# Shown for a game's player whose account was deleted since.
+DELETED_ACCOUNT_NAME = "(deleted account)"
 
 # The game's own rule for player names (refusal text 0x9009e): letters A to Z in either case, and
 # single spaces between words.
@@ -241,19 +245,28 @@ class AccessCodeRecord:
 
 @dataclass(frozen=True)
 class GameRecord:
-    """A game as the statistics keep it; host_name is empty when the host's account was removed."""
+    """A game as the statistics keep it; host_name is empty when the host's account was removed.
+
+    group_id and announcement are None for games stored before migration 0008. announcement is the
+    game as the lobby last showed it, an AddGroupToGroup2 body (game block and description
+    included, the host address zeroed); player_names are the accounts that joined it, host first.
+    """
 
     game_id: int
     name: str
     host_name: str
     opened_at: datetime
     closed_at: datetime | None
+    group_id: int | None = None
+    announcement: bytes | None = None
+    player_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class GameReportRecord:
     """A stored match report with the bytes the game sent (a GameStatus body, a few hundred
-    bytes at most)."""
+    bytes at most). game_id is the game it belongs to, None for reports stored before migration
+    0008 or for a game the server did not know."""
 
     report_id: int
     sender_name: str
@@ -261,6 +274,7 @@ class GameReportRecord:
     size: int
     received_at: datetime
     report: bytes = b""
+    game_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -937,13 +951,28 @@ class LobbyDatabase:
 
     # Games and their reports.
 
-    def record_game_opened(self, name: str, host_account_id: int | None) -> int:
+    def record_game_opened(
+        self, name: str, host_account_id: int | None, group_id: int | None = None, announcement: bytes | None = None
+    ) -> int:
         with self._backend.transaction():
             result = self._backend.execute(
-                "INSERT INTO games (name, host_account_id, opened_at) VALUES (?, ?, ?)",
-                (name, host_account_id, to_stored_time(self._clock())),
+                "INSERT INTO games (name, host_account_id, opened_at, group_id, announcement) VALUES (?, ?, ?, ?, ?)",
+                (name, host_account_id, to_stored_time(self._clock()), group_id, announcement),
             )
         return result.last_row_id
+
+    def record_game_announcement(self, game_record_id: int, announcement: bytes) -> None:
+        """Keep the game as the lobby shows it now, after the host changed its setup."""
+        with self._backend.transaction():
+            self._backend.execute("UPDATE games SET announcement = ? WHERE id = ?", (announcement, game_record_id))
+
+    def record_game_player(self, game_record_id: int, account_id: int) -> None:
+        """Note a player who joined a game; the lobby records each player once per game."""
+        with self._backend.transaction():
+            self._backend.execute(
+                "INSERT INTO game_players (game_id, account_id, joined_at) VALUES (?, ?, ?)",
+                (game_record_id, account_id, to_stored_time(self._clock())),
+            )
 
     def record_game_closed(self, game_record_id: int) -> None:
         with self._backend.transaction():
@@ -952,11 +981,13 @@ class LobbyDatabase:
                 (to_stored_time(self._clock()), game_record_id),
             )
 
-    def store_game_report(self, account_id: int | None, group_id: int, report: bytes) -> None:
+    def store_game_report(
+        self, account_id: int | None, group_id: int, report: bytes, game_record_id: int | None = None
+    ) -> None:
         with self._backend.transaction():
             self._backend.execute(
-                "INSERT INTO game_reports (account_id, group_id, report, received_at) VALUES (?, ?, ?, ?)",
-                (account_id, group_id, report, to_stored_time(self._clock())),
+                "INSERT INTO game_reports (account_id, group_id, report, received_at, game_id) VALUES (?, ?, ?, ?, ?)",
+                (account_id, group_id, report, to_stored_time(self._clock()), game_record_id),
             )
 
     def count_game_reports(self) -> int:
@@ -965,27 +996,55 @@ class LobbyDatabase:
     def list_recent_games(self, limit: int) -> list[GameRecord]:
         """The newest games first, open and closed."""
         rows = self._backend.fetch_all(
-            "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at "
+            "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at, "
+            "games.group_id, games.announcement "
             "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
             "ORDER BY games.id DESC LIMIT ?",
             (limit,),
         )
-        return [
-            GameRecord(
-                game_id=row["id"],
-                name=row["name"],
-                host_name=row["host_name"] or "",
-                opened_at=from_stored_time(row["opened_at"]),
-                closed_at=from_optional_stored_time(row["closed_at"]),
+        player_names = self._player_names_of_games([row["id"] for row in rows])
+        games = []
+        for row in rows:
+            announcement = row["announcement"]
+            if announcement is not None:
+                announcement = bytes(announcement)
+            games.append(
+                GameRecord(
+                    game_id=row["id"],
+                    name=row["name"],
+                    host_name=row["host_name"] or "",
+                    opened_at=from_stored_time(row["opened_at"]),
+                    closed_at=from_optional_stored_time(row["closed_at"]),
+                    group_id=row["group_id"],
+                    announcement=announcement,
+                    player_names=tuple(player_names.get(row["id"], [])),
+                )
             )
-            for row in rows
-        ]
+        return games
+
+    def _player_names_of_games(self, game_ids: list[int]) -> dict[int, list[str]]:
+        """The accounts that joined each game, in the order they joined. One query for all games,
+        not one per game; the ids are numbers from the database, joined into the IN list."""
+        if not game_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in game_ids)
+        rows = self._backend.fetch_all(
+            "SELECT game_players.game_id, accounts.name FROM game_players "
+            "LEFT JOIN accounts ON accounts.id = game_players.account_id "
+            f"WHERE game_players.game_id IN ({placeholders}) ORDER BY game_players.id",
+            tuple(game_ids),
+        )
+        names_by_game: dict[int, list[str]] = {}
+        for row in rows:
+            names_by_game.setdefault(row["game_id"], []).append(row["name"] or DELETED_ACCOUNT_NAME)
+        return names_by_game
 
     def list_recent_game_reports(self, limit: int) -> list[GameReportRecord]:
         """The newest match reports first."""
         rows = self._backend.fetch_all(
             "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
-            "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report "
+            "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report, "
+            "game_reports.game_id "
             "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
             "ORDER BY game_reports.id DESC LIMIT ?",
             (limit,),
@@ -998,6 +1057,7 @@ class LobbyDatabase:
                 size=row["size"],
                 received_at=from_stored_time(row["received_at"]),
                 report=bytes(row["report"]),
+                game_id=row["game_id"],
             )
             for row in rows
         ]

@@ -12,11 +12,23 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from s3lobby.constants import DEVELOPMENT_PASSWORD, FIRST_GAME_GROUP_ID, LOGON_FAILURE_BURST, NO_WINNING_TEAM, GameStatusFlag, MatchPlayerFlag, Race
+from s3lobby.constants import (
+    DEVELOPMENT_PASSWORD,
+    FIRST_GAME_GROUP_ID,
+    LOGON_FAILURE_BURST,
+    NO_WINNING_TEAM,
+    GameStatusFlag,
+    GroupFlag,
+    LadderType,
+    MatchPlayerFlag,
+    MessageType,
+    Race,
+)
 from s3lobby.database import LobbyDatabase, Setting
 from s3lobby.groups import GroupKind
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
-from s3lobby.messages import GameStatus, MatchReportPlayer
+from s3lobby.messages import GameBlock, GameDescription, GameStatus, GroupAnnouncement, MatchReportPlayer
+from tests.support import game_block_remainder
 
 IS_FLASK_INSTALLED = importlib.util.find_spec("flask") is not None
 if IS_FLASK_INSTALLED:
@@ -398,10 +410,55 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.database.store_game_report(self.player.account_id, FIRST_GAME_GROUP_ID, start.encode().body)
         page = self.client.get("/games").get_data(as_text=True)
         self.assertIn("Team 1 won", page)
-        self.assertIn("Match started", page)
-        self.assertIn(f"Team 1: {PLAYER_NAME} (Egyptians)", page)
-        self.assertIn("Team 2: Computer (Romans)", page)
-        self.assertIn("ladder, unranked", page)
+        self.assertIn("No winner yet", page)
+        self.assertIn(f"Team 1, slot 0: {PLAYER_NAME} (Egyptians)", page)
+        self.assertIn("Team 2, slot 1: Computer (Romans)", page)
+        self.assertIn("ladder game, unranked here", page)
+        self.assertIn("40000", page)
+
+    def test_game_shows_its_setup_players_and_match(self) -> None:
+        """Everything the lobby kept of a game: the host's setup from its announcement, who joined,
+        and the reports of its match, linked to it."""
+        game_block = GameBlock(("0.0.0.0", 0), game_block_remainder(LadderType.CLANS))
+        description = GameDescription(team_count=2, computer_opponent_count=1, is_ladder_game=True, map_name="\\Random")
+        announcement = GroupAnnouncement(
+            MessageType.ADD_GROUP_TO_GROUP_2,
+            30,
+            FIRST_GAME_GROUP_ID,
+            GroupFlag.HAS_GAME_BLOCK | GroupFlag.HAS_DESCRIPTION,
+            2,
+            "Alice's game",
+            "",
+            "",
+            game_block=game_block,
+            description=description.encode(),
+        )
+        game_id = self.database.record_game_opened(
+            "Alice's game", self.player.account_id, FIRST_GAME_GROUP_ID, announcement.encode().body
+        )
+        self.database.record_game_player(game_id, self.player.account_id)
+        self.database.record_game_player(game_id, self.admin.account_id)
+        players = (MatchReportPlayer(flags=0, lobby_player_id=self.player.account_id, race=Race.AMAZONS, unused=0, slot=0, team=0),)
+        report = GameStatus(FIRST_GAME_GROUP_ID, GameStatusFlag.LADDER_GAME, 0, 68, "\\Random", players)
+        self.database.store_game_report(self.player.account_id, FIRST_GAME_GROUP_ID, report.encode().body, game_id)
+        self.database.record_game_closed(game_id)
+
+        page = self.client.get("/games").get_data(as_text=True)
+        for expected in (
+            "Ladder with clans (Clanliga)",
+            "Map: \\Random",
+            "2 team(s), 1 computer opponent(s)",
+            "Players: 2",
+            "Amazons: allowed",
+            "Version 1.60",
+            f"<div>{PLAYER_NAME}</div>",
+            f"<div>{ADMIN_NAME}</div>",
+            "Team 0 won",
+            "1 report(s)",
+            f'href="#game-{game_id}"',
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, page)
 
 
 if __name__ == "__main__":
