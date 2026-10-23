@@ -501,9 +501,9 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 
   | Field | Meaning |
   |---|---|
-  | flags | 1 computer opponent (slot state 2), 2 slot state 3 (*inferred*: a player who left), 4 no player number in the match (0x540625..0x540680) |
+  | flags | 1 computer opponent (slot state 2), 2 slot state 3 (*inferred*: a player who left), 4 the race was "Random" in the setup and the race field holds the one drawn (setup record +0x64 is 0xff, 0x540625..0x54063e; seen in a run) |
   | lobby player id | the id the lobby gave the slot's player (0x1195d7c table) |
-  | race | 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons (*inferred* from the setup's race choices 0x48c2a3 and the per-race tables indexed with it, 0x4dd2fc) |
+  | race | 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons: the setup's texts for these values (0x9002d..0x9002f at 0x49053c..0x4907b1, 0x90155 at 0x4908e5); any other value it shows as "Random" (0x4909f0) |
   | unused | always 0 (0x54061d) |
   | slot | slot number, 0 to 19 |
   | team | the slot's team, numbered as the winning team |

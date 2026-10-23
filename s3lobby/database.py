@@ -263,6 +263,14 @@ class GameRecord:
 
 
 @dataclass(frozen=True)
+class GamePlayerRecord:
+    """A player who joined a game; name is DELETED_ACCOUNT_NAME when the account is gone."""
+
+    name: str
+    joined_at: datetime
+
+
+@dataclass(frozen=True)
 class GameReportRecord:
     """A stored match report with the bytes the game sent (a GameStatus body, a few hundred
     bytes at most). game_id is the game it belongs to, None for reports stored before migration
@@ -993,34 +1001,43 @@ class LobbyDatabase:
     def count_game_reports(self) -> int:
         return self._backend.fetch_one("SELECT COUNT(*) AS report_count FROM game_reports")["report_count"]
 
+    GAME_COLUMNS = (
+        "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at, "
+        "games.group_id, games.announcement "
+        "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
+    )
+    GAME_REPORT_COLUMNS = (
+        "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
+        "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report, "
+        "game_reports.game_id "
+        "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
+    )
+
     def list_recent_games(self, limit: int) -> list[GameRecord]:
         """The newest games first, open and closed."""
-        rows = self._backend.fetch_all(
-            "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at, "
-            "games.group_id, games.announcement "
-            "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
-            "ORDER BY games.id DESC LIMIT ?",
-            (limit,),
-        )
+        rows = self._backend.fetch_all(self.GAME_COLUMNS + "ORDER BY games.id DESC LIMIT ?", (limit,))
         player_names = self._player_names_of_games([row["id"] for row in rows])
-        games = []
-        for row in rows:
-            announcement = row["announcement"]
-            if announcement is not None:
-                announcement = bytes(announcement)
-            games.append(
-                GameRecord(
-                    game_id=row["id"],
-                    name=row["name"],
-                    host_name=row["host_name"] or "",
-                    opened_at=from_stored_time(row["opened_at"]),
-                    closed_at=from_optional_stored_time(row["closed_at"]),
-                    group_id=row["group_id"],
-                    announcement=announcement,
-                    player_names=tuple(player_names.get(row["id"], [])),
-                )
-            )
-        return games
+        return [game_record_from_row(row, player_names.get(row["id"], [])) for row in rows]
+
+    def find_game(self, game_id: int) -> GameRecord | None:
+        row = self._backend.fetch_one(self.GAME_COLUMNS + "WHERE games.id = ?", (game_id,))
+        if row is None:
+            return None
+        player_names = self._player_names_of_games([game_id])
+        return game_record_from_row(row, player_names.get(game_id, []))
+
+    def list_game_players(self, game_id: int) -> list[GamePlayerRecord]:
+        """Who joined a game and when, in the order they joined (the host first)."""
+        rows = self._backend.fetch_all(
+            "SELECT accounts.name, game_players.joined_at FROM game_players "
+            "LEFT JOIN accounts ON accounts.id = game_players.account_id "
+            "WHERE game_players.game_id = ? ORDER BY game_players.id",
+            (game_id,),
+        )
+        return [
+            GamePlayerRecord(name=row["name"] or DELETED_ACCOUNT_NAME, joined_at=from_stored_time(row["joined_at"]))
+            for row in rows
+        ]
 
     def _player_names_of_games(self, game_ids: list[int]) -> dict[int, list[str]]:
         """The accounts that joined each game, in the order they joined. One query for all games,
@@ -1041,26 +1058,15 @@ class LobbyDatabase:
 
     def list_recent_game_reports(self, limit: int) -> list[GameReportRecord]:
         """The newest match reports first."""
+        rows = self._backend.fetch_all(self.GAME_REPORT_COLUMNS + "ORDER BY game_reports.id DESC LIMIT ?", (limit,))
+        return [game_report_record_from_row(row) for row in rows]
+
+    def list_reports_of_game(self, game_id: int) -> list[GameReportRecord]:
+        """A game's match reports in the order they arrived."""
         rows = self._backend.fetch_all(
-            "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
-            "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report, "
-            "game_reports.game_id "
-            "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
-            "ORDER BY game_reports.id DESC LIMIT ?",
-            (limit,),
+            self.GAME_REPORT_COLUMNS + "WHERE game_reports.game_id = ? ORDER BY game_reports.id", (game_id,)
         )
-        return [
-            GameReportRecord(
-                report_id=row["id"],
-                sender_name=row["sender_name"] or "",
-                group_id=row["group_id"],
-                size=row["size"],
-                received_at=from_stored_time(row["received_at"]),
-                report=bytes(row["report"]),
-                game_id=row["game_id"],
-            )
-            for row in rows
-        ]
+        return [game_report_record_from_row(row) for row in rows]
 
     def find_game_report(self, report_id: int) -> bytes | None:
         row = self._backend.fetch_one("SELECT report FROM game_reports WHERE id = ?", (report_id,))
@@ -1199,4 +1205,32 @@ def board_message_from_row(row: Row) -> BoardMessage:
         body=row["body"],
         author=row["author"],
         posted_at=from_stored_time(row["posted_at"]),
+    )
+
+
+def game_record_from_row(row: Row, player_names: list[str]) -> GameRecord:
+    announcement = row["announcement"]
+    if announcement is not None:
+        announcement = bytes(announcement)
+    return GameRecord(
+        game_id=row["id"],
+        name=row["name"],
+        host_name=row["host_name"] or "",
+        opened_at=from_stored_time(row["opened_at"]),
+        closed_at=from_optional_stored_time(row["closed_at"]),
+        group_id=row["group_id"],
+        announcement=announcement,
+        player_names=tuple(player_names),
+    )
+
+
+def game_report_record_from_row(row: Row) -> GameReportRecord:
+    return GameReportRecord(
+        report_id=row["id"],
+        sender_name=row["sender_name"] or "",
+        group_id=row["group_id"],
+        size=row["size"],
+        received_at=from_stored_time(row["received_at"]),
+        report=bytes(row["report"]),
+        game_id=row["game_id"],
     )

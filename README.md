@@ -277,7 +277,7 @@ admins to manage accounts and access codes, clans, news, chat themes, the messag
 and announcements, to remove players from the running lobby, and to look through past games and
 match reports: each game with the setup its host chose (type, map, teams, computer opponents,
 player limit, Amazons, version), who joined it, when its match started and how it ended, and
-every report decoded field by field.
+every report decoded field by field, and a page per game with its teams and winners.
 
 ```sh
 .venv/bin/pip install '.[web]'

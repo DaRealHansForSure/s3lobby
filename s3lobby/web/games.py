@@ -97,6 +97,7 @@ class ReportRow:
     map_name: str = ""
     outcome_text: str = ""
     game_time: int = 0
+    winning_team: int | None = None
     flag_notes: tuple[str, ...] = ()
     players: tuple[ReportPlayerRow, ...] = ()
 
@@ -132,6 +133,77 @@ def list_games() -> str:
         games=[describe_game(game, reports) for game in games],
         reports=reports,
     )
+
+
+@dataclass(frozen=True)
+class TeamRow:
+    """One team of a match as the last report saw it."""
+
+    team: int
+    players: tuple[ReportPlayerRow, ...]
+    has_won: bool
+
+
+@blueprint.get("/games/<int:game_id>")
+def show_game(game_id: int) -> str:
+    """Everything kept of one game: the setup, who joined when, how the match went and every
+    report."""
+    database = get_database()
+    record = database.find_game(game_id)
+    if record is None:
+        abort(HTTPStatus.NOT_FOUND)
+    account_names = {account.account_id: account.name for account in database.list_accounts()}
+    reports = [
+        describe_report(report, account_names, {record.game_id: record.name})
+        for report in database.list_reports_of_game(game_id)
+    ]
+    game = describe_game(record, reports)
+    readable_reports = [report for report in reports if report.is_readable]
+    final_report = None
+    if readable_reports:
+        final_report = readable_reports[-1]
+    decided_report = first_report_with_winner(readable_reports)
+    return render_template(
+        "game.html",
+        game=game,
+        players=database.list_game_players(game_id),
+        reports=reports,
+        final_report=final_report,
+        decided_report=decided_report,
+        teams=teams_of(final_report),
+        winner_names=winner_names(final_report),
+    )
+
+
+def first_report_with_winner(reports: list[ReportRow]) -> ReportRow | None:
+    """The first report that names a winner after the start: when the match was decided. A
+    game with one team names its winner already at the start (game time 0), which says nothing
+    about when it ended, so a later report is preferred when there is one."""
+    reports_with_winner = [report for report in reports if report.winning_team is not None]
+    for report in reports_with_winner:
+        if report.game_time > 0:
+            return report
+    if reports_with_winner:
+        return reports_with_winner[0]
+    return None
+
+
+def teams_of(report: ReportRow | None) -> list[TeamRow]:
+    if report is None:
+        return []
+    players_by_team: dict[int, list[ReportPlayerRow]] = {}
+    for player in report.players:
+        players_by_team.setdefault(player.team, []).append(player)
+    return [
+        TeamRow(team=team, players=tuple(players), has_won=team == report.winning_team)
+        for team, players in sorted(players_by_team.items())
+    ]
+
+
+def winner_names(report: ReportRow | None) -> list[str]:
+    if report is None or report.winning_team is None:
+        return []
+    return [player.name for player in report.players if player.team == report.winning_team]
 
 
 @blueprint.get("/games/reports/<int:report_id>")
@@ -300,6 +372,7 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str], gam
         map_name=readable_text(status.map_name),
         outcome_text=outcome_text(status),
         game_time=status.game_time,
+        winning_team=status.winning_team if status.has_winner else None,
         flag_notes=report_flag_notes(status.flags),
         players=tuple(players),
     )
@@ -347,9 +420,9 @@ def player_flag_notes(flags: int) -> tuple[str, ...]:
         notes.append("computer")
     if flags & MatchPlayerFlag.SLOT_STATE_3:
         notes.append("left (inferred)")
-    if flags & MatchPlayerFlag.NO_PLAYER_NUMBER:
-        notes.append("no player number")
-    known_flags = MatchPlayerFlag.COMPUTER | MatchPlayerFlag.SLOT_STATE_3 | MatchPlayerFlag.NO_PLAYER_NUMBER
+    if flags & MatchPlayerFlag.RANDOM_RACE:
+        notes.append("race drawn at random")
+    known_flags = MatchPlayerFlag.COMPUTER | MatchPlayerFlag.SLOT_STATE_3 | MatchPlayerFlag.RANDOM_RACE
     unknown_flags = flags & ~known_flags
     if unknown_flags:
         notes.append(f"flags {unknown_flags:#x}")
