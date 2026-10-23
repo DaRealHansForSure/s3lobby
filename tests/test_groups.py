@@ -298,6 +298,23 @@ class GroupRulesTest(LobbyTestCase):
         )
         self.assertEqual(self.receive_joined_group(alice, lambda group_id: True), chat_group_id)
 
+    def test_game_opened_in_a_chat_group_can_be_warped_into_a_zone(self) -> None:
+        """"Warp" in the game setup lists a game opened in a chat group in a GameZone (0x4552c0,
+        0x45637f; seen in a run). Players in that zone see it there and can join it."""
+        alice, alice_id = self.player_in_chat_theme("Alice", 17)
+        bob, bob_id = self.player_in_room("Bob", 42, GAME_ZONE_ID)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "test", password="")
+        chat_group_id = receive_announcement(alice).group_id
+        open_game(alice, chat_group_id)
+        alice.send(RemovePlayerFromGroup(chat_group_id, alice_id))
+        game_id = self.receive_joined_group(alice, lambda group_id: group_id != chat_group_id)
+
+        alice.send(GroupAnnouncement(MessageType.ADD_GROUP_TO_GROUP, GAME_ZONE_ID, game_id, 0, 0, "", "", ""))
+        shown = receive_announcement(bob)
+        self.assertEqual((shown.parent_id, shown.group_id, shown.name), (GAME_ZONE_ID, game_id, "Alice's game"))
+        bob.send(AddPlayerToGroup(game_id, bob_id, ("0.0.0.0", 0), ""))
+        self.assertEqual(self.receive_joined_group(bob, lambda group_id: group_id == game_id), game_id)
+
     def test_empty_chat_group_closes_after_a_while(self) -> None:
         alice, alice_id = self.player_in_chat_theme("Alice", 17)
         bob, _ = self.player_in_chat_theme("Bob", 42)
