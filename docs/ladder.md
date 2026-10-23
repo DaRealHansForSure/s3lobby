@@ -1,9 +1,9 @@
 # Ladder concept ("Liga" and "Clanliga")
 
-Status: a concept, nothing of it is built yet. It describes how s3lobby could rank ladder games
-with the data the unmodified game already sends, what has to be decided first, and in which steps
-it could be built. Facts about the game cite `docs/protocol.md` or an S3.EXE address; everything
-else is a proposal.
+Status: a concept, nothing of it is built yet. It describes how s3lobby will rank ladder games with
+the data the unmodified game already sends, and in which steps it is built. Facts about the game
+cite `docs/protocol.md` or an S3.EXE address; everything else is design. The owner's decisions of
+2026-10-23 are listed at the end and built into the text.
 
 ## What the game gives us
 
@@ -30,8 +30,9 @@ ladder has to come from the server: server lines, chat command answers, the Home
 the web interface.
 
 The winner is the only team that still owns a finished military building (small tower, big tower,
-castle; protocol.md 0x1f). A match therefore ends either when one side is wiped out or when the
-other players left; there is no surrender and no draw in the report.
+castle), and a player's buildings count only while that player still plays (protocol.md 0x1f,
++0x11943dc). A match therefore ends either when one side is wiped out or when the other side's
+players left; there is no surrender and no draw in the report.
 
 ## Today
 
@@ -39,9 +40,7 @@ Every report is stored in `game_reports` and linked to its game (migration 0008)
 interface decodes it. A ladder report is answered with 0x6a, and every player of a ladder game
 gets a server line that ladder games are not ranked.
 
-## Proposal
-
-### 1. When a ladder result counts
+## 1. When a ladder result counts
 
 A ladder game becomes a **result** only when all of these hold. Each failed rule is stored as the
 reason, so admins see why a match did not count.
@@ -49,77 +48,148 @@ reason, so admins see why a match did not count.
 1. The game was opened on this server as a ladder game (description and reports agree on ladder
    type and flag 1), and no report has flag 2 (the game's own "not valid").
 2. **Liga (type 1):** exactly two slots, both human (no computer flag), two different accounts on
-   two teams. **Clanliga (type 2):** every human slot belongs to an account that showed a clan when
-   it joined, each team is a single clan, and there are exactly two different clans. No computer
-   opponents in either.
+   two teams. **Clanliga (type 2):** two teams of equal size (1 on 1 up to 4 on 4), no computer
+   opponents, every player showed a clan when joining the game, each team is one clan, and the two
+   clans differ.
 3. Every slot's lobby player id is an account that joined the game in the lobby (`game_players`).
-4. There is a winning team, and the game time is at least a minimum (proposed 10 minutes, a
-   setting), so a game ended right after the start cannot farm points.
+4. There is a winning team, and the game time is at least `ladder_minimum_minutes` (default 10),
+   so a game ended right after the start cannot farm points.
 5. **The reports agree.** Every end report that arrived names the same winner and the same slots.
-   Either all players sent an end report, or the missing ones are marked as having left (slot flag
-   2) in the others' reports: that is a win by the opponent leaving, which counts like any other
-   win (*inferred* from 0x434b19 that the stayer's report marks the leaver; to confirm in a run).
-6. A player who leaves before the match is decided and never comes back loses; a game where nobody
-   sends an end report within a timeout after the game closed (proposed 10 minutes) is void.
+   Players who did not send one must be marked as having left (slot flag 2) in the others' reports.
+6. A game where no end report arrives within `ladder_report_timeout_minutes` (default 10) after the
+   game closed is void.
 
 Reports are tied to the logged on connection that sent them, so one player cannot send another
 player's report. A player can still lie about the outcome; rule 5 then turns the match into a
 **disputed** result that counts for nobody and is listed for admins to decide.
 
-### 2. Rating
+### A player who leaves
 
-**Elo**, separately for Liga (per account) and Clanliga (per clan):
+The game cannot tell a player who quits on purpose from one whose game crashed or whose connection
+broke: either way the stayer's report marks the slot with flag 2 (*inferred* from 0x434b19; to
+confirm in a run) and the stayer wins because the leaver's buildings stop counting.
 
-- Everyone starts at 1000. After a result the winner gains and the loser loses
-  `K * (1 - expected)`, `expected = 1 / (1 + 10 ^ ((loser - winner) / 400))`.
-- K is 32 for the first 10 results of a player (provisional, shown as such) and 16 afterwards.
-- In Clanliga the two clans are rated against each other; the players' Liga ratings are untouched,
-  but their personal Clanliga wins and losses are counted.
+Recommendation, built in this way:
+
+- **Left after the minimum game time: a full loss**, a full win for the other side. By then the
+  match was a real one, and treating a late quit any softer would make quitting a way out of a lost
+  game, the most common abuse of any ladder.
+- **Left before the minimum game time: void**, for both sides. Early leaves are mostly crashes,
+  DirectPlay trouble or a wrong setup, and the same minimum already keeps short games out.
+- **Clanliga:** a team loses by leaving only when all of its players left; one player leaving
+  while teammates fight on changes nothing, the end report decides as usual.
+- **Visible, not punished further:** each player's count of matches lost by leaving is shown next
+  to the rating (web, `/rank`), so admins and players see a habit; admins can void any result.
+
+## 2. Rating
+
+### Liga (players)
+
+**Elo**, everyone starts at `ladder_start_rating` (1000). After a result the winner gains and the
+loser loses `K * (1 - expected)`, `expected = 1 / (1 + 10 ^ ((loser - winner) / 400))`. K is
+`ladder_k_provisional` (32) for a player's first `ladder_provisional_games` (10) results, shown as
+"provisional", and `ladder_k` (16) afterwards.
+
+### Clans
+
+Clans get **two** numbers, because they answer different questions:
+
+1. **Clanliga rating: how strong the clan is as a team.** Elo between clans, from Clanliga matches
+   only, same formula and start value. A team match moves the clan ratings by the full K, whatever
+   the team size, so a 3 on 3 does not count three times. The players' personal Clanliga record
+   (played, won, lost, left) is kept as well, but no personal rating: in a team match one player's
+   share of the win cannot be read from the report.
+2. **Clan strength from Liga: how strong its players are.** The average Liga rating of the clan's
+   best three members who are no longer provisional and played a Liga result in the last
+   `ladder_active_days` (30). A clan with fewer than three such members shows no strength. This
+   gives small clans that rarely field a full Clanliga team a place in a list too, and it cannot be
+   inflated by one strong member alone.
+
+Rules that keep clans fair:
+
+- **A result belongs to the clan of the moment.** Each result stores the clan every player showed
+  in that game, so a player who changes clan takes no Clanliga history along; the old clan keeps
+  its wins and losses.
+- **No mercenaries:** a player has to have been in the clan for `ladder_clan_member_days` (default
+  3) before the match, or the match is void with that reason. Otherwise a clan could borrow a
+  strong player for one evening. This needs the date a player joined their clan, which the
+  database does not record yet (migration below).
+- A deleted clan keeps its results in the history, listed under its last name.
+
+### Shared rules
+
 - **Ratings are derived, never stored as the truth.** They are recomputed from the list of counted
   results in order. An admin who voids or decides a result can therefore change history without
-  any rating going wrong, and a change of K or the start value applies to everything at once.
-- Abuse limits (settings): results between the same two accounts count at most N times a day
-  (proposed 3), against win trading between friends.
+  any rating going wrong, and a changed setting applies to everything at once.
+- **Win trading:** results between the same two accounts (Liga) or the same two clans (Clanliga)
+  count at most `ladder_pair_daily_limit` (default 3) times per day; later ones are stored as void
+  with that reason.
 
-Simpler alternatives, if Elo is too much: points per win (3 win, 0 loss) or a plain win rate with
-a minimum number of games. Elo rewards beating strong players and suits a small community where
-not everyone plays everyone.
+### Seasons and all time
 
-**Seasons** (optional): a season is a date range; the standings show the current season, older
-ones stay readable. Since ratings are derived, a season is only a filter on results.
+Both run side by side:
 
-### 3. What the players see
+- **All time:** every counted result since the ladder started, never reset.
+- **Seasons:** the current season's standings start everyone at the start value and use only that
+  season's results. A season is a date range set by admins (a name, a start, an end); the setting
+  `ladder_season_months` (default 3) proposes the next one automatically when the current one ends.
+  Past seasons stay readable with their final standings and champions.
+
+Because ratings are derived, a season is only a filter on the results; nothing is copied or reset
+in the database.
+
+## 3. What the players see
 
 - **During the match**, unchanged from the game's point of view: the answer to an end report is
   0x6c ("stored") when the report itself passes the rules above, 0x6a when it cannot count
   (computer opponents, wrong slot count, flag 2). Whether the result then counts is decided after
   the other reports arrived, which the game cannot wait for.
 - **Back in the lobby**, a server line to the players of the match: "Liga: Alice beats Bob, 1016 ->
-  1032 (Bob 984 -> 968)", or why it did not count.
-- **Chat commands:** `/rank [NAME]` (rating, place, wins, losses, provisional or not), `/top`
-  (the first five), `/clanrank [CLAN]`.
-- **Home tab:** the news text can end with the current top five. The game fetches it once per
-  logon, so it shows the standings as of the logon (protocol.md, GetTextMessage).
-- **Web interface:** a public page `/ladder` like the live lobby (standings for Liga and Clanliga,
-  the last results), the rating on each account page for admins, and on each game page whether and
-  how it counted.
-- Not proposed: showing the rank in the member list's clan column. It would work technically (the
+  1032 (Bob 984 -> 968)", "Clanliga: Romans beat Amazons, 1012 -> 1028", or why it did not count.
+- **Chat commands:** `/rank [NAME]` (season and all time: rating, place, won, lost, lost by
+  leaving, provisional or not), `/top` (the season's first five), `/clanrank [CLAN]` (Clanliga
+  rating and strength from Liga), `/season` (name and end of the current season).
+- **Home tab:** the news text can end with the season's top five players and clans. The game
+  fetches it once per logon, so it shows the standings as of the logon (protocol.md,
+  GetTextMessage).
+- **Web interface:** a public page `/ladder` like the live lobby, with tabs Liga, Clanliga and
+  clan strength, a switch between the current season, past seasons and all time, and the last
+  results; the rating on each account and clan page; on each game page whether and how it counted.
+- Not planned: showing the rank in the member list's clan column. It would work technically (the
   column shows whatever text the server sends), but it hides the clan and changes what a run
   confirmed.
 
-### 4. What admins can do
+## 4. What admins can do
 
 - See every ladder game with its state: counted, disputed, void, with the reason.
 - Decide a disputed result (pick the winner) or void a counted one, in the web interface and with
   `s3lobby ladder decide|void GAME_ID`; ratings follow at once because they are derived.
-- Settings: `ladder_enabled` (off by default), minimum game time, the daily limit per pair, the
-  timeout for missing reports, the current season.
+- Manage seasons: `s3lobby ladder season add NAME --start DATE --end DATE` and on the web.
+- Every number is a setting, on the Settings page and with `s3lobby setting set`:
 
-### 5. Database (one migration, 0010, for every dialect)
+  | Setting | Default | Meaning |
+  |---|---|---|
+  | `ladder_enabled` | false | answer valid reports with 0x6c and drop the "not ranked" line |
+  | `ladder_minimum_minutes` | 10 | shorter matches and earlier leaves are void |
+  | `ladder_report_timeout_minutes` | 10 | how long after the game closed reports may still arrive |
+  | `ladder_pair_daily_limit` | 3 | counted results per pair of players or clans and day |
+  | `ladder_start_rating` | 1000 | everyone's rating before the first result |
+  | `ladder_k` | 16 | Elo K after the provisional results |
+  | `ladder_k_provisional` | 32 | Elo K for the first results |
+  | `ladder_provisional_games` | 10 | how many results are provisional |
+  | `ladder_active_days` | 30 | how recent a Liga result must be for the clan strength |
+  | `ladder_clan_member_days` | 3 | how long a player must be in a clan for Clanliga |
+  | `ladder_season_months` | 3 | length proposed for the next season |
+
+## 5. Database (one migration, 0010, for every dialect)
 
 - `ladder_results`: game id, ladder type, state (counted, disputed, void), reason, winning team,
   game time, decided at, decided by (server or an admin account).
-- `ladder_result_players`: result id, account id, clan id (for Clanliga), team, race, won.
+- `ladder_result_players`: result id, account id, clan id at the time (for Clanliga), team, race,
+  won, left.
+- `ladder_seasons`: name, start, end.
+- `accounts.clan_joined_at`: when the account joined its current clan (null for the members of
+  today; they count as members since before the ladder started).
 - No rating table: ratings are computed from the results when asked and cached in memory by the
   web interface and the server; the number of results of a small lobby keeps this cheap.
 
@@ -128,16 +198,15 @@ them.
 
 ## Building it in steps
 
-1. **Evaluate silently.** With `ladder_enabled` off the server keeps answering 0x6a and sending
-   the "not ranked" line, but evaluates every ladder game into `ladder_results`. The admin pages
-   show the outcome, so the rules can be checked against real matches first. A run has to confirm
-   the open points below.
-2. **Standings.** The rating, the public `/ladder` page, `/rank` and `/top`, the server line after a
-   match, the admin decisions.
+1. **Evaluate silently.** With `ladder_enabled` off the server keeps answering 0x6a and sending the
+   "not ranked" line, but evaluates every ladder game into `ladder_results`. The admin pages show
+   the outcome, so the rules can be checked against real matches first. A run has to confirm the
+   open points below.
+2. **Standings.** Liga and Clanliga ratings, clan strength, seasons and all time, the public
+   `/ladder` page, the chat commands, the server line after a match, the admin decisions.
 3. **Tell the game.** With `ladder_enabled` on, valid end reports get 0x6c and the "not ranked"
    line goes away. Off by default until a run with the real game shows the message (project rule
    for anything the game has not seen from this server).
-4. **Clanliga** and seasons.
 
 ## To confirm in a run first
 
@@ -145,14 +214,15 @@ them.
   records with the right account ids.
 - The same match where the loser quits: does the winner's report mark the loser with flag 2, and
   does the loser's client send anything?
+- A Clanliga match 2 on 2 (four copies, or two machines with two copies each): slots, teams and
+  what the game does when a player has no clan.
 - The 0x6c answer during a ladder match (the game should show "Game status stored at the Lobby
   server.").
-- What the game does in a Clanliga setup when a player has no clan.
 
-## Questions for the owner
+## Decisions (owner, 2026-10-23)
 
-1. Elo, or simple points per win?
-2. Does a win by the opponent leaving count fully?
-3. Minimum game time (10 minutes?) and the daily limit per pair (3?).
-4. Seasons from the start, or one everlasting ladder?
-5. Clanliga in the first version, or later?
+1. Elo, and a concept for clans (section 2, Clans).
+2. Leaving: decided by recommendation (section 1, A player who leaves).
+3. Minimum game time and daily limit per pair, both configurable (section 4).
+4. Seasons and all time side by side (section 2, Seasons and all time).
+5. Clanliga in the first version.
