@@ -35,6 +35,7 @@ from s3lobby.messages import (
     GroupUpdate,
     Logon,
     MessageId,
+    MinMissingAcknowledge,
     OpenConnection,
     Result,
     describe_for_log,
@@ -83,6 +84,17 @@ class ConnectionAbuseTest(unittest.TestCase):
         far_ahead = [MessageId(1 + CLIENT_BLOCK_ID_WINDOW + 5).encode(), GetLobbyServerList().encode()]
         with self.assertRaises(ProtocolError):
             self.connection.receive_block(far_ahead, START_MS)
+
+    def test_lobby_messages_without_a_block_id_are_refused(self) -> None:
+        """The game sends every lobby message in a numbered block (0x606ff0's unguaranteed flag is
+        0 at every call); one without a number comes from someone else at the player's address."""
+        unnumbered = [GetLobbyServerList().encode()]
+        with self.assertRaises(ProtocolError):
+            self.connection.receive_block(unnumbered, START_MS)
+
+    def test_connection_messages_without_a_block_id_still_count(self) -> None:
+        received = self.connection.receive_block([MinMissingAcknowledge(1).encode()], START_MS)
+        self.assertEqual(received.lobby_messages, [])
 
     def test_connection_that_never_acknowledges_ends_early(self) -> None:
         """An OpenConnection with a forged sender: the server must not keep sending there."""

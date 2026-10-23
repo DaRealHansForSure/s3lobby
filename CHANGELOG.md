@@ -45,6 +45,13 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - A match report without a winner says "No winner yet" instead of "Match started": a game with a
   single team names its winner already in the report sent at the start.
 
+### Security
+
+- Datagrams forged with a logged on player's address can no longer act for the player or end their
+  session with a single blind try: lobby messages outside numbered blocks are refused (the game
+  never sends any), block numbers are accepted only within 32 of the expected one, and a new
+  connection from the address is ignored while the player's game still sends its keepalives.
+
 ### Key commits
 
 - [`69a6a99`](https://github.com/DaRealHansForSure/s3lobby/commit/69a6a99) feat(server): add a development mode with a fixed test password

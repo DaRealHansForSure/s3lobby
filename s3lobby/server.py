@@ -41,6 +41,7 @@ from s3lobby.constants import (
     MAX_MESSAGES_PER_BLOCK,
     LOGON_DEADLINE_MS,
     PUBLIC_HOST_REFRESH_SECONDS,
+    RECONNECT_AFTER_QUIET_MS,
     UPNP_RENEW_SECONDS,
     WARNING_INTERVAL_SECONDS,
     MessageType,
@@ -424,6 +425,11 @@ class LobbyServer(asyncio.DatagramProtocol):
                 log.debug("%s: datagram for no open connection ignored", client_address)
             return connection
 
+        if connection is not None and self._is_active_player_connection(client_address, connection):
+            # Only a client that ended starts over while its player is logged on, and that client
+            # has stopped sending keepalives: this one is still talking, so the new connection
+            # comes from someone else sending from the player's address.
+            raise ProtocolError("new connection from the address of an active player ignored")
         if connection is not None:
             # The client started over; whatever it had in the lobby is gone on its side too.
             self._end_connection(client_address, "the client opened a new one")
@@ -434,6 +440,13 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._connections[client_address] = connection
         log.info("%s: connection opened", client_address)
         return connection
+
+    def _is_active_player_connection(self, client_address: Address, connection: ReliableConnection) -> bool:
+        """True while a player is logged on over this connection and its client still sends its
+        keepalives (see RECONNECT_AFTER_QUIET_MS)."""
+        if not self._lobby.is_logged_on(client_address):
+            return False
+        return connection.quiet_ms(monotonic_ms()) < RECONNECT_AFTER_QUIET_MS
 
     def _refusal_for_new_connection(self, client_address: Address) -> str:
         """Why a new connection from this address cannot be opened now, or "" when it can."""

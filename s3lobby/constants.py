@@ -428,6 +428,13 @@ DEFAULT_BAN_HOURS = 24
 # Characters below this are control characters, which no text for the game may hold.
 FIRST_PRINTABLE_CHARACTER = " "
 
+# A new connection (an OpenConnection with another nonce) from an address whose logged on player is
+# still active is ignored: the game sends a keepalive every 5 seconds when it has nothing else to
+# send (0x604da4), during a match too (seen in a run), so a connection this quiet has a client
+# that ended. A forged OpenConnection from an active player's address no longer ends their
+# session, and a game that crashed and starts again gets in once its old connection fell silent.
+RECONNECT_AFTER_QUIET_MS = 20_000
+
 # Development mode (s3lobby serve --dev): every account also logs on with this password, from this
 # machine or its LAN only. For testing with the game without copying access codes; never on a
 # server others can reach.
@@ -535,10 +542,13 @@ DATAGRAM_BURST_PER_ADDRESS = 200
 # about a dozen messages.
 MAX_MESSAGES_PER_BLOCK = 256
 
-# How far ahead of the oldest missing block a client's block id may be. The game numbers its blocks
-# one by one and waits for acknowledgements, so it is never more than a few ahead; the window keeps
-# the memory for duplicate detection bounded.
-CLIENT_BLOCK_ID_WINDOW = 256
+# How far a client's block id may be from the oldest block still missing. The game packs whatever
+# it has queued into at most one new block per send pass, and passes come at most every 250 ms
+# (docs/protocol.md, "Timing"), while the server acknowledges at once: only a few blocks are ever
+# unacknowledged (inferred; seen in runs: one or two). The window keeps the memory for duplicate
+# detection bounded, and the narrower it is, the less a blind forger who sends from a player's
+# address can hope to hit a block id the server takes as new.
+CLIENT_BLOCK_ID_WINDOW = 32
 
 # The most a client may raise its silence timeout to: the game asks for 600000 ms around a match
 # and 60000 ms after it (0x454d6f, 0x452072), never more.

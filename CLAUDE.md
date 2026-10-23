@@ -168,14 +168,11 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 ## Open review findings
 
 The Python, network and web reviews of 2026-10-23 are worked through; SECURITY.md lists the known
-limits. Still open, as each touches behaviour the real game relies on and needs a recorded session
-first:
-
-- Dropping unnumbered lobby messages from logged on players and narrowing the client block id
-  window: a forged datagram from a player's address is still taken as theirs (admin commands are
-  safe through /confirm, ordinary actions are not).
-- Ignoring a nonce reset (a new OpenConnection) from an address that has a logged on player:
-  a forged one ends that player's session today.
+limits. The forged datagram findings are closed with evidence from the game's code: lobby
+messages outside numbered blocks are refused (the game sends none), the block id window is 32,
+and a new nonce from an active player's address is ignored (keepalive every 5 s, 0x604da4). What
+remains is inherent: the game's datagrams carry no secret, so a forger who guesses the next block
+number can still slip in an ordinary action; admin commands are safe through /confirm.
 
 ## Future work
 

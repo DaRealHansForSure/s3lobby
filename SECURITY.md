@@ -47,10 +47,14 @@ If you build your own lobby, launcher or service on this code or on its protocol
 ## Known limits
 
 - Access codes and chat cross the network in plain text (above).
-- On networks that allow forged sender addresses, a forged datagram from a logged on player's
-  address is taken as theirs. Admin chat commands are protected: each waits for `/confirm` with a
-  code the forger never sees. Ordinary actions (chat, joining, leaving) are not; closing that
-  needs evidence from a recorded game session first, as it touches behaviour the real game
-  relies on.
+- On networks that allow forged sender addresses, someone who knows a logged on player's address
+  and port can send datagrams that look like theirs, without seeing the answers. The server
+  refuses lobby messages outside the game's numbered blocks (the game sends none, see
+  docs/protocol.md), accepts block numbers only within 32 of the expected one, and ignores a new
+  connection from the address while the player's game still sends its keepalives, so a forger can
+  no longer end a session or act for a player with one blind datagram. The game's datagrams carry
+  no secret, though: a forger who keeps guessing the next block number can still slip in an
+  ordinary action (chat, joining, leaving). Admin chat commands stay protected by `/confirm`, a
+  code the forger never sees.
 - A connection to a MySQL server on another machine should use `?tls=verify` (or `verify-ca` with
   your own authority) in its location; without it, nobody checks whom the server talks to.
