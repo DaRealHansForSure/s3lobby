@@ -156,8 +156,13 @@ class ReliableConnection:
         lobby_messages = [m for m in messages if m.message_type not in CONNECTION_LAYER_MESSAGE_TYPES]
 
         if client_block_id is None:
-            # Sent "unguaranteed": no number, no acknowledgement, handed over as it is.
-            received.lobby_messages = lobby_messages
+            # The game sends every lobby message guaranteed, in numbered blocks: each send passes
+            # 0 for the unguaranteed flag (send 0x606ff0, flag tested at 0x607069; the two sends
+            # with the flag in a register zero it first, 0x5c5ebe, 0x5ca80e). Only connection
+            # messages travel unnumbered, so lobby messages there come from someone else, sending
+            # from the player's address.
+            if lobby_messages:
+                raise ProtocolError("lobby messages in a block without a block id")
             return received
 
         # The client's acknowledgement-only blocks repeat the id of its last real block. They hold
@@ -173,6 +178,10 @@ class ReliableConnection:
         if is_new_block:
             received.lobby_messages = lobby_messages
         return received
+
+    def quiet_ms(self, now_ms: int) -> int:
+        """How long the client has sent nothing on this connection."""
+        return now_ms - self._last_heard_from_client_ms
 
     def queue_lobby_message(self, message: EncodableMessage) -> None:
         """Queue a message; it leaves with the next numbered block."""

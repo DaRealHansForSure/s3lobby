@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 from s3lobby.constants import (
+    CHAT_ZONE_GROUP_ID,
     FIRST_GAME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
@@ -29,6 +30,8 @@ from s3lobby.messages import (
     LobbyServerList,
     Logon,
     Logout,
+    MessageId,
+    OpenConnection,
     OwnPlayerWithClan,
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
@@ -235,6 +238,37 @@ class LobbySessionTest(LobbyTestCase):
         self.assertEqual((removal.parent_id, removal.group_id), (GAME_ZONE_ID, FIRST_GAME_GROUP_ID))
         # The confirmation would have come in the same block as the room, which join_group read.
         self.assertEqual(bob.unread_messages_of_type(MessageType.REMOVE_PLAYER_FROM_GROUP), [])
+
+
+
+class ForgedDatagramTest(LobbyTestCase):
+    """Someone who sends UDP datagrams with a logged on player's address, without seeing the
+    answers. The server must not take those as the player's."""
+
+    def test_unnumbered_lobby_message_from_a_player_address_is_ignored(self) -> None:
+        """The game sends every lobby message in a numbered block (0x606ff0, flag 0 at every
+        call). Without this, anyone could move a player between rooms or speak for them."""
+        alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        alice.send_raw(AddPlayerToGroup(CHAT_ZONE_GROUP_ID, alice_id, ("0.0.0.0", 0), ""))
+        alice.assert_nothing_arrives(MessageType.ADD_GROUP_TO_GROUP)
+
+    def test_new_connection_from_an_active_player_address_is_ignored(self) -> None:
+        """A forged OpenConnection used to end the player's session: the game then lost its
+        lobby. A client that is still sending keepalives has not started over."""
+        alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        bob, _ = self.player_in_room("Bob", 42, GAME_ZONE_ID)
+        alice.send_raw(MessageId(1), OpenConnection(200))
+        bob.assert_nothing_arrives(MessageType.REMOVE_PLAYER_FROM_GROUP)
+        join_group(alice, CHAT_ZONE_GROUP_ID, alice_id)
+
+    def test_new_connection_after_the_old_one_fell_silent_is_taken(self) -> None:
+        """A game that crashed and starts again comes back from the same address with a new
+        nonce; once its old connection is quiet, the server lets it in again."""
+        alice, _ = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        bob, _ = self.player_in_room("Bob", 42, GAME_ZONE_ID)
+        with mock.patch("s3lobby.server.RECONNECT_AFTER_QUIET_MS", 0):
+            alice.send_raw(MessageId(1), OpenConnection(200))
+            bob.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
 
 
 if __name__ == "__main__":

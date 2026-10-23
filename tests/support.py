@@ -156,6 +156,11 @@ class FakeGameClient:
         self._next_block_id += 1
         self._socket.sendto(encode_block(messages), self._server_address)
 
+    def send_raw(self, *messages: EncodableMessage) -> None:
+        """Send exactly these messages in one datagram from this client's address, numbered or
+        not: what someone forging datagrams from a player's address could send."""
+        self._socket.sendto(encode_block([message.encode() for message in messages]), self._server_address)
+
     def close_connection(self) -> None:
         """End the connection like the game between index and lobby phase, then start afresh."""
         self.send(CloseConnection())

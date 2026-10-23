@@ -148,7 +148,11 @@ Types 4, 8, 0x13, 0x17 and 0x18 are neither built nor handled by this client.
 - Blocks that hold only acks carry `MessageId(last own id)`, which the receiver ignores.
 - Delivery to the lobby layer is not in order: a new block is delivered when it arrives, a
   duplicate is acknowledged but not delivered again.
-- Messages sent "unguaranteed" (flag of send 0x606ff0) travel in blocks without MessageId.
+- Messages sent "unguaranteed" (flag of send 0x606ff0) travel in blocks without MessageId. The
+  lobby never uses it: every call passes 0 for the flag (tested at 0x607069), including the two
+  that pass it in a register, which is zeroed first (0x5c5ebe for the logout, 0x5ca80e in
+  CreateGame). s3lobby therefore refuses lobby messages in blocks without MessageId: only someone
+  sending from the player's address would send them.
 
 ### Opening a connection
 
@@ -179,7 +183,10 @@ game answers like any peer, PP.OpenIncoming 0x6045c0); the probe then closes wit
 - Retries of a block after 750, 1500, 3000, 5000, 5000, ... ms (table 0x65d498, 0x6017c0).
 - After 5 s without hearing the peer the client stops resending data and only sends ack probes; at
   60 s it drops the peer (state 7). Any datagram resets that timer (table 0x65d47c).
-- With nothing outstanding the client sends a keepalive every 5 s (0x604da4).
+- With nothing outstanding the client sends a keepalive every 5 s (0x604da4), during a match too
+  (seen in a run). s3lobby uses that to tell a game that started over from a forged
+  OpenConnection: a new nonce from the address of a logged on player is ignored while the old
+  connection is not silent for 20 s (four keepalives).
 - AdjustConnectionTimeout sets the sender's own timeout and tells the peer: the client sends
   600000 (10 minutes) when its match starts (UnlinkGameFromZones, 0x454d6f) and 60000 again when
   it leaves the game slots after the match (0x452072 in 0x451ee0).
