@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 
-from s3lobby.constants import GroupFlag, MessageType, ResultCode
+from s3lobby.constants import GroupFlag, LadderType, MessageType, ResultCode
 from s3lobby.messages import (
     AcknowledgeMessages,
     AddPlayerToGroup,
@@ -17,6 +17,8 @@ from s3lobby.messages import (
     CheckFileVersion,
     ImageList,
     GameBlock,
+    GameDescription,
+    GameSettings,
     GroupAnnouncement,
     LobbyServerEntry,
     LobbyServerList,
@@ -103,6 +105,40 @@ class MessageLayoutTest(unittest.TestCase):
         self.assertEqual(announcement.name, "Player's game")
         self.assertEqual(announcement.game_block.host_address, ("0.0.0.0", 3343))
         self.assertEqual(announcement.encode(), raw)
+
+    def test_recorded_game_announcement_holds_a_ladder_game_on_a_random_map(self) -> None:
+        """The recorded host had picked "Ladder: 1 on 1" on a random map with two teams."""
+        raw = RawMessage(MessageType.ADD_GROUP_TO_GROUP_2, RECORDED_GAME_ANNOUNCEMENT)
+        announcement = GroupAnnouncement.decode(raw)
+        settings = GameSettings.from_game_block(announcement.game_block)
+        self.assertEqual(settings.session_guid, bytes.fromhex("a6ba4159c0b5c043b074ca816a1b944e"))
+        self.assertEqual(settings.game_version, 160)
+        self.assertEqual(settings.program_checksum, 0x3D439F21_3C44FE57)
+        self.assertTrue(settings.allows_amazons)
+        self.assertEqual(settings.ladder_type, LadderType.INDIVIDUAL)
+        self.assertTrue(settings.is_ladder_game)
+
+        description = GameDescription.decode(announcement.description)
+        self.assertEqual(description, GameDescription(2, 0, True, "\\Random"))
+        self.assertEqual(description.encode(), announcement.description)
+
+    def test_short_game_block_has_no_amazons_value_or_ladder_type(self) -> None:
+        """AddGroupToGroup and UpdateGroup carry three values after the session id (0x5ea320)."""
+        version_and_checksum = bytes.fromhex("a0000000" "01000000" "02000000")
+        game_block = GameBlock(host_address=("10.0.0.2", 3343), remainder=bytes(16) + version_and_checksum)
+        settings = GameSettings.from_game_block(game_block)
+        self.assertEqual((settings.game_version, settings.program_checksum), (160, 0x2_00000001))
+        self.assertIsNone(settings.allows_amazons)
+        self.assertIsNone(settings.ladder_type)
+        self.assertFalse(settings.is_ladder_game)
+
+    def test_description_that_is_not_one_game_description_is_refused(self) -> None:
+        valid = GameDescription(4, 2, False, "Elbe").encode()
+        other_type = RawMessage(MessageType.OWN_PLAYER, valid[4:]).encode()
+        for description in (b"", bytes(3), valid + valid, other_type, valid[:-1], valid[:-1] + b"x\0" + b"\0"):
+            with self.subTest(description=description):
+                with self.assertRaises(ProtocolError):
+                    GameDescription.decode(description)
 
     def test_recorded_logon_decodes(self) -> None:
         logon = Logon.decode(RawMessage(MessageType.LOGON, RECORDED_LOGON))

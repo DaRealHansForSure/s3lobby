@@ -256,19 +256,34 @@ can be accepted as they come.
 
 - **0x0f AddGroupToGroup** (constructor 0x5e2d60): u32 parent, u32 group id, u32 flags, u32 maximum
   player count, three strings (name, description column, password), then optional parts by flag:
-  - `0x400`: game block, 0x2c bytes: sockaddr_in of the host, 16 bytes (*inferred*: DirectPlay
-    session GUID), 3 x u32.
-  - `0x40000`: description, u32 length then that many bytes (the client stores a whole serialized
-    game description message there; a server forwards it unchanged).
+  - `0x400`: game block, 0x2c bytes: sockaddr_in of the host, the DirectPlay session GUID (16
+    bytes), u32 game version (160, global 0x6970f0), then the checksum of the game's program as two
+    u32, low half first (0x40b417, 0x61b6e0, a 64-bit value computed at start over the program).
+    A client whose own checksum differs shows the game with its version and cannot join it
+    (0x44b19d, 0x4436ac).
+  - `0x40000`: description, u32 length then that many bytes: a serialized game description (below).
+    A server forwards it unchanged.
   - `0x4000000`: the receiver asks for the group's images (GetImageList).
 
   Parent 0 tells the receiver it has joined that group (handler 0x5d2790); a parent that is a joined
   room makes the group visible inside it. Sent with group id 0 from another client, it is a private
   chat invitation.
-- **0x20 AddGroupToGroup2** (constructor 0x5e3b40): as 0x0f, game block 0x34 bytes (5 x u32).
+- **0x20 AddGroupToGroup2** (constructor 0x5e3b40): as 0x0f, but the game block is 0x34 bytes:
+  after the checksum come u32 Amazons (bit 0: the host allowed the Amazons, so the game needs the
+  add-on; the game list marks it, 0x44b1e6..0x44b232) and u32 ladder type: 0 normal game,
+  1 "Ladder: 1 on 1", 2 "Ladder Game: Clans", the host's choice in the game setup
+  (0x4848b4..0x48493b, CreateGame 0x46180b..0x46181e), shown in the game list as "", "Liga" and
+  "Clanliga" (0x44b843, 0x44b97a).
+- **Game description** (CLMGameDescription, constructor 0x4504e0): a whole message of type 0,
+  header included, written by CreateGame (0x4547cc) and again by UpdateGameSettings (0x454df4)
+  whenever the host changes the setup: u32 number of teams (the setup's team list, settings +0x50),
+  u32 number of computer opponents (slots in state 2, 0x435ca0), u32 1 for a ladder game, string
+  map name (the map's name, or a backslash and the random map's name for a random map,
+  0x4616da..0x461796). The game list shows the map and the team count from it (0x44b160,
+  0x44b500). Seen in a run: 2 teams, 0 computer opponents, ladder 1, `\Random`.
 - **0x19 UpdateGroup** (constructor 0x5ea320): u32 group id, u32 update mask, u32 flags, u32 maximum
-  player count, three strings, the 0x2c game block and the description (u32 length, bytes), both
-  always present. Mask (0x5dbf80): 1 name, 2 second text, 4 third text, 8 flags, 0x10 maximum,
+  player count, three strings, the 0x2c game block (the short form: no Amazons value and no ladder
+  type) and the description (u32 length, bytes), both always present. Mask (0x5dbf80): 1 name, 2 second text, 4 third text, 8 flags, 0x10 maximum,
   0x20 game block, 0x40 description. **0x21** is the same with the 0x34 game block.
 - **0x10 RemoveGroupFromGroup**: u32 parent, u32 group id; size exactly 12.
 - **0x1a group counters** (handler 0x5d8580): u32 group id, u32 players, u32 maximum, u32 flags
@@ -280,10 +295,10 @@ can be accepted as they come.
 and partly seen in runs:
 
 1. The host sends AddGroupToGroup2 with parent = the zone it is in (or a chat group), group id
-   0xffffffff, flags 0x840401 and a game block of five values (version 160, two check values, the
-   Amazons add-on flag, the league type 0/1/2 shown as "", "Liga", "Clanliga"). The description
-   holds the teams and the map name. Chat groups are opened the same way (CreateGame 0x5ca7d0,
-   called from 0x5dd5b9), without a game block.
+   0xffffffff, flags 0x840401, the maximum player count (the number of human slots: slots in state
+   1, 0x435ac0; seen in runs: 2 for 1 vs 1, 1 for Human vs Computer), the long game block and the
+   game description. Chat groups are opened the same way (CreateGame 0x5ca7d0, called from
+   0x5dd5b9), without a game block.
 2. The server picks the id, sends the group back to the host with parent 0, and shows it in the
    zone with its counters.
 3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
@@ -437,8 +452,9 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 ## Starting a game
 
 The lobby only brokers. The host creates a DirectPlay session (0x4611e0), then announces it as a
-group (0x20, flag 0x400) with its address and the session GUID (*inferred*). A joining client reads
-both (group fields +0x30, +0x54) and `JoinLobbyGame` 0x467e00 builds a `CTCPConnectionShortcut`
+group (0x20, flag 0x400) with its address and the session GUID (every recorded game had a new one).
+A joining client reads both (group fields +0x30, +0x54, CGroup.GetSessionGuid 0x5db4c0) and
+`JoinLobbyGame` 0x467e00 builds a `CTCPConnectionShortcut`
 "Internet connection to " + host IP (0x5bacb0), then opens the session by GUID over DirectPlay's
 default ports. The match itself never passes through the lobby server. In game, each slot's lobby
 id is the player id (0x53d438); a league game with lobby id 0 logs `LOBBY: Invalid lobby id in

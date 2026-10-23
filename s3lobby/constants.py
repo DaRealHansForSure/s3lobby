@@ -279,13 +279,38 @@ GROUP_COUNTERS_FULL = 0x1
 
 
 # Size of the game block, socket address included, per announcement or update type: the 2 variants
-# carry two more u32 values (5 instead of 3).
+# carry two more u32 values (5 instead of 3). After the address come the DirectPlay session GUID,
+# the game version and the checksum of the game's program (low half first); the long block adds the
+# Amazons value and the ladder type (constructors 0x5e3b40, 0x5ea320).
 GAME_BLOCK_SIZE_BY_MESSAGE_TYPE = {
     MessageType.ADD_GROUP_TO_GROUP: 0x2C,
     MessageType.ADD_GROUP_TO_GROUP_2: 0x34,
     MessageType.UPDATE_GROUP: 0x2C,
     MessageType.UPDATE_GROUP_2: 0x34,
 }
+
+SESSION_GUID_SIZE = 16
+
+# Bit 0 of the game block's Amazons value: the host allowed the Amazons, so the game needs the
+# "Quest of the Amazons" add-on; the game list marks such games (0x44b1e6..0x44b232, text 0x9016b).
+AMAZONS_ALLOWED_BIT = 0x1
+
+
+class LadderType(IntEnum):
+    """The last value of a long game block: what the host picked under "Normal Game",
+    "Ladder: 1 on 1" and "Ladder Game: Clans" in the game setup (radio buttons 0x4848b4..0x48493b,
+    passed by CreateGame at 0x46180b..0x46181e). The game list shows "Liga" and "Clanliga" for 1 and
+    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server keeps no
+    ladder."""
+
+    NONE = 0
+    INDIVIDUAL = 1
+    CLANS = 2
+
+
+# A game's description is a serialized message of its own, typed 0 (CLMGameDescription, constructor
+# 0x4504e0). It only ever travels inside a group's description, never as a lobby message.
+GAME_DESCRIPTION_MESSAGE_TYPE = 0
 
 # The languages of the game's text archive (GFX/siedler3_09.*.dat), in the archive's order. The game
 # keeps the index of its language in its configuration (offset 0x28) and clamps it to the archive's
