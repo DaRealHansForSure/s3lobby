@@ -296,9 +296,28 @@ class Lobby:
         return len(players)
 
     def send_pending_announcements(self) -> None:
-        """Send what another process (the command line, a web interface) queued in the database."""
-        for text in self._database.take_pending_announcements():
-            self.announce(text)
+        """Send what another process (the command line, a web interface) queued in the database:
+        lines for every player, and lines for one player, who gets them only while online."""
+        for line in self._database.take_pending_lines():
+            if line.account_id is None:
+                reached_count = self.announce(line.text)
+            else:
+                reached_count = self.tell_player(line.account_id, line.text)
+            self._do_bookkeeping(
+                "noting whom a line reached",
+                lambda: self._database.record_announcement_reach(line.announcement_id, reached_count),
+            )
+
+    def tell_player(self, player_id: int, text: str) -> int:
+        """Send a server line to one player; returns 1 when they are online and got it, else 0."""
+        player = self._players_by_id.get(player_id)
+        if player is None:
+            log.info("line for player %d not sent: not online", player_id)
+            return 0
+        message = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([text]))
+        self._outbox.send(player.address, message)
+        log.info("told player %d %r: %r", player.player_id, player.name, text)
+        return 1
 
     def is_logged_on(self, client_address: Address) -> bool:
         """True when a player is logged on from this address."""

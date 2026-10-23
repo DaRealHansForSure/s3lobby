@@ -502,9 +502,10 @@ def add_setting_commands(commands: argparse._SubParsersAction, database_option: 
 def add_announce_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the announce subcommand, which sends a line to every player in the running lobby."""
     announce = commands.add_parser(
-        "announce", parents=[database_option], help="send a line to every player in the running lobby"
+        "announce", parents=[database_option], help="send a line to every player in the running lobby, or to one"
     )
     announce.add_argument("text")
+    announce.add_argument("--to", help="one player's name: only they get the line, if online")
     announce.set_defaults(admin_function=admin.queue_announcement)
 
 

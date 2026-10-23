@@ -10,14 +10,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from flask import Blueprint, render_template
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+from werkzeug.wrappers import Response
 
-from s3lobby.constants import LadderState
+from s3lobby.constants import MAX_GROUP_TEXT_LENGTH, LadderState
 from s3lobby.database import GameRecord, Setting
 from s3lobby.ladder_book import LadderBook
 from s3lobby.web.auth import redirect_visitors_to_logon
-from s3lobby.web.lobby_view import LiveLobbyPage, read_live_lobby_page
-from s3lobby.web.storage import get_database
+from s3lobby.web.lobby_view import LiveLobbyPage, read_live_lobby_page, search_text
+from s3lobby.web.storage import apply_change, get_database
+from s3lobby.web.texts import form_text
 
 blueprint = Blueprint("admin_home", __name__)
 blueprint.before_request(redirect_visitors_to_logon)
@@ -62,11 +64,43 @@ def show_dashboard() -> str:
 @blueprint.get("/lobby")
 def admin_lobby() -> str:
     """The live lobby with what only admins see: each player's address, whether others can reach
-    them, and who is an admin."""
-    return render_template("admin_lobby.html", page=read_live_lobby_page(), show_admin_columns=True)
+    them, who is an admin, and Message, Kick and Ban for each; ?q= narrows the players down, ?to=
+    fills in the message form's recipient."""
+    search = search_text()
+    message_to = request.args.get("to", "").strip()[:MAX_GROUP_TEXT_LENGTH]
+    return render_template(
+        "admin_lobby.html",
+        page=read_live_lobby_page(search),
+        search=search,
+        message_to=message_to,
+        show_admin_columns=True,
+    )
 
 
 @blueprint.get("/lobby/state")
 def admin_lobby_state() -> str:
     """Only the live part of the admins' lobby page, for the page's script to swap in."""
-    return render_template("_live_state.html", page=read_live_lobby_page(), show_admin_columns=True)
+    search = search_text()
+    return render_template(
+        "_live_state.html", page=read_live_lobby_page(search), search=search, show_admin_columns=True
+    )
+
+
+@blueprint.post("/lobby/message")
+def message_player() -> Response:
+    """Queue a server line for one player; the running server sends it within a second if the
+    player is online, and the Announcements page shows whether it arrived."""
+    name = form_text("name")
+    text = form_text("text")
+    database = get_database()
+    account = database.find_account(name)
+    if account is None:
+        flash(f"There is no account named {name}.", "bad")
+        return redirect(url_for("admin_home.admin_lobby", to=name))
+    is_queued = apply_change(
+        lambda: database.queue_announcement(text, account_id=account.account_id),
+        f"Message for {account.name} queued; it arrives within a second if {account.name} is online.",
+    )
+    if not is_queued:
+        return redirect(url_for("admin_home.admin_lobby", to=account.name))
+    return redirect(url_for("admin_home.admin_lobby"))

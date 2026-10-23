@@ -30,13 +30,20 @@
   {% if announcements %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Text</th><th>Written</th><th>Sent</th></tr></thead>
+      <thead><tr><th>Text</th><th>To</th><th>Written</th><th>Sent</th><th class="num">Reached</th></tr></thead>
       <tbody>
         {% for announcement in announcements %}
         <tr>
           <td>{{ announcement.text }}</td>
-          <td>{{ announcement.created_at | short_moment }}</td>
-          <td>{% if announcement.sent_at %}{{ announcement.sent_at | short_moment }}{% else %}<span class="badge badge--warn">waiting</span>{% endif %}</td>
+          <td>{{ announcement.recipient_name or "everyone" }}</td>
+          <td class="cell-time">{{ announcement.created_at | short_moment }}</td>
+          <td class="cell-time">{% if announcement.sent_at %}{{ announcement.sent_at | short_moment }}{% else %}<span class="badge badge--warn">waiting</span>{% endif %}</td>
+          <td class="num">
+            {%- if announcement.reached_count is none %}<span class="muted">-</span>
+            {%- elif announcement.recipient_name and announcement.reached_count == 0 %}<span class="badge badge--warn" title="Not online when the server sent it">not online</span>
+            {%- elif announcement.recipient_name %}<span class="badge badge--good">delivered</span>
+            {%- else %}{{ announcement.reached_count }}{% endif -%}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

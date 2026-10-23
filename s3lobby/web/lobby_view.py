@@ -6,12 +6,12 @@ few seconds (static/app.js) from /live/state, which renders the same part on its
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, request
 
-from s3lobby.constants import LIVE_STATE_STALE_SECONDS, LOBBY_TAB_GROUP_NAMES, UNLIMITED_PLAYERS
+from s3lobby.constants import LIVE_STATE_STALE_SECONDS, LOBBY_TAB_GROUP_NAMES, MAX_GROUP_TEXT_LENGTH, UNLIMITED_PLAYERS
 from s3lobby.database import utc_now
 from s3lobby.groups import GroupKind
 from s3lobby.live import LiveGroup, LiveLobbyState, StoredLiveState
@@ -42,6 +42,8 @@ class PlayerRow:
     reachability: str
     # The colour of the player's row in the game's member lists (groups.game_row_colour).
     row_colour: str = ""
+    # The player's account id, for the admins' actions on the player.
+    player_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -89,23 +91,41 @@ class LiveLobbyPage:
     games: tuple[GameRow, ...] = ()
     chat_groups: tuple[ChatGroupRow, ...] = ()
     rooms: tuple[RoomRow, ...] = ()
+    # How many players are online in all, when a search shows only some of them; None otherwise.
+    total_player_count: int | None = None
 
 
 @blueprint.get("/")
 def live_lobby() -> str:
-    """The public live lobby page: who is online, the open games and the chat groups."""
-    return render_template("live.html", page=read_live_lobby_page())
+    """The public live lobby page: who is online, the open games and the chat groups; ?q= narrows
+    the players down to names and clans containing it."""
+    search = search_text()
+    return render_template("live.html", page=read_live_lobby_page(search), search=search)
 
 
 @blueprint.get("/live/state")
 def live_state_part() -> str:
     """Only the live part of the page, for the page's script to swap in."""
-    return render_template("_live_state.html", page=read_live_lobby_page())
+    search = search_text()
+    return render_template("_live_state.html", page=read_live_lobby_page(search), search=search)
 
 
-def read_live_lobby_page() -> LiveLobbyPage:
-    """The live lobby as the server last wrote it to the database, ready for the page."""
-    return describe_live_lobby(get_database().read_live_state(), utc_now())
+def search_text() -> str:
+    """The page's player search, cut to the longest a name can be."""
+    return request.args.get("q", "").strip()[:MAX_GROUP_TEXT_LENGTH]
+
+
+def read_live_lobby_page(search: str = "") -> LiveLobbyPage:
+    """The live lobby as the server last wrote it to the database, ready for the page; with a
+    search, only the players whose name or clan contains it."""
+    page = describe_live_lobby(get_database().read_live_state(), utc_now())
+    if not search:
+        return page
+    wanted = search.casefold()
+    players = tuple(
+        player for player in page.players if wanted in player.name.casefold() or wanted in player.clan.casefold()
+    )
+    return replace(page, players=players, total_player_count=len(page.players))
 
 
 def online_player_names() -> set[str]:
@@ -169,6 +189,7 @@ def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> tupl
                 group_names=group_names,
                 reachability=player.reachability,
                 row_colour=player.row_colour,
+                player_id=player.player_id,
             )
         )
     return tuple(rows)

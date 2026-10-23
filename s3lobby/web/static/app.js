@@ -124,6 +124,50 @@ function saveOrder(list, token) {
         .catch(() => window.location.reload());
 }
 
+// Forms marked data-confirm ask first: the page's confirm dialog shows the question and a button
+// named like the action. Only that button submits; Cancel, the close button and Escape all leave
+// the form unsent. Listening on the document also covers forms the live lobby swaps in later.
+function setUpConfirmations() {
+    const dialog = document.getElementById("confirm-dialog");
+    if (!dialog || typeof dialog.showModal !== "function") {
+        return;
+    }
+    const question = document.getElementById("confirm-question");
+    const confirmButton = document.getElementById("confirm-button");
+    let pendingForm = null;
+
+    document.addEventListener("submit", (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-confirm")) {
+            return;
+        }
+        if (form.dataset.confirmed === "yes") {
+            return;
+        }
+        event.preventDefault();
+        pendingForm = form;
+        question.textContent = form.getAttribute("data-confirm");
+        confirmButton.textContent = form.getAttribute("data-confirm-label") || "Confirm";
+        dialog.returnValue = "";
+        dialog.showModal();
+    });
+    for (const closer of dialog.querySelectorAll("[data-close]")) {
+        closer.addEventListener("click", () => dialog.close("cancel"));
+    }
+    confirmButton.addEventListener("click", () => dialog.close("confirm"));
+    // The action sits behind the return value, so Escape (which closes with an empty value) never
+    // triggers it.
+    dialog.addEventListener("close", () => {
+        const form = pendingForm;
+        pendingForm = null;
+        if (dialog.returnValue !== "confirm" || !form) {
+            return;
+        }
+        form.dataset.confirmed = "yes";
+        form.requestSubmit();
+    });
+}
+
 // Replaces the live part of the lobby page with a fresh copy rendered by the server. The server
 // escapes every name in it, so swapping the HTML in is safe. Skipped while the tab is hidden.
 function setUpLiveRefresh() {
@@ -154,4 +198,5 @@ function setUpLiveRefresh() {
 setUpThemeToggle();
 setUpNavigationMenus();
 setUpSortableLists();
+setUpConfirmations();
 setUpLiveRefresh();

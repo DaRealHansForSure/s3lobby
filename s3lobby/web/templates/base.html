@@ -51,6 +51,22 @@
   {% block content %}{% endblock %}
 </main>
 
+{# The one dialog that confirms an action marked data-confirm (app.js fills in the question and
+   the button's name). Escape and Cancel close it without acting. #}
+<dialog class="dialog" id="confirm-dialog" aria-labelledby="confirm-title">
+  <div class="dialog-head">
+    <h3 id="confirm-title">Are you sure?</h3>
+    <button class="dialog-close" type="button" data-close aria-label="Close without doing it">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 3 L13 13 M13 3 L3 13" stroke="currentColor" stroke-width="1.6" fill="none"></path></svg>
+    </button>
+  </div>
+  <p id="confirm-question"></p>
+  <div class="row">
+    <button class="btn btn--outline" type="button" data-close>Cancel</button>
+    <button class="btn btn--danger" type="button" data-confirm id="confirm-button">Confirm</button>
+  </div>
+</dialog>
+
 <footer class="site-footer">
   <div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div>
 </footer>

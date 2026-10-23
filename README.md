@@ -297,10 +297,12 @@ s3lobby setting set banner_url ftp://192.168.1.10/banner.png
 s3lobby setting set banner_id 2
 ```
 
-A line for every player in the running lobby, and a welcome line after each logon:
+A line for every player in the running lobby, a line for one player, and a welcome line after
+each logon:
 
 ```sh
 s3lobby announce "Server restart at 22:00"
+s3lobby announce "Please rename your game" --to Alice   # only Alice sees it, if she is online
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
 s3lobby setting set mark_admins true    # admins' rows green in the game's member lists
 ```
