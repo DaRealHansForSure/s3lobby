@@ -124,8 +124,9 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 - Git flow: `main` holds releases only, `develop` the work in progress. Every change goes on a
   branch from `develop` (`feature/...`, `fix/...`, `docs/...`, `refactor/...`) and is merged back
   with `git merge --no-ff BRANCH -m "Merge branch 'BRANCH' into develop"`.
-- Releases follow SemVer (before 1.0.0, minor for features or anything that changes behaviour,
-  patch for fixes only; 1.0.0 once the real game is confirmed on two machines). A release is a
+- Releases follow SemVer: minor for features or anything that changes behaviour, patch for fixes
+  only. **Never release 1.0.0 (or any 1.x) until the owner explicitly says so**, whatever is
+  finished or tested; until then every release stays 0.x. A release is a
   branch `release/X.Y.Z` from `develop` with one commit `chore(release): X.Y.Z` that sets
   `__version__` in `s3lobby/__init__.py` and moves the `Unreleased` part of `CHANGELOG.md` into a
   section for the version (Keep a Changelog: Added, Changed, Fixed, Security, with links at the
