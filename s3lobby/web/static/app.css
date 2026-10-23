@@ -1,6 +1,16 @@
 /* s3lobby's own rules on top of the UI kit (tokens.css, base.css, components.css). Colours, sizes
    and spaces all come from the kit's tokens. */
 
+/* The two colours the game's member lists draw players in (0x449da1, 0x449de2), from the UI kit's
+   category colours, so they read in both themes. */
+:root {
+  --game-row-green: var(--data-3);
+  --game-row-blue: var(--data-1);
+}
+.game-row { font-weight: 600; }
+.game-row--green { color: var(--game-row-green); }
+.game-row--blue { color: var(--game-row-blue); }
+
 /* Navigation: a row of its own under the header, scrolling sideways on a phone instead of
    disappearing like the kit's .site-nav does below 34rem. */
 .app-nav-bar {

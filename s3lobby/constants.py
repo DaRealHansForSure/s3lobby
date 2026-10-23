@@ -224,6 +224,13 @@ class MatchPlayerFlag(IntFlag):
     RANDOM_RACE = 0x4
 
 
+# The clan name the game's member list draws in blue instead of green, for a player with the
+# HIGHLIGHTED flag (compared with the text at 0x69a568, 0x449de2; inferred: Blue Byte staff).
+BLUE_BYTE_CLAN_NAME = "BB"
+# The colours of a player's row in the game's member list, as the web interface shows them too.
+GAME_ROW_GREEN = "green"
+GAME_ROW_BLUE = "blue"
+
 # One step of a match's game time (GameStatus's game_time, the tick counter 0x7dfd48): the logic
 # thread's timer runs every 64 ms (0x53d761), and the game's own clock shows the counter as
 # (ticks * 64) / 1000 seconds (0x4b3fa2..0x4b3fb6). Game time stops while the game waits for its

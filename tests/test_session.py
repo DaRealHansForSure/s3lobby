@@ -154,11 +154,12 @@ class LobbySessionTest(LobbyTestCase):
         alice.assert_nothing_arrives(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS)
 
     def test_admins_are_marked_in_the_member_list_only_when_set(self) -> None:
-        """With mark_admins, an admin arrives as 0x26 with the HIGHLIGHTED flag and the member
-        list colours the row (0x449e09); without it, admins look like everyone else, as in every
-        run with the real game so far. Other players are never marked."""
+        """With mark_admins (the default), an admin arrives as 0x26 with the HIGHLIGHTED flag and
+        the member list colours the row (0x449da1); turned off, admins look like everyone else.
+        Other players are never marked."""
         bob_account = self.database.find_account("Bob")
         self.database.set_admin(bob_account.account_id, True)
+        self.database.set_setting(Setting.MARK_ADMINS, "false")
         alice = self.new_client("Alice", nonce=17)
         alice_id = log_on(alice)
         join_group(alice, LOBBY_ROOM_ID, alice_id)

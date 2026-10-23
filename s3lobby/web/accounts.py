@@ -18,7 +18,8 @@ from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.commands import kick_reason
-from s3lobby.database import MAX_BAN_REASON_LENGTH, Account, Clan, DatabaseError, is_whole_number_text, utc_now
+from s3lobby.database import MAX_BAN_REASON_LENGTH, Account, Clan, DatabaseError, Setting, is_whole_number_text, utc_now
+from s3lobby.groups import game_row_colour
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.games import games_of_account
 from s3lobby.web.lobby_view import online_player_names
@@ -34,10 +35,14 @@ NO_CLAN_VALUE = ""
 
 @dataclass(frozen=True)
 class AccountRow:
+    """One account as the accounts list shows it. row_colour is the colour the game draws the
+    player's row in (groups.game_row_colour), empty for the usual colour."""
+
     account: Account
     clan_name: str
     is_online: bool
     is_banned: bool
+    row_colour: str = ""
 
 
 # Accounts.
@@ -48,6 +53,7 @@ def list_accounts() -> str:
     database = get_database()
     online_names = online_player_names()
     now = utc_now()
+    marks_admins = database.get_boolean_setting(Setting.MARK_ADMINS)
     rows = []
     for account in database.list_accounts():
         clan = database.find_clan_of_account(account.account_id)
@@ -57,9 +63,19 @@ def list_accounts() -> str:
                 clan_name=clan.name if clan is not None else "",
                 is_online=account.name in online_names,
                 is_banned=account.is_banned_at(now),
+                row_colour=account_row_colour(account, clan, marks_admins),
             )
         )
     return render_template("accounts.html", rows=rows)
+
+
+def account_row_colour(account: Account, clan: Clan | None, marks_admins: bool) -> str:
+    """The colour the game lists this player in when they show their clan at logon: green for an
+    admin (setting mark_admins) or a member of a clan marked green, blue for the clan BB."""
+    is_highlighted_clan = clan is not None and clan.is_highlighted
+    is_highlighted = is_highlighted_clan or (marks_admins and account.is_admin)
+    clan_name = clan.name if clan is not None else ""
+    return game_row_colour(is_highlighted, clan_name)
 
 
 @blueprint.post("/accounts")
@@ -84,6 +100,7 @@ def show_account(account_id: int) -> str:
         "account.html",
         account=account,
         clan=clan,
+        row_colour=account_row_colour(account, clan, database.get_boolean_setting(Setting.MARK_ADMINS)),
         clans=database.list_clans(),
         access_codes=database.list_access_codes(account_id),
         games=games_of_account(account_id),
@@ -208,7 +225,10 @@ def delete_account(account_id: int) -> Response:
 @blueprint.get("/clans")
 def list_clans() -> str:
     database = get_database()
-    clans_with_members = [(clan, database.list_clan_member_names(clan.clan_id)) for clan in database.list_clans()]
+    clans_with_members = []
+    for clan in database.list_clans():
+        colour = game_row_colour(clan.is_highlighted, clan.name)
+        clans_with_members.append((clan, database.list_clan_member_names(clan.clan_id), colour))
     return render_template("clans.html", clans_with_members=clans_with_members)
 
 

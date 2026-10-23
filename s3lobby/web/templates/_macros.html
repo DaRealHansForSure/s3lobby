@@ -22,6 +22,12 @@
 </label>
 {%- endmacro %}
 
+{# A player's or clan's name in the colour the game's member lists draw it in (green, or blue for
+   the clan BB); the plain name otherwise. #}
+{% macro in_game_colour(text, colour) -%}
+{% if colour %}<span class="game-row game-row--{{ colour }}" title="{{ colour }} in the game's member lists">{{ text }}</span>{% else %}{{ text }}{% endif %}
+{%- endmacro %}
+
 {% macro reachability_badge(reachability) -%}
 {% if reachability == "open" %}<span class="badge badge--good">open</span>
 {%- elif reachability == "blocked" %}<span class="badge badge--warn" title="Forward UDP 3343 to this player's PC">blocked</span>

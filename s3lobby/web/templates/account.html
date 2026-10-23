@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_field, action_button, checkbox_field with context %}
+{% from "_macros.html" import csrf_field, action_button, checkbox_field, in_game_colour with context %}
 {% set active_nav = "accounts" %}
 {% block title %}{{ account.name }}{% endblock %}
 {% block content %}
 <section>
   <div class="section-head">
-    <h1>{{ account.name }}</h1>
+    <h1>{{ in_game_colour(account.name, row_colour) }}</h1>
     <p class="badges">
       {% if is_online %}<span class="badge badge--good">online</span>{% endif %}
       {% if account.is_admin %}<span class="badge badge--accent">admin</span>{% endif %}

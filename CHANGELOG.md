@@ -53,6 +53,10 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Changed
 
+- `mark_admins` is on by default: admins get a green row in the game's member lists, now that a
+  run confirmed the message. A server that turned it off keeps it off.
+- The web interface shows names in the colour the game's member lists draw them in (live lobby,
+  accounts, account pages, clans): green, or blue for the clan BB.
 - Match reports and game pages show the time of play in minutes and seconds: one tick of the
   game's time is 64 ms, read from the game.
 - `s3lobby serve --verbose --log-file FILE` writes the datagrams only into the file; the console

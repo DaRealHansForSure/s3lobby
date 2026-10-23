@@ -29,6 +29,8 @@ class LivePlayer:
     group_ids: tuple[int, ...] = ()
     # A Reachability value (reachability.py); the default keeps older states readable.
     reachability: str = "not checked"
+    # The colour of the player's row in the game's member lists (groups.game_row_colour).
+    row_colour: str = ""
 
 
 @dataclass(frozen=True)

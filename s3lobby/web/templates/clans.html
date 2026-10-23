@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_field, action_button, names with context %}
+{% from "_macros.html" import csrf_field, action_button, in_game_colour, names with context %}
 {% set active_nav = "clans" %}
 {% block title %}Clans{% endblock %}
 {% block content %}
@@ -15,9 +15,9 @@
     <table class="table">
       <thead><tr><th>Clan</th><th>Members</th><th>In the game</th><th class="cell-actions"></th></tr></thead>
       <tbody>
-        {% for clan, member_names in clans_with_members %}
+        {% for clan, member_names, colour in clans_with_members %}
         <tr>
-          <td>{{ clan.name }}</td>
+          <td>{{ in_game_colour(clan.name, colour) }}</td>
           <td>{{ names(member_names) }}</td>
           <td>{% if clan.is_highlighted %}<span class="badge badge--good">green</span>{% else %}<span class="muted">usual colour</span>{% endif %}</td>
           <td class="cell-actions">

@@ -6,6 +6,7 @@ Skipped where Flask is not installed: the lobby server itself does not need it.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import re
 import tempfile
@@ -298,6 +299,26 @@ class ClanHighlightPageTest(WebInterfaceTestCase):
         self.assertIn('<span class="badge badge--good">green</span>', self.client.get("/clans").get_data(as_text=True))
         self.post(f"/clans/{romans.clan_id}/highlight")
         self.assertFalse(self.database.find_clan("Romans").is_highlighted)
+
+
+class GameColoursTest(WebInterfaceTestCase):
+    """Names show in the colour the game's member lists draw them in: green, or blue for the
+    clan BB (0x449da1, 0x449de2)."""
+
+    def test_live_lobby_shows_the_colour_the_server_reports(self) -> None:
+        blue_player = dataclasses.replace(LIVE_STATE.players[0], row_colour="blue")
+        self.database.write_live_state(dataclasses.replace(LIVE_STATE, players=(blue_player,)))
+        page = self.client.get("/").get_data(as_text=True)
+        self.assertIn('<span class="game-row game-row--blue"', page)
+
+    def test_admin_is_green_and_a_marked_clan_named_bb_blue(self) -> None:
+        self.log_on()
+        accounts = self.client.get("/accounts").get_data(as_text=True)
+        self.assertIn(f'game-row--green" title="green in the game\'s member lists">{ADMIN_NAME}</span>', accounts)
+        blue_byte = self.database.create_clan("BB")
+        self.database.set_clan_highlighted(blue_byte.clan_id, True)
+        clans = self.client.get("/clans").get_data(as_text=True)
+        self.assertIn('game-row--blue" title="blue in the game\'s member lists">BB</span>', clans)
 
 
 class AccountPagesTest(WebInterfaceTestCase):

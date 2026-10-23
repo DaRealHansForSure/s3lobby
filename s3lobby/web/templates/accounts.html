@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_field, checkbox_field with context %}
+{% from "_macros.html" import csrf_field, checkbox_field, in_game_colour with context %}
 {% set active_nav = "accounts" %}
 {% block title %}Accounts{% endblock %}
 {% block content %}
@@ -16,8 +16,8 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td><a href="{{ url_for('accounts.show_account', account_id=row.account.account_id) }}">{{ row.account.name }}</a></td>
-          <td>{{ row.clan_name or "-" }}</td>
+          <td><a href="{{ url_for('accounts.show_account', account_id=row.account.account_id) }}">{{ in_game_colour(row.account.name, row.row_colour) }}</a></td>
+          <td>{{ in_game_colour(row.clan_name, row.row_colour) if row.clan_name else "-" }}</td>
           <td>
             <div class="badges">
               {% if row.is_online %}<span class="badge badge--good">online</span>{% endif %}

@@ -38,6 +38,8 @@ class PlayerRow:
     tab_names: tuple[str, ...]
     group_names: tuple[str, ...]
     reachability: str
+    # The colour of the player's row in the game's member lists (groups.game_row_colour).
+    row_colour: str = ""
 
 
 @dataclass(frozen=True)
@@ -152,6 +154,7 @@ def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> tupl
                 tab_names=tab_names,
                 group_names=group_names,
                 reachability=player.reachability,
+                row_colour=player.row_colour,
             )
         )
     return tuple(rows)
