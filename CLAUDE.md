@@ -144,18 +144,13 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 
 Fixed so far: web hardening (open redirect, server-side web sessions, lockout, headers), the
 housekeeping guard, block budget, acknowledgement and timeout caps, no Home answers before a logon,
-logon deadline, readable text, the log budget. Still to do, most important first:
+logon deadline, readable text, the log budget, game logon limits and check budget, wrong group
+password and group update limits, admin rights read at the command, update passwords hidden in
+the log. Still to do, most important first:
 
-- Game logon: count failures per name and address instead of per name alone (anyone can lock an
-  admin out today), a total budget of scrypt checks per second (they run on the event loop), and
-  a dummy hash for unknown names (timing shows which names exist).
-- Wrong chat group passwords: limit per player and group (one guess per join, thousands a second).
-- UpdateGroup fan-out: a per-player budget, as each update goes to every viewer.
 - UPnP: control URL only on the answering device and plain http, no proxies or redirects, a
   global external address only, an overall discovery deadline; forward only private addresses
   from the game's ports; one lock around mapping changes (forward and release race today).
-- Verbose log: redact `third_text` of UpdateGroup too (a chat group password).
-- Admin rights for /kick, /ban, /announce read from the database at the command, not at logon.
 - `decode_block` should stop at the message limit instead of parsing a whole datagram first.
 - The reachability probe only for confirmed connections.
 - SIGTERM handler for a clean stop; cancel background router tasks before stopping forwarding;
