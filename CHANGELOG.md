@@ -2,8 +2,7 @@
 
 Every notable change to s3lobby. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0.0 a minor
-version may change behaviour; 1.0.0 comes once the lobby is confirmed with the real game on two
-machines.
+version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
