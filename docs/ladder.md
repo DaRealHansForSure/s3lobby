@@ -162,6 +162,32 @@ in the database, and a season created afterwards for past dates shows its standi
   column shows whatever text the server sends), but it hides the clan and changes what a run
   confirmed.
 
+### Texts the server writes into the lobby
+
+The game has two places for longer texts, and both suit the ladder in different ways. Both hold at
+most 1200 bytes per text (`MAX_TEXT_MESSAGE_BYTES`) and come in a German and an English form,
+because the game picks the news by its language (0x45351b) and the board by its language group.
+
+- **The board (MessageZone), for things worth keeping.** A theme "Ladder" (German "Liga") that the
+  server writes itself and admins cannot post into. It gets one message per event, not per match:
+  a custom season starting (name, dates, what counts), a custom season ending (final top five and
+  the champion of Liga and Clanliga), and a weekly summary (best climber, most matches, longest
+  winning run, the top five). The newest `ladder_board_messages` (default 20) are kept, older ones
+  are deleted. A run on Windows 10 showed the board and its messages working.
+- **The news (Home tab), for the current state.** The admins' news text stays as they wrote it; with
+  `ladder_news_standings` on, the server appends a short block when it hands out the text: the top
+  five of the infinite season and the running custom seasons with their end. The game fetches the
+  news once per logon, so a player sees the state of their logon, which is what news is.
+- **Server lines, for the moment.** The line after a match (above), and with `ladder_logon_line` on,
+  one line at logon: "Liga: 1043, place 6. Autumn Cup until 30 Nov: place 3." Off by default,
+  because a line at every logon is noise for players who do not play the ladder; it is only sent
+  to players with a ladder result.
+- **Announcements to everyone online** only for the end of a custom season ("Autumn Cup is over:
+  Jin wins with 1088"), since that is the one event everyone should hear at once.
+
+Per match, nothing is written to the board or the news: a busy evening would push everything else
+out, and the match line and the web page already carry it.
+
 ## 4. What admins can do
 
 - See every ladder game with its state: counted, disputed, void, with the reason.
@@ -183,6 +209,34 @@ in the database, and a season created afterwards for past dates shows its standi
   | `ladder_provisional_games` | 10 | how many results are provisional |
   | `ladder_active_days` | 30 | how recent a Liga result must be for the clan strength |
   | `ladder_clan_member_days` | 3 | how long a player must be in a clan for Clanliga |
+  | `ladder_inactive_days` | 60 | hide players without a result for this long from the infinite season |
+  | `ladder_board_messages` | 20 | how many messages the server keeps in its board theme |
+  | `ladder_news_standings` | true | append the top five and running seasons to the news |
+  | `ladder_logon_line` | false | a line with rating and place at logon, for ladder players only |
+
+### Edge cases
+
+- **Two copies of one installation** (same serial number, as in development mode) never count
+  against each other: void with that reason. The same IP address is no reason, since players on
+  one LAN share it.
+- **A server restart during a match** loses the lobby game the reports refer to (game ids live in
+  memory). Reports for an unknown game are stored as today and the match is void ("server
+  restarted"), never guessed.
+- **Renamed or deleted accounts:** results keep the account id. A deleted account shows as
+  "deleted player" in old results and leaves the standings; the ratings of everyone else stay as
+  they are, because results are never removed with it.
+- **Banned players** leave the standings while banned; their past results keep counting for their
+  opponents.
+- **Inactive players:** after `ladder_inactive_days` (default 60) without a result a player is hidden
+  from the infinite season's standings (not from custom ones) until their next result. The rating
+  itself does not decay; Elo has no reason to punish a pause.
+- **Disputes decided later:** the players of a disputed match get a server line at their next logon
+  telling them how it was decided.
+- **Times** of seasons and results are UTC, like the rest of the web interface.
+- **Clanliga in the game:** whether the game itself demands clans for a Clanliga setup is not known
+  yet (in the run list below); the server checks the rules either way.
+- **Later, if wanted:** statistics per race and per map (who wins with which race, which maps are
+  played), and an export of all results as CSV for other tools.
 
 ## 5. Database (one migration, 0010, for every dialect)
 
