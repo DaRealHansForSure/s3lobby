@@ -56,6 +56,23 @@ class CommandLineTest(unittest.TestCase):
         _, listing, _ = self.run_command("clan", "list")
         self.assertIn("Romans: Alice", listing)
 
+    def test_database_status_shows_pending_migrations_without_applying_them(self) -> None:
+        exit_code, output, _ = self.run_command("database", "status")
+        self.assertEqual(exit_code, EXIT_SUCCESS)
+        self.assertIn("pending  0001 initial", output)
+        _, output_after, _ = self.run_command("database", "status")
+        self.assertIn("pending  0001 initial", output_after, "status alone must not migrate")
+
+    def test_database_copy_moves_the_lobby_to_another_location(self) -> None:
+        self.run_command("account", "add", "Alice")
+        target_path = str(Path(self.folder.name) / "copy.sqlite3")
+        exit_code, output, _ = self.run_command("database", "copy", "--to", target_path)
+        self.assertEqual(exit_code, EXIT_SUCCESS)
+        self.assertIn("accounts: 1", output)
+        target = LobbyDatabase(target_path)
+        self.addCleanup(target.close)
+        self.assertIsNotNone(target.find_account("Alice"))
+
     def test_unknown_account_is_an_error_not_a_traceback(self) -> None:
         exit_code, _, errors = self.run_command("account", "ban", "Nobody")
         self.assertEqual(exit_code, EXIT_FAILURE)
