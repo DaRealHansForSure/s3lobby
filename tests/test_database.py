@@ -151,6 +151,15 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.database.delete_board_theme(theme.theme_id)
         self.assertIsNone(self.database.find_board_message(message.message_id))
 
+    def test_every_setting_is_stored_under_its_own_key(self) -> None:
+        """Settings with equal defaults once were Enum aliases: banner_id wrote max_players."""
+        self.assertEqual(len(list(Setting)), len({setting.key for setting in Setting}))
+        self.database.set_setting(Setting.BANNER_ID, "7")
+        self.database.set_setting(Setting.BANNER_URL, "ftp://192.168.1.10/banner.png")
+        self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 0)
+        self.assertEqual(self.database.get_integer_setting(Setting.BANNER_ID), 7)
+        self.assertEqual(self.database.get_setting(Setting.WELCOME_MESSAGE), "")
+
     def test_settings_fall_back_to_their_defaults(self) -> None:
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 0)
         self.assertFalse(self.database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS))

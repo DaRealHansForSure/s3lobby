@@ -168,25 +168,43 @@ ACCESS_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 
 class Setting(Enum):
-    """Settings stored in the database, with the value used when none is stored."""
+    """Settings stored in the database, by the key they are stored under. default is the value used
+    when none is stored.
+
+    Each member's value is its key rather than its default: an Enum makes members with equal values
+    aliases of the first one, and several settings share the default "0".
+    """
 
     # 0 means no limit; above it, logons are refused with the game's "server full" message.
-    MAX_PLAYERS = "0"
+    MAX_PLAYERS = "max_players"
     # The original refused a second logon with the same serial number as an illegal copy. Off by
     # default: on a LAN, one household's copies often share a serial.
-    UNIQUE_SERIAL_NUMBERS = "false"
+    UNIQUE_SERIAL_NUMBERS = "unique_serial_numbers"
     # Shown in the chat as [Server] right after a player enters the lobby; empty for none.
-    WELCOME_MESSAGE = ""
+    WELCOME_MESSAGE = "welcome_message"
     # The advert banner on the Home tab: the game downloads banner_url by anonymous FTP whenever the
     # two ids differ from the ones it saw last. Empty url for no banner.
-    BANNER_URL = ""
-    BANNER_ID = "0"
-    BANNER_SUB_ID = "0"
+    BANNER_URL = "banner_url"
+    BANNER_ID = "banner_id"
+    BANNER_SUB_ID = "banner_sub_id"
 
     @property
     def key(self) -> str:
-        return self.name.lower()
+        return self.value
 
+    @property
+    def default(self) -> str:
+        return SETTING_DEFAULTS[self]
+
+
+SETTING_DEFAULTS = {
+    Setting.MAX_PLAYERS: "0",
+    Setting.UNIQUE_SERIAL_NUMBERS: "false",
+    Setting.WELCOME_MESSAGE: "",
+    Setting.BANNER_URL: "",
+    Setting.BANNER_ID: "0",
+    Setting.BANNER_SUB_ID: "0",
+}
 
 TRUE_SETTING_VALUES = frozenset({"1", "true", "yes", "on"})
 
@@ -407,7 +425,7 @@ class LobbyDatabase:
     def get_setting(self, setting: Setting) -> str:
         row = self._connection.execute("SELECT value FROM settings WHERE key = ?", (setting.key,)).fetchone()
         if row is None:
-            return setting.value
+            return setting.default
         return row["value"]
 
     def get_integer_setting(self, setting: Setting) -> int:
