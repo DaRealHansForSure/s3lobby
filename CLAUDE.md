@@ -107,6 +107,10 @@ SQLite needs nothing extra.
     stored or shown: undefined Windows-1252 bytes arrive as surrogates, which UTF-8 cannot encode.
   - A setting that makes the server send something no run with the real game has seen yet
     (`mark_admins`, `check_reachability`) is off by default until a run confirms it.
+- The lobby works with and without the web interface, and anyone with the code can build their
+  own tools on it. Every rule lives in a module the server and the command line use (the web
+  interface only calls it); every admin action on the web also exists as an `s3lobby` command;
+  data others may want is reachable as documented tables or as JSON from a command.
 - Web interface: every POST form carries `csrf_field()`; every admin blueprint registers
   `redirect_visitors_to_logon` as its before_request hook. Pages run no inline script or style (the
   Content-Security-Policy forbids them); colours, sizes and spaces come from the UI kit's tokens in
