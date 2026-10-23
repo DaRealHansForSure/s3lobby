@@ -55,11 +55,13 @@
   {% if page.games %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Game</th><th>Players</th><th class="num">Count</th><th>Zones</th><th>State</th></tr></thead>
+      <thead><tr><th>Game</th><th>Map</th><th class="num">Teams</th><th>Players</th><th class="num">Count</th><th>Zones</th><th>State</th></tr></thead>
       <tbody>
         {% for game in page.games %}
         <tr>
           <td>{{ game.name }}</td>
+          <td>{{ game.map_text or "-" }}</td>
+          <td class="num">{{ game.team_count or "-" }}</td>
           <td>{{ names(game.member_names) }}</td>
           <td class="num">{{ game.player_count_text }}</td>
           <td>{{ names(game.zone_names) }}</td>
@@ -67,6 +69,7 @@
             <div class="badges">
               {% if game.has_started %}<span class="badge badge--accent">playing</span>{% else %}<span class="badge badge--good">open</span>{% endif %}
               {% if game.is_full %}<span class="badge badge--warn">full</span>{% endif %}
+              {% if game.is_ladder_game %}<span class="badge" title="Ladder games are played but not ranked on this server">ladder, unranked</span>{% endif %}
             </div>
           </td>
         </tr>

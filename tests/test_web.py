@@ -12,10 +12,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from s3lobby.constants import FIRST_GAME_GROUP_ID, LOGON_FAILURE_BURST
+from s3lobby.constants import FIRST_GAME_GROUP_ID, LOGON_FAILURE_BURST, NO_WINNING_TEAM, GameStatusFlag, MatchPlayerFlag, Race
 from s3lobby.database import LobbyDatabase, Setting
 from s3lobby.groups import GroupKind
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
+from s3lobby.messages import GameStatus, MatchReportPlayer
 
 IS_FLASK_INSTALLED = importlib.util.find_spec("flask") is not None
 if IS_FLASK_INSTALLED:
@@ -54,7 +55,7 @@ LIVE_STATE = LiveLobbyState(
                   has_password=False, member_names=[PLAYER_NAME]),
         LiveGroup(group_id=FIRST_GAME_GROUP_ID, kind=GroupKind.GAME.value, name="<b>Alice's game</b>",
                   max_players=4, is_full=False, has_password=False, member_names=[PLAYER_NAME],
-                  listed_in_ids=[30]),
+                  listed_in_ids=[30], map_name="\\Random", team_count=2, is_ladder_game=True),
     ],
 )
 
@@ -102,6 +103,12 @@ class LiveLobbyTest(WebInterfaceTestCase):
         self.assertIn(PLAYER_NAME, page)
         self.assertIn("League 1 vs 1", page)
         self.assertNotIn("192.0.2.7", page)
+
+    def test_games_show_their_map_teams_and_that_a_ladder_game_is_unranked(self) -> None:
+        self.database.write_live_state(LIVE_STATE)
+        page = self.client.get("/live/state").get_data(as_text=True)
+        self.assertIn("Random (random map)", page)
+        self.assertIn("ladder, unranked", page)
 
     def test_admins_also_see_addresses(self) -> None:
         self.database.write_live_state(LIVE_STATE)
@@ -262,6 +269,24 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         response = self.client.get(f"/games/reports/{report.report_id}")
         self.assertEqual(response.data, b"\x01\x02\x03")
         self.assertIn("attachment", response.headers["Content-Disposition"])
+        self.assertIn("unreadable", self.client.get("/games").get_data(as_text=True))
+
+    def test_match_report_shows_map_outcome_and_who_played_what(self) -> None:
+        """A slot's lobby player id is the player's account id; a computer opponent has none."""
+        players = (
+            MatchReportPlayer(flags=0, lobby_player_id=self.player.account_id, race=Race.EGYPTIANS, unused=0, slot=0, team=1),
+            MatchReportPlayer(flags=MatchPlayerFlag.COMPUTER, lobby_player_id=0, race=Race.ROMANS, unused=0, slot=1, team=2),
+        )
+        report = GameStatus(FIRST_GAME_GROUP_ID, GameStatusFlag.LADDER_GAME, 1, 40_000, "Elbe", players)
+        self.database.store_game_report(self.player.account_id, FIRST_GAME_GROUP_ID, report.encode().body)
+        start = GameStatus(FIRST_GAME_GROUP_ID, 0, NO_WINNING_TEAM, 0, "Elbe", players)
+        self.database.store_game_report(self.player.account_id, FIRST_GAME_GROUP_ID, start.encode().body)
+        page = self.client.get("/games").get_data(as_text=True)
+        self.assertIn("Team 1 won", page)
+        self.assertIn("Match started", page)
+        self.assertIn(f"Team 1: {PLAYER_NAME} (Egyptians)", page)
+        self.assertIn("Team 2: Computer (Romans)", page)
+        self.assertIn("ladder, unranked", page)
 
 
 if __name__ == "__main__":

@@ -18,11 +18,14 @@ from pathlib import Path
 
 from s3lobby.constants import (
     ACKNOWLEDGEMENT_MESSAGE_TYPES,
+    AMAZONS_ALLOWED_BIT,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
     MESSAGE_HEADER_SIZE,
     SERVER_ASSIGNS_GROUP_ID,
+    SESSION_GUID_SIZE,
     GroupFlag,
+    LadderType,
     MessageType,
 )
 from s3lobby.database import LobbyDatabase
@@ -33,6 +36,7 @@ from s3lobby.messages import (
     CloseConnection,
     EncodableMessage,
     GameBlock,
+    GameDescription,
     GetLobbyServerList,
     GroupAnnouncement,
     LobbyServerList,
@@ -44,7 +48,7 @@ from s3lobby.messages import (
     Result,
 )
 from s3lobby.server import LobbyServer, ServerSettings, start_server
-from s3lobby.wire import Address, RawMessage, decode_block, encode_block
+from s3lobby.wire import Address, FieldWriter, RawMessage, decode_block, encode_block
 
 from tests.databases import database_location_for_test
 
@@ -235,8 +239,6 @@ GOG_VERSION_CHECK = CheckFileVersion(
 LOBBY_ROOM_ID = 3
 GAME_ZONE_ID = 30
 UNKNOWN_HOST_ADDRESS = ("0.0.0.0", 3343)
-# AddGroupToGroup2's game block after the host address: a 16-byte session id and 5 u32 values.
-GAME_BLOCK_REMAINDER_SIZE = 16 + 5 * 4
 
 
 def go_to_lobby_server(client: FakeGameClient) -> None:
@@ -295,18 +297,38 @@ def receive_member_entry(client: FakeGameClient, group_id: int, player_id: int |
     return AddPlayerToGroup.decode(client.receive_matching(is_wanted_entry))
 
 
-def open_game(client: FakeGameClient, zone_id: int) -> GroupAnnouncement:
-    game_block = GameBlock(host_address=UNKNOWN_HOST_ADDRESS, remainder=bytes(GAME_BLOCK_REMAINDER_SIZE))
+def game_block_remainder(ladder_type: int = LadderType.NONE) -> bytes:
+    """A long game block after the host address, as the GOG game writes it: a session id, version
+    160, the program checksum (left 0 here), Amazons allowed, and the ladder type."""
+    writer = FieldWriter().write_bytes(bytes(SESSION_GUID_SIZE)).write_u32(GAME_VERSION)
+    writer.write_u32(0).write_u32(0).write_u32(AMAZONS_ALLOWED_BIT).write_u32(ladder_type)
+    return writer.to_message(MessageType.ADD_GROUP_TO_GROUP_2).body
+
+
+def open_game(
+    client: FakeGameClient,
+    zone_id: int,
+    ladder_type: int = LadderType.NONE,
+    description: GameDescription | None = None,
+) -> GroupAnnouncement:
+    """Open a game like a host does; with a description the game carries one, as the game's do."""
+    game_block = GameBlock(host_address=UNKNOWN_HOST_ADDRESS, remainder=game_block_remainder(ladder_type))
+    flags = GroupFlag.HAS_GAME_BLOCK
+    description_bytes = b""
+    if description is not None:
+        flags |= GroupFlag.HAS_DESCRIPTION
+        description_bytes = description.encode()
     request = GroupAnnouncement(
         message_type=MessageType.ADD_GROUP_TO_GROUP_2,
         parent_id=zone_id,
         group_id=SERVER_ASSIGNS_GROUP_ID,
-        flags=GroupFlag.HAS_GAME_BLOCK,
+        flags=flags,
         max_players=2,
         name=f"{client.player_name}'s game",
         second_text="",
         third_text="",
         game_block=game_block,
+        description=description_bytes,
     )
     client.send(request)
     return request

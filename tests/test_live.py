@@ -10,6 +10,7 @@ from s3lobby.constants import FIRST_GAME_GROUP_ID, LIVE_STATE_WRITE_INTERVAL_SEC
 from s3lobby.database import LobbyDatabase
 from s3lobby.groups import GroupKind
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer, StoredLiveState
+from s3lobby.messages import GameDescription
 from tests.support import GAME_ZONE_ID, LobbyTestCase, join_group, log_on, open_game
 
 # The server checks once a second; three checks are plenty on a slow test machine.
@@ -46,6 +47,15 @@ EXAMPLE_STATE = LiveLobbyState(
 class LiveLobbyStateTest(unittest.TestCase):
     def test_json_round_trip_keeps_every_field(self) -> None:
         self.assertEqual(LiveLobbyState.from_json(EXAMPLE_STATE.to_json()), EXAMPLE_STATE)
+
+    def test_state_from_a_server_before_the_game_fields_still_reads(self) -> None:
+        """The web interface may be newer than the running server; a game then simply shows no map."""
+        old_text = (
+            '{"server_name": "x", "players": [], "groups": [{"group_id": 32768, "kind": "game", "name": "g", '
+            '"max_players": 2, "is_full": false, "has_password": false, "member_names": [], "listed_in_ids": []}]}'
+        )
+        [game] = LiveLobbyState.from_json(old_text).groups
+        self.assertEqual((game.map_name, game.team_count, game.is_ladder_game), ("", 0, False))
 
     def test_text_that_is_not_a_state_is_refused(self) -> None:
         for text in ("", "[]", '{"server_name": "x"}', '{"server_name": "x", "players": [{}], "groups": []}'):
@@ -96,6 +106,20 @@ class ServerWritesLiveStateTest(LobbyTestCase):
         self.assertIn(FIRST_GAME_GROUP_ID, state.players[0].group_ids)
         game = state.groups_of_kind(GroupKind.GAME.value)[0]
         self.assertEqual((game.name, game.member_names, game.listed_in_ids), ("Alice's game", ["Alice"], [GAME_ZONE_ID]))
+
+    def test_game_shows_what_its_description_says(self) -> None:
+        alice = self.new_client("Alice", nonce=17)
+        alice_id = log_on(alice)
+        join_group(alice, GAME_ZONE_ID, alice_id)
+        description = GameDescription(team_count=2, computer_opponent_count=1, is_ladder_game=True, map_name="\\Random")
+        open_game(alice, GAME_ZONE_ID, description=description)
+        alice.receive_next(MessageType.ADD_GROUP_TO_GROUP_2)
+
+        def has_alices_game(state: LiveLobbyState) -> bool:
+            return any(group.group_id == FIRST_GAME_GROUP_ID for group in state.groups)
+
+        [game] = self.wait_for_live_state(has_alices_game).state.groups_of_kind(GroupKind.GAME.value)
+        self.assertEqual((game.map_name, game.team_count, game.is_ladder_game), ("\\Random", 2, True))
 
     def test_stopped_server_leaves_no_live_state(self) -> None:
         self.wait_for_live_state(lambda state: True)

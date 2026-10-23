@@ -31,20 +31,39 @@
 <section>
   <div class="section-head">
     <h2>Match reports</h2>
-    <p>What the game sends after a match, stored as received. Their layout is only partly known,
-    so they are offered as files.</p>
+    <p>Every player's game reports once when the match starts and once when a single team is left.
+    The original bytes stay downloadable.</p>
   </div>
   {% if reports %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Received</th><th>From</th><th class="num">Game id</th><th class="num">Bytes</th><th></th></tr></thead>
+      <thead>
+        <tr><th>Received</th><th>From</th><th>Map</th><th>Outcome</th><th>Players</th><th class="num">Game id</th><th></th></tr>
+      </thead>
       <tbody>
         {% for report in reports %}
         <tr>
           <td>{{ report.received_at | moment }}</td>
           <td>{{ report.sender_name or "-" }}</td>
+          {% if report.is_readable %}
+          <td>{{ report.map_name or "-" }}</td>
+          <td>
+            <div class="badges">
+              {{ report.outcome_text }}
+              {% if report.is_ladder_game %}<span class="badge">ladder, unranked</span>{% endif %}
+            </div>
+          </td>
+          <td>
+            {% for player in report.players %}
+            <div>Team {{ player.team }}: {{ player.name }} ({{ player.race }})</div>
+            {% else %}
+            -
+            {% endfor %}
+          </td>
+          {% else %}
+          <td colspan="3"><span class="badge badge--warn">unreadable</span> {{ report.size }} bytes</td>
+          {% endif %}
           <td class="num">{{ "%#x" | format(report.group_id) }}</td>
-          <td class="num">{{ report.size }}</td>
           <td><a href="{{ url_for('games.download_report', report_id=report.report_id) }}">Download</a></td>
         </tr>
         {% endfor %}

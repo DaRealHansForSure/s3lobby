@@ -222,13 +222,15 @@ class GameRecord:
 
 @dataclass(frozen=True)
 class GameReportRecord:
-    """A stored match report without its bytes; find_game_report returns those."""
+    """A stored match report with the bytes the game sent (a GameStatus body, a few hundred
+    bytes at most)."""
 
     report_id: int
     sender_name: str
     group_id: int
     size: int
     received_at: datetime
+    report: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -812,10 +814,10 @@ class LobbyDatabase:
         ]
 
     def list_recent_game_reports(self, limit: int) -> list[GameReportRecord]:
-        """The newest match reports first, without their bytes."""
+        """The newest match reports first."""
         rows = self._backend.fetch_all(
             "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
-            "LENGTH(game_reports.report) AS size, game_reports.received_at "
+            "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report "
             "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
             "ORDER BY game_reports.id DESC LIMIT ?",
             (limit,),
@@ -827,6 +829,7 @@ class LobbyDatabase:
                 group_id=row["group_id"],
                 size=row["size"],
                 received_at=from_stored_time(row["received_at"]),
+                report=bytes(row["report"]),
             )
             for row in rows
         ]

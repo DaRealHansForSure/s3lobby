@@ -32,7 +32,12 @@ class LivePlayer:
 @dataclass(frozen=True)
 class LiveGroup:
     """A room, game or chat group. kind is a GroupKind value; listed_in_ids are the rooms that
-    show the group in their list (the game zones of a game, the chat theme of a chat group)."""
+    show the group in their list (the game zones of a game, the chat theme of a chat group).
+
+    A game also has what its description says: the map (a backslash in front for a random map),
+    the number of teams, and whether it is a ladder game. They have defaults, so a state written
+    by a server from before they existed still reads.
+    """
 
     group_id: int
     kind: str
@@ -42,6 +47,9 @@ class LiveGroup:
     has_password: bool
     member_names: list[str] = field(default_factory=list)
     listed_in_ids: list[int] = field(default_factory=list)
+    map_name: str = ""
+    team_count: int = 0
+    is_ladder_game: bool = False
 
 
 @dataclass(frozen=True)

@@ -29,7 +29,7 @@ from s3lobby.constants import (
     GroupFlag,
     MessageType,
 )
-from s3lobby.messages import GameBlock, GroupAnnouncement, GroupCounters, GroupUpdate
+from s3lobby.messages import GameBlock, GameDescription, GameSettings, GroupAnnouncement, GroupCounters, GroupUpdate
 from s3lobby.wire import Address, ProtocolError
 
 # What a host's game reports as its own address before the server fills in the real one: the
@@ -59,6 +59,8 @@ class Group:
     password: str = ""
     creator_player_id: int | None = None
     game_record_id: int | None = None
+    # Players of a ladder game who were told that this server keeps no ladder (each hears it once).
+    ladder_notice_player_ids: set[int] = field(default_factory=set)
 
     @property
     def group_id(self) -> int:
@@ -81,6 +83,39 @@ class Group:
             max_players=self.announcement.max_players,
             status_flags=status_flags,
         )
+
+
+def game_settings_of(announcement: GroupAnnouncement) -> GameSettings | None:
+    """The settings in a group's game block; None for a group without one, or with one that does
+    not decode (a client's bytes are passed on as they are, not trusted to be well formed)."""
+    if announcement.game_block is None:
+        return None
+    try:
+        return GameSettings.from_game_block(announcement.game_block)
+    except ProtocolError:
+        return None
+
+
+def game_description_of(announcement: GroupAnnouncement) -> GameDescription | None:
+    """The game description a host keeps in its game; None when there is none or it does not
+    decode."""
+    if not announcement.description:
+        return None
+    try:
+        return GameDescription.decode(announcement.description)
+    except ProtocolError:
+        return None
+
+
+def is_ladder_game(announcement: GroupAnnouncement) -> bool:
+    """True when the host set the game up as a ladder game. The description is current: the host
+    rewrites it whenever the setup changes (UpdateGameSettings 0x454db0); the game block only holds
+    the choice made when the game was opened."""
+    description = game_description_of(announcement)
+    if description is not None:
+        return description.is_ladder_game
+    settings = game_settings_of(announcement)
+    return settings is not None and settings.is_ladder_game
 
 
 def room_announcement(group_id: int, name: str, flags: int = 0, description_text: str = "") -> GroupAnnouncement:
