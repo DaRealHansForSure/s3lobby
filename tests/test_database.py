@@ -79,6 +79,45 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertTrue(all("SAMECODE2345" not in value for value in stored))
         self.assertNotEqual(stored[0], stored[1], "each code gets its own salt")
 
+    def test_single_access_code_is_revoked_and_listed_without_the_code(self) -> None:
+        alice = self.database.create_account("Alice")
+        bob = self.database.create_account("Bob")
+        self.database.add_access_code(alice.account_id, "FIRSTCODE234", label="laptop")
+        second_code_id = self.database.add_access_code(alice.account_id, "SECONDCODE23")
+
+        self.assertFalse(self.database.revoke_access_code(bob.account_id, second_code_id), "only the owner's codes")
+        self.assertTrue(self.database.revoke_access_code(alice.account_id, second_code_id))
+        self.assertFalse(self.database.revoke_access_code(alice.account_id, second_code_id), "already revoked")
+
+        codes = self.database.list_access_codes(alice.account_id)
+        self.assertEqual([(code.label, code.is_active) for code in codes], [("laptop", True), ("", False)])
+        self.assertTrue(self.database.check_access_code(alice.account_id, "FIRSTCODE234"))
+        self.assertFalse(self.database.check_access_code(alice.account_id, "SECONDCODE23"))
+        self.assertEqual(self.database.list_access_codes(alice.account_id)[0].last_used_at, START)
+
+    def test_recent_games_reports_and_announcements_come_newest_first(self) -> None:
+        alice = self.database.create_account("Alice")
+        self.database.record_game_opened("First", alice.account_id)
+        second_game = self.database.record_game_opened("Second", None)
+        self.database.record_game_closed(second_game)
+        self.database.store_game_report(alice.account_id, 0x100000, b"\x01\x02\x03")
+        self.database.queue_announcement("one")
+        self.database.queue_announcement("two")
+        self.database.take_pending_announcements()
+        self.database.queue_announcement("three")
+
+        games = self.database.list_recent_games(limit=10)
+        self.assertEqual([(game.name, game.host_name, game.closed_at) for game in games], [("Second", "", START), ("First", "Alice", None)])
+        self.assertEqual(len(self.database.list_recent_games(limit=1)), 1)
+
+        [report] = self.database.list_recent_game_reports(limit=10)
+        self.assertEqual((report.sender_name, report.group_id, report.size), ("Alice", 0x100000, 3))
+        self.assertEqual(self.database.find_game_report(report.report_id), b"\x01\x02\x03")
+        self.assertIsNone(self.database.find_game_report(report.report_id + 1))
+
+        announcements = self.database.list_recent_announcements(limit=10)
+        self.assertEqual([(entry.text, entry.sent_at) for entry in announcements], [("three", None), ("two", START), ("one", START)])
+
     def test_ban_lasts_until_its_end(self) -> None:
         account = self.database.create_account("Alice")
         self.database.ban_account(account.account_id, until=START + timedelta(hours=2), reason="spam")

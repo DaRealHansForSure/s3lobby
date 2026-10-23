@@ -198,6 +198,8 @@ class Account:
     is_admin: bool
     banned_until: datetime | None
     ban_reason: str
+    created_at: datetime | None = None
+    last_logon_at: datetime | None = None
 
     def is_banned_at(self, moment: datetime) -> bool:
         return self.banned_until is not None and self.banned_until > moment
@@ -238,6 +240,50 @@ class BoardMessage:
     body: str
     author: str
     posted_at: datetime
+
+
+@dataclass(frozen=True)
+class AccessCodeRecord:
+    """What is known about an access code without the code itself: only its hash is stored."""
+
+    code_id: int
+    label: str
+    created_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+    @property
+    def is_active(self) -> bool:
+        return self.revoked_at is None
+
+
+@dataclass(frozen=True)
+class GameRecord:
+    """A game as the statistics keep it; host_name is empty when the host's account was removed."""
+
+    game_id: int
+    name: str
+    host_name: str
+    opened_at: datetime
+    closed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class GameReportRecord:
+    """A stored match report without its bytes; find_game_report returns those."""
+
+    report_id: int
+    sender_name: str
+    group_id: int
+    size: int
+    received_at: datetime
+
+
+@dataclass(frozen=True)
+class AnnouncementRecord:
+    text: str
+    created_at: datetime
+    sent_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -451,6 +497,31 @@ class LobbyDatabase:
             )
         return cursor.rowcount
 
+    def revoke_access_code(self, account_id: int, code_id: int) -> bool:
+        """Revoke one access code of an account; False when it has no such active code."""
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE access_codes SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+                (to_stored_time(self._clock()), code_id, account_id),
+            )
+        return cursor.rowcount == 1
+
+    def list_access_codes(self, account_id: int) -> list[AccessCodeRecord]:
+        rows = self._connection.execute(
+            "SELECT id, label, created_at, last_used_at, revoked_at FROM access_codes WHERE account_id = ? ORDER BY id",
+            (account_id,),
+        ).fetchall()
+        return [
+            AccessCodeRecord(
+                code_id=row["id"],
+                label=row["label"],
+                created_at=from_stored_time(row["created_at"]),
+                last_used_at=from_stored_time(row["last_used_at"]),
+                revoked_at=from_stored_time(row["revoked_at"]),
+            )
+            for row in rows
+        ]
+
     def check_access_code(self, account_id: int, access_code: str) -> bool:
         """True when the code matches one of the account's active codes; marks that code as used."""
         rows = self._connection.execute(
@@ -662,6 +733,51 @@ class LobbyDatabase:
     def count_game_reports(self) -> int:
         return self._connection.execute("SELECT COUNT(*) FROM game_reports").fetchone()[0]
 
+    def list_recent_games(self, limit: int) -> list[GameRecord]:
+        """The newest games first, open and closed."""
+        rows = self._connection.execute(
+            "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at "
+            "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
+            "ORDER BY games.id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            GameRecord(
+                game_id=row["id"],
+                name=row["name"],
+                host_name=row["host_name"] or "",
+                opened_at=from_stored_time(row["opened_at"]),
+                closed_at=from_stored_time(row["closed_at"]),
+            )
+            for row in rows
+        ]
+
+    def list_recent_game_reports(self, limit: int) -> list[GameReportRecord]:
+        """The newest match reports first, without their bytes."""
+        rows = self._connection.execute(
+            "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
+            "LENGTH(game_reports.report) AS size, game_reports.received_at "
+            "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
+            "ORDER BY game_reports.id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            GameReportRecord(
+                report_id=row["id"],
+                sender_name=row["sender_name"] or "",
+                group_id=row["group_id"],
+                size=row["size"],
+                received_at=from_stored_time(row["received_at"]),
+            )
+            for row in rows
+        ]
+
+    def find_game_report(self, report_id: int) -> bytes | None:
+        row = self._connection.execute("SELECT report FROM game_reports WHERE id = ?", (report_id,)).fetchone()
+        if row is None:
+            return None
+        return bytes(row["report"])
+
     # Announcements from outside the server process.
 
     def queue_announcement(self, text: str) -> None:
@@ -681,6 +797,21 @@ class LobbyDatabase:
             for row in rows:
                 connection.execute("UPDATE pending_announcements SET sent_at = ? WHERE id = ?", (sent_at, row["id"]))
         return [row["text"] for row in rows]
+
+    def list_recent_announcements(self, limit: int) -> list[AnnouncementRecord]:
+        """The newest announcements first; sent_at is None while the server has not taken one yet."""
+        rows = self._connection.execute(
+            "SELECT text, created_at, sent_at FROM pending_announcements ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            AnnouncementRecord(
+                text=row["text"],
+                created_at=from_stored_time(row["created_at"]),
+                sent_at=from_stored_time(row["sent_at"]),
+            )
+            for row in rows
+        ]
 
     # The running server's lobby, for the web interface.
 
@@ -750,6 +881,8 @@ def account_from_row(row: sqlite3.Row | None) -> Account | None:
         is_admin=bool(row["is_admin"]),
         banned_until=from_stored_time(row["banned_until"]),
         ban_reason=row["ban_reason"],
+        created_at=from_stored_time(row["created_at"]),
+        last_logon_at=from_stored_time(row["last_logon_at"]),
     )
 
 
