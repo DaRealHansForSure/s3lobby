@@ -24,6 +24,16 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - `s3lobby web --dev`: admins also log on to the web interface with `1234`, from this machine and
   its LAN only; the session counts as the admin's newest access code and ends when that code is
   revoked. It refuses to start with `--behind-proxy`.
+- The Games page decodes games fully: the setup the host chose (game type, map, teams, computer
+  opponents, player limit, Amazons, version, checksum, session), who joined, when the match
+  started and how it ended; each match report shows its game, game time, flags and every slot.
+  The server keeps a game's setup without the host's address and its players (migration 0008),
+  and links each report to its game.
+
+### Changed
+
+- A match report without a winner says "No winner yet" instead of "Match started": a game with a
+  single team names its winner already in the report sent at the start.
 
 ### Key commits
 

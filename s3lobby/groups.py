@@ -59,6 +59,8 @@ class Group:
     password: str = ""
     creator_player_id: int | None = None
     game_record_id: int | None = None
+    # Players already recorded as having joined this game (each is recorded once).
+    recorded_player_ids: set[int] = field(default_factory=set)
     # When the last member of a chat group left (time.monotonic()); None while it has members.
     empty_since_seconds: float | None = None
     # Players of a ladder game who were told that this server keeps no ladder (each hears it once).
@@ -147,6 +149,16 @@ def with_real_host_address(announcement: GroupAnnouncement, host_client_address:
     if announcement.game_block is None:
         return announcement
     return replace(announcement, game_block=game_block_with_real_host(announcement.game_block, host_client_address))
+
+
+def stored_game_announcement(announcement: GroupAnnouncement) -> bytes:
+    """A game as the database keeps it for the Games page: the announcement's body with the host
+    address zeroed, since the page has no use for players' IP addresses. The password is never in
+    a stored announcement (the third text is always empty there)."""
+    if announcement.game_block is not None:
+        anonymous_block = replace(announcement.game_block, host_address=(UNKNOWN_HOST, 0))
+        announcement = replace(announcement, game_block=anonymous_block)
+    return announcement.encode().body
 
 
 def game_block_with_real_host(game_block: GameBlock, host_client_address: Address) -> GameBlock:

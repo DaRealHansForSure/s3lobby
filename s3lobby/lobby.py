@@ -86,6 +86,7 @@ from s3lobby.groups import (
     is_ladder_game,
     kind_of_new_group,
     room_announcement,
+    stored_game_announcement,
     with_real_host_address,
 )
 from s3lobby.guards import RateLimiter, ThrottledLogger
@@ -512,7 +513,9 @@ class Lobby:
         if group.kind == GroupKind.GAME:
             group.game_record_id = self._do_bookkeeping(
                 "recording the game's opening",
-                lambda: self._database.record_game_opened(readable_text(announcement.name), player.player_id),
+                lambda: self._database.record_game_opened(
+                    readable_text(announcement.name), player.player_id, group_id, stored_game_announcement(announcement)
+                ),
             )
             self._send_statistics_to_home()
         self._groups[group_id] = group
@@ -565,6 +568,7 @@ class Lobby:
         if updated.third_text:
             group.password = updated.third_text
         group.announcement = replace(updated, third_text="")
+        self._record_game_announcement(group)
         public_update = replace(update, third_text="")
         for viewer in self._viewers_of(group):
             self._outbox.send(viewer.address, public_update)
@@ -649,7 +653,11 @@ class Lobby:
         player = self._find_logged_on_player(client_address)
         if player is None:
             return
-        self._database.store_game_report(player.player_id, status.group_id, message.body)
+        game_record_id = None
+        group = self._groups.get(status.group_id)
+        if group is not None and group.kind == GroupKind.GAME:
+            game_record_id = group.game_record_id
+        self._database.store_game_report(player.player_id, status.group_id, message.body, game_record_id)
         outcome = "no winner yet"
         if status.has_winner:
             outcome = f"team {status.winning_team} won"
@@ -669,6 +677,26 @@ class Lobby:
             # shows "Game not valid for ladder." during the match (0x540b89).
             result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
         self._outbox.send(client_address, Result(result_code))
+
+    def _record_game_announcement(self, group: Group) -> None:
+        """Keep a game's current setup in its database record, for the Games page."""
+        game_record_id = group.game_record_id
+        if game_record_id is None:
+            return
+        announcement = stored_game_announcement(group.announcement)
+        self._do_bookkeeping(
+            "recording the game's setup", lambda: self._database.record_game_announcement(game_record_id, announcement)
+        )
+
+    def _record_game_player(self, group: Group, player: Player) -> None:
+        """Note in a game's database record that a player joined it, once per player."""
+        game_record_id = group.game_record_id
+        if game_record_id is None or player.player_id in group.recorded_player_ids:
+            return
+        group.recorded_player_ids.add(player.player_id)
+        self._do_bookkeeping(
+            "recording a game's player", lambda: self._database.record_game_player(game_record_id, player.player_id)
+        )
 
     def _online_player_names(self) -> list[str]:
         return [player.name for player in self._players_by_id.values()]
@@ -697,6 +725,7 @@ class Lobby:
         group.member_ids.append(player.player_id)
         group.empty_since_seconds = None
         player.group_ids.add(group.group_id)
+        self._record_game_player(group, player)
         for child in self._groups_listed_in(group.group_id):
             self._show_group(player, child, group.group_id)
         self._send_counters_to_viewers(group)
