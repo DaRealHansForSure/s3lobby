@@ -1,0 +1,75 @@
+# The whole test suite: on SQLite with the oldest and newest Python s3lobby supports, and the
+# database and session tests again on MySQL and MariaDB.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sqlite:
+    name: Python ${{ matrix.python }}, SQLite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the web extra's Flask, so the web tests run too
+        run: python -m pip install flask
+      - name: Run the tests
+        run: python -m unittest
+
+  mysql:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["mysql:8.4", "mariadb:11.4"]
+    services:
+      database:
+        image: ${{ matrix.image }}
+        # Each image reads its own prefix; the other set is ignored.
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: s3lobby_test
+          MYSQL_USER: s3lobby
+          MYSQL_PASSWORD: s3lobby
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: s3lobby_test
+          MARIADB_USER: s3lobby
+          MARIADB_PASSWORD: s3lobby
+        ports:
+          - 3306:3306
+    env:
+      S3LOBBY_TEST_DATABASE: mysql://s3lobby:s3lobby@127.0.0.1:3306/s3lobby_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install Flask and PyMySQL
+        run: python -m pip install flask "pymysql[rsa]"
+      - name: Wait until the database accepts connections
+        run: |
+          python - <<'EOF'
+          import time
+
+          import pymysql
+
+          for attempt in range(60):
+              try:
+                  pymysql.connect(host="127.0.0.1", user="s3lobby", password="s3lobby", database="s3lobby_test").close()
+                  break
+              except pymysql.err.OperationalError:
+                  time.sleep(2)
+          else:
+              raise SystemExit("the database server did not come up")
+          EOF
+      - name: Run the tests
+        run: python -m unittest

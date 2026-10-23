@@ -5,3 +5,7 @@ dist/
 *.log
 .venv/
 HANDOVER.md
+# The default database and its write-ahead log, created when the server runs from the checkout.
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
