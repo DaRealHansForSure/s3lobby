@@ -139,7 +139,7 @@ s3lobby serve --name "Our LAN" --verbose --log-file lobby.log
 | `--public-host` | none | host name or IP that players from the internet log on to |
 | `--upnp` | off | let the router forward the server's port and one port per LAN player (UPnP) |
 | `--dev` | off | development mode: every account also logs on with the password `1234`, from this machine and its LAN only, and several players may share a serial number; refused together with `--public-host` or `--upnp` |
-| `--verbose` | off | log every datagram with its bytes, secrets removed |
+| `--verbose` | off | log every datagram with its bytes, secrets removed; with `--log-file` only into the file, the console stays at INFO |
 | `--log-file` | none | also write the log to this file |
 
 To stop it, press Ctrl+C, or stop every running server and web interface at once:
