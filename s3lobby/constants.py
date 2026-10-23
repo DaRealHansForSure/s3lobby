@@ -212,8 +212,10 @@ class MatchPlayerFlag(IntFlag):
     COMPUTER = 0x1
     # The slot is in state 3, which the setup never shows (inferred: a human player who left).
     SLOT_STATE_3 = 0x2
-    # The slot has no player number in the match (its number is 0xff, 0x540631).
-    NO_PLAYER_NUMBER = 0x4
+    # The slot's race was "Random" in the game setup: the setup record's race (+0x64) is 0xff
+    # (0x540625..0x54063e), which the setup shows as "Zufall" (0x4909f0). The report's race is the
+    # one the game drew. Seen in a run: set for both players of a match set up with random races.
+    RANDOM_RACE = 0x4
 
 
 # GameStatus's winning team while more than one team is still in the match (0x540747..0x540768).
@@ -221,8 +223,10 @@ NO_WINNING_TEAM = 0xFFFFFFFF
 
 
 class Race(IntEnum):
-    """A slot's race in a match report (MatchReportPlayer.race). Inferred from the setup's race
-    choices (0x48c2a3..0x48c2df) and the per-race tables the game indexes with the value (0x4dd2fc)."""
+    """A slot's race in a match report (MatchReportPlayer.race): the race the setup record keeps at
+    +0x64 (getter 0x49f510). The setup shows 0 to 3 with the texts Romans, Egyptians, Asians and
+    Amazons (0x9002d..0x9002f at 0x49053c..0x4907b1, 0x90155 at 0x4908e5), any other value as
+    "Random" (0x90030 at 0x4909f0)."""
 
     ROMANS = 0
     EGYPTIANS = 1

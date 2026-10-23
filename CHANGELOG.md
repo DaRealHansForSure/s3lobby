@@ -31,11 +31,15 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   started and how it ended; each match report shows its game, game time, flags and every slot.
   The server keeps a game's setup without the host's address and its players (migration 0008),
   and links each report to its game.
+- A page for each game (`/games/ID`): when it was opened, started, decided and closed, the winners,
+  the teams with slot, race and lobby id, the setup, who joined when, and every report.
 
 ### Changed
 
 - `s3lobby serve --verbose --log-file FILE` writes the datagrams only into the file; the console
   shows INFO, so it stays readable during a test run.
+- A slot's flag 0x4 means its race was "Random" in the setup (the report holds the race drawn);
+  it was shown as "no player number". The race numbers 0 to 3 are now read from the setup's texts.
 - A match report without a winner says "No winner yet" instead of "Match started": a game with a
   single team names its winner already in the report sent at the start.
 

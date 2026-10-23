@@ -44,6 +44,7 @@ HTTP_OK = 200
 HTTP_FOUND = 302
 HTTP_BAD_REQUEST = 400
 HTTP_UNAUTHORIZED = 401
+HTTP_NOT_FOUND = 404
 HTTP_TOO_MANY_REQUESTS = 429
 NEW_ACCESS_CODE_PATTERN = re.compile(r'<div class="access-code">([A-Z0-9]{12})</div>')
 
@@ -455,10 +456,73 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
             f"<div>{ADMIN_NAME}</div>",
             "Team 0 won",
             "1 report(s)",
-            f'href="#game-{game_id}"',
+            f'href="/games/{game_id}"',
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, page)
+
+
+class GameDetailPageTest(WebInterfaceTestCase):
+    """/games/ID: everything the lobby kept of one game."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.log_on()
+
+    def record_two_player_match(self) -> int:
+        """A match like the first one seen with two players: both raced at random, team 0 won."""
+        game_block = GameBlock(("0.0.0.0", 0), game_block_remainder(LadderType.NONE))
+        description = GameDescription(team_count=2, computer_opponent_count=0, is_ladder_game=False, map_name="\\Random")
+        announcement = GroupAnnouncement(
+            MessageType.ADD_GROUP_TO_GROUP_2,
+            30,
+            FIRST_GAME_GROUP_ID,
+            GroupFlag.HAS_GAME_BLOCK | GroupFlag.HAS_DESCRIPTION,
+            2,
+            "Bob's game",
+            "",
+            "",
+            game_block=game_block,
+            description=description.encode(),
+        )
+        game_id = self.database.record_game_opened("Bob's game", self.admin.account_id, FIRST_GAME_GROUP_ID, announcement.encode().body)
+        self.database.record_game_player(game_id, self.admin.account_id)
+        self.database.record_game_player(game_id, self.player.account_id)
+        slots = (
+            MatchReportPlayer(MatchPlayerFlag.RANDOM_RACE, self.admin.account_id, Race.EGYPTIANS, 0, 0, 0),
+            MatchReportPlayer(MatchPlayerFlag.RANDOM_RACE, self.player.account_id, Race.ROMANS, 0, 1, 1),
+        )
+        start = GameStatus(FIRST_GAME_GROUP_ID, 0, NO_WINNING_TEAM, 0, "\\Random", slots)
+        end = GameStatus(FIRST_GAME_GROUP_ID, 0, 0, 107, "\\Random", slots)
+        for status in (start, end):
+            self.database.store_game_report(self.admin.account_id, FIRST_GAME_GROUP_ID, status.encode().body, game_id)
+        self.database.record_game_closed(game_id)
+        return game_id
+
+    def test_game_page_shows_the_match_teams_setup_and_players(self) -> None:
+        game_id = self.record_two_player_match()
+        page = self.client.get(f"/games/{game_id}").get_data(as_text=True)
+        for expected in (
+            f"won by {ADMIN_NAME}",
+            "Team 0 won",
+            "at game time 107",
+            f"<td>{PLAYER_NAME}</td>",
+            "race drawn at random",
+            "Normal game",
+            f"<td>{PLAYER_NAME}</td><td>",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, page)
+        self.assertEqual(page.count("Download"), 2)
+
+    def test_unknown_game_is_not_found(self) -> None:
+        self.assertEqual(self.client.get("/games/999").status_code, HTTP_NOT_FOUND)
+
+    def test_visitors_are_sent_to_the_logon(self) -> None:
+        game_id = self.record_two_player_match()
+        self.client.post("/logout", data={"csrf_token": CSRF_TOKEN})
+        response = self.client.get(f"/games/{game_id}")
+        self.assertEqual(response.status_code, HTTP_FOUND)
 
 
 if __name__ == "__main__":

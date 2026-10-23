@@ -32,7 +32,7 @@
         {% for game in games %}
         <tr id="game-{{ game.game_id }}">
           <td>
-            <div>{{ game.name }}</div>
+            <div><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></div>
             {% if game.group_id is not none %}<div class="muted">group {{ "%#x" | format(game.group_id) }}</div>{% endif %}
           </td>
           <td>{{ game.host_name or "-" }}</td>
@@ -106,7 +106,7 @@
           <td>{{ report.sender_name or "-" }}</td>
           <td>
             {% if report.game_id is not none %}
-            <a href="#game-{{ report.game_id }}">{{ report.game_name or "game" }}</a>
+            <a href="{{ url_for('games.show_game', game_id=report.game_id) }}">{{ report.game_name or "game" }}</a>
             {% else %}
             <span class="muted">group {{ "%#x" | format(report.group_id) }}</span>
             {% endif %}
