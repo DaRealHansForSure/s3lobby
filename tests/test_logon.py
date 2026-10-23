@@ -142,6 +142,14 @@ class LogonCheckTest(unittest.TestCase):
         self.database.set_setting(Setting.UNIQUE_SERIAL_NUMBERS, "true")
         self.assert_refused_with(self.check.decide(logon(), CLIENT_IP, serial_in_use), ResultCode.ALREADY_LOGGED_ON)
 
+    def test_development_mode_lets_copies_of_one_installation_share_a_serial(self) -> None:
+        """Two copies of the game on one machine send the same serial; testing with them needs both
+        online at once, under different accounts."""
+        self.database.set_setting(Setting.UNIQUE_SERIAL_NUMBERS, "true")
+        serial_in_use = LobbyOccupancy(1, frozenset({"bob"}), frozenset({SERIAL_NUMBER}))
+        development_check = LogonCheck(self.database, clock_seconds=self.clock, is_development_mode=True)
+        self.assertIsInstance(development_check.decide(logon(), CLIENT_IP, serial_in_use), AcceptedLogon)
+
     def test_clan_box_needs_a_clan(self) -> None:
         clan_logon = logon(flags=LogonFlag.SHOW_AS_CLAN_MEMBER)
         self.assert_refused_with(self.check.decide(clan_logon, CLIENT_IP, EMPTY_LOBBY), ResultCode.NOT_A_CLAN_MEMBER)

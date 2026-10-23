@@ -21,6 +21,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   kills what still runs after ten seconds.
 - `s3lobby serve --dev`: every account also logs on with the password `1234`, from this machine
   and its LAN only, for testing with the game; it refuses to start with `--public-host` or `--upnp`.
+  It also accepts several players with the same serial number, whatever `unique_serial_numbers`
+  says, so two copies of one installation can be online at once.
 - `s3lobby web --dev`: admins also log on to the web interface with `1234`, from this machine and
   its LAN only; the session counts as the admin's newest access code and ends when that code is
   revoked. It refuses to start with `--behind-proxy`.
