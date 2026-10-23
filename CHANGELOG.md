@@ -30,8 +30,16 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   answered with "Game status stored at the Lobby server." instead of "not valid for ladder", the
   "not ranked" line goes, and players hear their result after the match.
 
+- A public page per player (`/players/NAME`): their ladder place and record, their rating over
+  time, their place in running custom seasons, and the games the lobby saw them play with
+  opponents, race, result and time of play. Names in the standings and the live lobby link to it.
+
 ### Changed
 
+- The web interface is split: the live lobby and the ladder show everyone the same, and every admin
+  page lives under `/admin` with a start page of its own and a grouped navigation.
+- Forms line up on their labels, the settings are grouped into sections, and tables stay on one
+  line (short dates, the game type in one word, winners by name).
 - Putting a member into the clan it is in already keeps the date it joined.
 - A settings form that does not send a field keeps that setting's stored value.
 

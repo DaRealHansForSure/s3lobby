@@ -34,7 +34,7 @@
       <tbody>
         {% for player in page.players %}
         <tr>
-          <td>{{ in_game_colour(player.name, player.row_colour) }}{% if show_admin_columns and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
+          <td><a href="{{ url_for('players.show_player', name=player.name) }}">{{ in_game_colour(player.name, player.row_colour) }}</a>{% if show_admin_columns and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
           <td>{{ in_game_colour(player.clan, player.row_colour) if player.clan else "-" }}</td>
           <td>{{ names(player.tab_names) }}</td>
           <td>{{ names(player.group_names) }}</td>

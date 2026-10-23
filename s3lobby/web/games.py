@@ -11,7 +11,7 @@ without its details rather than taking the page down.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from http import HTTPStatus
 
@@ -179,6 +179,10 @@ class AccountGameRow:
     team: int | None = None
     race: str = ""
     result: str = ""
+    # The other side's players by name, the game type in one word, and how long the match ran.
+    opponents: tuple[str, ...] = ()
+    type_text: str = ""
+    played_text: str = ""
 
 
 def games_of_account(account_id: int) -> list[AccountGameRow]:
@@ -200,7 +204,13 @@ def games_of_account(account_id: int) -> list[AccountGameRow]:
 def account_game_row(game: GameRecord, reports: list[ReportRow], account_id: int) -> AccountGameRow:
     """The game as an account's page lists it, with the account's team, race and result from the
     last readable report; without them when there is no report or the account had no slot in it."""
-    row = AccountGameRow(game_id=game.game_id, name=game.name, host_name=game.host_name, opened_at=game.opened_at)
+    row = AccountGameRow(
+        game_id=game.game_id,
+        name=game.name,
+        host_name=game.host_name,
+        opened_at=game.opened_at,
+        type_text=short_type_text(game),
+    )
     if not reports:
         return row
     # The database lists reports in the order they arrived, so the last one is the latest state.
@@ -217,14 +227,15 @@ def account_game_row(game: GameRecord, reports: list[ReportRow], account_id: int
         result = "won"
     elif final_report.winning_team is not None:
         result = "lost"
-    return AccountGameRow(
-        game_id=row.game_id,
-        name=row.name,
-        host_name=row.host_name,
-        opened_at=row.opened_at,
+    opponents = tuple(player.name for player in final_report.players if player.team != own_slot.team)
+    played_text = final_report.played_text if final_report.winning_team is not None else ""
+    return replace(
+        row,
         team=own_slot.team,
         race=own_slot.race,
         result=result,
+        opponents=opponents,
+        played_text=played_text,
     )
 
 
