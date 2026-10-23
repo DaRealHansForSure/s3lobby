@@ -46,6 +46,7 @@ LIVE_STATE = LiveLobbyState(
             address="192.0.2.7:2300",
             logged_on_at="2026-10-23T12:00:00+00:00",
             group_ids=[3, 30, FIRST_GAME_GROUP_ID],
+            reachability="blocked",
         )
     ],
     groups=[
@@ -113,7 +114,9 @@ class LiveLobbyTest(WebInterfaceTestCase):
     def test_admins_also_see_addresses(self) -> None:
         self.database.write_live_state(LIVE_STATE)
         self.log_on()
-        self.assertIn("192.0.2.7:2300", self.client.get("/live/state").get_data(as_text=True))
+        page = self.client.get("/live/state").get_data(as_text=True)
+        self.assertIn("192.0.2.7:2300", page)
+        self.assertIn("blocked", page, "admins see whether players can be reached")
 
     def test_names_from_game_clients_are_escaped(self) -> None:
         """Group names come from players' game clients; they must never become markup."""

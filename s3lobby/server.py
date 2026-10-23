@@ -14,6 +14,7 @@ throttled warning and the datagram dropped, never with the server stopping.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import math
 import socket
@@ -42,6 +43,7 @@ from s3lobby.database import LobbyDatabase
 from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.lobby import Lobby
 from s3lobby.messages import EncodableMessage, OpenConnection, describe_for_log
+from s3lobby.reachability import Reachability, ReachabilityProber
 from s3lobby.wire import Address, ProtocolError, RawMessage, decode_block
 
 log = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ log = logging.getLogger(__name__)
 DEFAULT_SERVER_NAME = "LAN Lobby"
 DEFAULT_DATABASE_PATH = "s3lobby.sqlite3"
 ALL_INTERFACES = "0.0.0.0"
+ANY_FREE_PORT = 0
 
 
 def monotonic_ms() -> int:
@@ -85,6 +88,9 @@ class LobbyServer(asyncio.DatagramProtocol):
         # The public host's IP, looked up at start and again every PUBLIC_HOST_REFRESH_SECONDS.
         self._public_ip: str | None = None
         self._addresses = ViewerAddresses(local_ip_facing, lambda: self._public_ip)
+        # Probes whether players on the internet can be reached directly, from a second socket.
+        self._prober: ReachabilityProber | None = None
+        self._reachability: dict[Address, Reachability] = {}
         self._datagram_rate = RateLimiter(DATAGRAMS_PER_SECOND_PER_ADDRESS, DATAGRAM_BURST_PER_ADDRESS)
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
         # Nothing written yet: the first check writes at once.
@@ -133,6 +139,24 @@ class LobbyServer(asyncio.DatagramProtocol):
             log.warning("%s: no connection to send %s on", client_address, type(message).__name__)
             return
         connection.queue_lobby_message(self._addresses.message_for_viewer(message, client_address))
+
+    def check_reachability(self, client_address: Address) -> None:
+        """Probe a player who came from the internet; players in this network are reachable for
+        everyone who sees them (addresses.py), so they are not probed."""
+        if self._prober is None or not ipaddress.ip_address(client_address[0]).is_global:
+            return
+        self._reachability[client_address] = Reachability.CHECKING
+        self._prober.probe(client_address)
+
+    def reachability_of(self, client_address: Address) -> Reachability:
+        return self._reachability.get(client_address, Reachability.NOT_CHECKED)
+
+    def record_reachability(self, client_address: Address, reachability: Reachability) -> None:
+        if client_address in self._connections:
+            self._reachability[client_address] = reachability
+
+    def attach_prober(self, prober: ReachabilityProber) -> None:
+        self._prober = prober
 
     def close_connection(self, client_address: Address) -> None:
         """End the connection from the server's side: whatever is queued for the client goes out
@@ -187,6 +211,8 @@ class LobbyServer(asyncio.DatagramProtocol):
         silence a minute later. The CloseConnection goes out once, without waiting for answers:
         a client that misses it still times out as before."""
         self._close_every_connection()
+        if self._prober is not None:
+            self._prober.close()
         if self._housekeeping_task is not None:
             self._housekeeping_task.cancel()
             try:
@@ -302,6 +328,9 @@ class LobbyServer(asyncio.DatagramProtocol):
     def _end_connection(self, client_address: Address, reason: str) -> None:
         log.info("%s: connection ended, %s", client_address, reason)
         del self._connections[client_address]
+        self._reachability.pop(client_address, None)
+        if self._prober is not None:
+            self._prober.forget(client_address)
         self._lobby.forget_client(client_address)
 
     def _close_every_connection(self) -> None:
@@ -352,6 +381,11 @@ async def start_server(settings: ServerSettings) -> LobbyServer:
     except OSError:
         database.close()
         raise
+    # The probe socket only needs to be another port of this machine: any free one will do.
+    _, prober = await loop.create_datagram_endpoint(
+        lambda: ReachabilityProber(server.record_reachability), local_addr=(settings.bind_host, ANY_FREE_PORT)
+    )
+    server.attach_prober(prober)
     await server.look_up_public_host()
     server.start_housekeeping()
     server.write_live_state_when_due(time.monotonic())

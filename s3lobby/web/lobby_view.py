@@ -37,6 +37,7 @@ class PlayerRow:
     logged_on_at: str
     tab_names: list[str]
     group_names: list[str]
+    reachability: str
 
 
 @dataclass(frozen=True)
@@ -150,6 +151,7 @@ def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> list
                 logged_on_at=player.logged_on_at,
                 tab_names=tab_names,
                 group_names=group_names,
+                reachability=player.reachability,
             )
         )
     return rows

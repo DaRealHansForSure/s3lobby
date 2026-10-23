@@ -451,6 +451,11 @@ HOUSEKEEPING_INTERVAL_SECONDS = 0.25
 CONNECTION_NONCE_MIN = 1
 CONNECTION_NONCE_MAX = 255
 
+# The reachability probe (reachability.py): sent this many times, this far apart, before a player
+# who never answers counts as blocked. The game answers an OpenConnection at once.
+REACHABILITY_PROBE_ATTEMPTS = 3
+REACHABILITY_PROBE_INTERVAL_SECONDS = 1.0
+
 # Limits against hostile or broken senders. All of them are this server's choice: the game stays
 # far below each, and each keeps one sender from using up the server's memory or time, or from
 # using the server to flood a third party whose address it forged.

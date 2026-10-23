@@ -115,6 +115,9 @@ class Setting(Enum):
     # Admins' rows in the room member lists are drawn in another colour (AddPlayerToGroup 0x26).
     # Off by default: no run with the real game has shown this message yet.
     MARK_ADMINS = "mark_admins"
+    # After each logon from the internet, probe whether other players can reach the player
+    # directly (reachability.py). Off by default: no run with the real game has seen the probe.
+    CHECK_REACHABILITY = "check_reachability"
 
     @property
     def key(self) -> str:
@@ -133,6 +136,7 @@ SETTING_DEFAULTS = {
     Setting.BANNER_ID: "0",
     Setting.BANNER_SUB_ID: "0",
     Setting.MARK_ADMINS: "false",
+    Setting.CHECK_REACHABILITY: "false",
 }
 
 # What a player is told when their account is deleted while they are online.
@@ -145,7 +149,7 @@ TRUE_SETTING_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
 # The numeric settings travel to the game as u32 fields.
 INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BANNER_SUB_ID})
-BOOLEAN_SETTINGS = frozenset({Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS})
+BOOLEAN_SETTINGS = frozenset({Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS, Setting.CHECK_REACHABILITY})
 MAX_INTEGER_SETTING = 0xFFFFFFFF
 
 LINE_BREAK = "\n"

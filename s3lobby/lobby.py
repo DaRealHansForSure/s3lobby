@@ -106,6 +106,7 @@ from s3lobby.messages import (
     TextIdList,
     TextMessage,
 )
+from s3lobby.reachability import Reachability
 from s3lobby.wire import Address, ProtocolError, RawMessage
 
 log = logging.getLogger(__name__)
@@ -123,6 +124,10 @@ class LobbyOutbox(Protocol):
     def server_address_text_for(self, client_address: Address) -> str: ...
 
     def close_connection(self, client_address: Address) -> None: ...
+
+    def check_reachability(self, client_address: Address) -> None: ...
+
+    def reachability_of(self, client_address: Address) -> Reachability: ...
 
 
 @dataclass
@@ -155,7 +160,9 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database)
-        self._chat_commands = ChatCommands(database, self._online_player_names, self.announce, self.kick_player)
+        self._chat_commands = ChatCommands(
+            database, self._online_player_names, self.announce, self.kick_player, outbox.reachability_of
+        )
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
@@ -252,7 +259,10 @@ class Lobby:
 
     def live_state(self) -> LiveLobbyState:
         """Who is online and which groups exist, for the web interface (see live.py)."""
-        players = [live_player(player) for player in sorted(self._players_by_id.values(), key=lambda player: player.name)]
+        players = [
+            live_player(player, self._outbox.reachability_of(player.address))
+            for player in sorted(self._players_by_id.values(), key=lambda player: player.name)
+        ]
         groups = [self._live_group(self._groups[group_id]) for group_id in sorted(self._groups)]
         return LiveLobbyState(server_name=self._server_name, players=players, groups=groups)
 
@@ -343,6 +353,8 @@ class Lobby:
         welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
         if welcome_message:
             self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
+        if self._database.get_boolean_setting(Setting.CHECK_REACHABILITY):
+            self._outbox.check_reachability(client_address)
 
     def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
         account = decision.account
@@ -897,7 +909,7 @@ def own_player_message(player: Player) -> EncodableMessage:
     return OwnPlayerWithClan(player.player_id, player.shown_clan.clan_id, player.shown_clan.name)
 
 
-def live_player(player: Player) -> LivePlayer:
+def live_player(player: Player, reachability: Reachability) -> LivePlayer:
     host, port = player.address
     clan_name = player.shown_clan.name if player.shown_clan is not None else ""
     return LivePlayer(
@@ -908,6 +920,7 @@ def live_player(player: Player) -> LivePlayer:
         address=f"{host}:{port}",
         logged_on_at=to_stored_time(player.logged_on_at),
         group_ids=sorted(player.group_ids),
+        reachability=reachability.value,
     )
 
 

@@ -164,6 +164,15 @@ Types 4, 8, 0x13, 0x17 and 0x18 are neither built nor handled by this client.
    `[MessageId 1][OpenConnection S][AcknowledgeMessages 1][MinMissingAcknowledge 1][answers...]`.
    Keep S for the connection; a different S later means "peer restarted" and resets it (0x605eec).
 
+A client accepts a connection from any peer: the lobby session's callbacks for an opened
+connection only return true (0x5eec30, 0x5eec40), and a connection that closes for an address that
+holds no group changes nothing (ConnectionClosed 0x5cc9fb..0x5cca39). s3lobby relies on that for
+its optional reachability probe (setting `check_reachability`, off by default): from a second
+port it sends `[MessageId 1][OpenConnection]` to a player from the internet. An answer means
+the player's router lets in data from peers the player has not written to (*inferred* that the
+game answers like any peer, PP.OpenIncoming 0x6045c0); the probe then closes with
+`[MessageId 2][AcknowledgeMessages][MinMissingAcknowledge 2][CloseConnection]`.
+
 ### Timing
 
 - At most one send pass per peer every 250 ms.

@@ -32,6 +32,7 @@ from s3lobby.constants import (
     GAME_CLIENT_FIRST_PORT,
 )
 from s3lobby.database import LobbyDatabase, utc_now
+from s3lobby.reachability import Reachability
 from s3lobby.wire import Address
 
 COMMAND_PREFIX = "/"
@@ -43,6 +44,14 @@ MAX_ANSWER_LINES = 12
 MIN_BAN_HOURS = 1
 MAX_BAN_HOURS = 10 * 365 * 24
 KICK_REASON_PREFIX = "An admin removed you from the lobby"
+REACHABILITY_ANSWERS = {
+    Reachability.CHECKING: "The check whether others can reach you is still running; ask again in a few seconds.",
+    Reachability.OPEN: "Check: a test from another port reached you, so others can probably write to you first.",
+    Reachability.BLOCKED: (
+        f"Check: your router blocked a test from another port. Forward UDP port {GAME_CLIENT_FIRST_PORT} "
+        "to this PC, or others reach you only after you wrote to them."
+    ),
+}
 
 
 class CommandSender(Protocol):
@@ -55,7 +64,8 @@ class CommandSender(Protocol):
 class ChatCommands:
     """Answers chat commands. online_player_names lists who is in the lobby right now; announce
     sends a line to every player and returns how many it reached; kick removes the player with
-    that id from the lobby, telling them the reason, and returns False when they are not online."""
+    that id from the lobby, telling them the reason, and returns False when they are not online;
+    reachability_of tells what the reachability probe found for a client's address."""
 
     def __init__(
         self,
@@ -63,11 +73,13 @@ class ChatCommands:
         online_player_names: Callable[[], list[str]],
         announce: Callable[[str], int],
         kick: Callable[[int, str], bool],
+        reachability_of: Callable[[Address], Reachability],
     ) -> None:
         self._database = database
         self._online_player_names = online_player_names
         self._announce = announce
         self._kick = kick
+        self._reachability_of = reachability_of
 
     def answer(self, sender: CommandSender, command_text: str) -> tuple[str, ...]:
         """The lines that answer one command."""
@@ -80,7 +92,7 @@ class ChatCommands:
             case "clan":
                 lines = self._clan(sender)
             case "net":
-                lines = describe_network(sender.address)
+                lines = describe_network(sender.address, self._reachability_of(sender.address))
             case "announce":
                 lines = self._announce_for(sender, argument)
             case "kick":
@@ -168,7 +180,7 @@ def split_command(command_text: str) -> tuple[str, str]:
     return command_name.lower(), argument.strip()
 
 
-def describe_network(address: Address) -> list[str]:
+def describe_network(address: Address, reachability: Reachability = Reachability.NOT_CHECKED) -> list[str]:
     """What the server can tell a player about their connection. Chat goes straight between the
     players, and most home routers drop data from someone the player has not written to yet: a
     player who forwards the game's port receives everyone's chat from the first line on.
@@ -194,6 +206,9 @@ def describe_network(address: Address) -> list[str]:
         f"To host games, also forward TCP {DIRECTPLAY_ENUMERATION_PORT} and TCP and UDP "
         f"{DIRECTPLAY_FIRST_GAME_PORT} to {DIRECTPLAY_LAST_GAME_PORT}."
     )
+    probe_result = REACHABILITY_ANSWERS.get(reachability)
+    if probe_result is not None:
+        lines.append(probe_result)
     return lines
 
 

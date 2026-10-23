@@ -9,6 +9,7 @@ from s3lobby.commands import MAX_ANSWER_LINE_LENGTH, MAX_ANSWER_LINES, ChatComma
 from s3lobby.constants import ANNOUNCEMENT_GROUP_ID, GameStatusFlag, MessageType, ResultCode
 from s3lobby.database import LobbyDatabase, Setting
 from s3lobby.messages import ChatCommand, ChatCommandAnswer, GameStatus, Result
+from s3lobby.reachability import Reachability
 from tests.support import LobbyTestCase, log_on
 
 GAME_ZONE = 30
@@ -29,7 +30,10 @@ class ChatCommandsTest(unittest.TestCase):
         self.online = ["Alice", "Bob"]
         self.announced: list[str] = []
         self.kicked: list[tuple[int, str]] = []
-        self.commands = ChatCommands(self.database, lambda: self.online, self.record_announcement, self.record_kick)
+        self.reachability = Reachability.NOT_CHECKED
+        self.commands = ChatCommands(
+            self.database, lambda: self.online, self.record_announcement, self.record_kick, lambda address: self.reachability
+        )
 
     def tearDown(self) -> None:
         self.database.close()
@@ -106,6 +110,15 @@ class ChatCommandsTest(unittest.TestCase):
         kept = self.commands.answer(Sender(1, "Alice", address=("84.75.10.4", 3343)), "/net")
         self.assertIn("kept port 3343", " ".join(kept))
         self.assertIn("TCP 47624", " ".join(kept))
+
+    def test_net_adds_what_the_reachability_probe_found(self) -> None:
+        internet_player = Sender(1, "Alice", address=("84.75.10.4", 3343))
+        self.reachability = Reachability.BLOCKED
+        self.assertIn("router blocked a test", " ".join(self.commands.answer(internet_player, "/net")))
+        self.reachability = Reachability.OPEN
+        self.assertIn("others can probably write to you first", " ".join(self.commands.answer(internet_player, "/net")))
+        self.reachability = Reachability.NOT_CHECKED
+        self.assertNotIn("Check:", " ".join(self.commands.answer(internet_player, "/net")))
 
     def test_net_tells_a_player_in_the_servers_network_that_nothing_is_needed(self) -> None:
         answer = self.commands.answer(Sender(1, "Alice"), "/net")

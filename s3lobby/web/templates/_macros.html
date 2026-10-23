@@ -12,6 +12,13 @@
 </form>
 {%- endmacro %}
 
+{% macro reachability_badge(reachability) -%}
+{% if reachability == "open" %}<span class="badge badge--good">open</span>
+{%- elif reachability == "blocked" %}<span class="badge badge--warn" title="Forward UDP 3343 to this player's PC">blocked</span>
+{%- elif reachability == "checking" %}<span class="badge">checking</span>
+{%- else %}<span class="muted">-</span>{% endif %}
+{%- endmacro %}
+
 {% macro names(list) -%}
 {% if list %}{{ list | join(", ") }}{% else %}<span class="muted">-</span>{% endif %}
 {%- endmacro %}
