@@ -296,6 +296,7 @@ once, right after it is made.
 | `--port` | 8080 | TCP port |
 | `--secure-cookies` | off | send the session cookie over HTTPS only |
 | `--behind-proxy` | off | take the client address from the reverse proxy's `X-Forwarded-For` |
+| `--dev` | off | development mode: every admin also logs on with the password `1234`, from this machine and its LAN only; refused together with `--behind-proxy` |
 
 `S3LOBBY_WEB_SECRET` signs the session cookie; without it admins are logged out whenever the web
 interface restarts. `s3lobby web` uses Flask's own server, which is fine on a LAN. To reach the

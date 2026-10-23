@@ -80,6 +80,11 @@ class CommandLineTest(unittest.TestCase):
                 exit_code, _, _ = self.run_command("serve", "--dev", *option)
                 self.assertEqual(exit_code, EXIT_FAILURE)
 
+    def test_web_development_mode_refuses_a_reverse_proxy(self) -> None:
+        """Behind a reverse proxy the web interface is open to the internet."""
+        exit_code, _, _ = self.run_command("web", "--dev", "--behind-proxy")
+        self.assertEqual(exit_code, EXIT_FAILURE)
+
     def test_unknown_account_is_an_error_not_a_traceback(self) -> None:
         exit_code, _, errors = self.run_command("account", "ban", "Nobody")
         self.assertEqual(exit_code, EXIT_FAILURE)

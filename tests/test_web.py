@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from s3lobby.constants import FIRST_GAME_GROUP_ID, LOGON_FAILURE_BURST, NO_WINNING_TEAM, GameStatusFlag, MatchPlayerFlag, Race
+from s3lobby.constants import DEVELOPMENT_PASSWORD, FIRST_GAME_GROUP_ID, LOGON_FAILURE_BURST, NO_WINNING_TEAM, GameStatusFlag, MatchPlayerFlag, Race
 from s3lobby.database import LobbyDatabase, Setting
 from s3lobby.groups import GroupKind
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
@@ -228,6 +228,52 @@ class AdminLogonTest(WebInterfaceTestCase):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertEqual(response.headers["Cross-Origin-Opener-Policy"], "same-origin")
         self.assertNotIn("Strict-Transport-Security", response.headers, "only with HTTPS")
+
+
+class DevelopmentLogonTest(WebInterfaceTestCase):
+    """`s3lobby web --dev`: admins also log on with DEVELOPMENT_PASSWORD, for testing on one machine."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
+        self.app = create_app(database_path, secret_key="test secret", is_development_mode=True)
+        self.client = self.app.test_client()
+        with self.client.session_transaction() as session:
+            session["csrf_token"] = CSRF_TOKEN
+
+    def log_on_from(self, address: str, name: str = ADMIN_NAME):
+        response = self.client.post(
+            "/logon",
+            data={"csrf_token": CSRF_TOKEN, "name": name, "access_code": DEVELOPMENT_PASSWORD},
+            environ_base={"REMOTE_ADDR": address},
+        )
+        # A logon starts a fresh session; put the test's form token back into it.
+        with self.client.session_transaction() as session:
+            session["csrf_token"] = CSRF_TOKEN
+        return response
+
+    def test_admin_logs_on_with_the_development_password_from_this_machine_and_the_lan(self) -> None:
+        for address in ("127.0.0.1", "192.168.1.20"):
+            with self.subTest(address=address):
+                self.assertEqual(self.log_on_from(address).status_code, HTTP_FOUND)
+
+    def test_development_password_is_refused_from_the_internet_and_for_players(self) -> None:
+        self.assertEqual(self.log_on_from("8.8.8.8").status_code, HTTP_UNAUTHORIZED)
+        self.assertEqual(self.log_on_from("127.0.0.1", name=PLAYER_NAME).status_code, HTTP_UNAUTHORIZED)
+
+    def test_session_ends_when_the_code_it_stands_for_is_revoked(self) -> None:
+        """A web session names the access code it logged on with; this one stands for the newest."""
+        self.log_on_from("127.0.0.1")
+        self.assertEqual(self.client.get("/accounts", environ_base={"REMOTE_ADDR": "127.0.0.1"}).status_code, HTTP_OK)
+        self.database.revoke_access_code(self.admin.account_id, self.admin_code_id)
+        self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND)
+
+    def test_without_development_mode_the_password_is_just_wrong(self) -> None:
+        database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
+        self.client = create_app(database_path, secret_key="test secret").test_client()
+        with self.client.session_transaction() as session:
+            session["csrf_token"] = CSRF_TOKEN
+        self.assertEqual(self.log_on_from("127.0.0.1").status_code, HTTP_UNAUTHORIZED)
 
 
 class AccountPagesTest(WebInterfaceTestCase):
