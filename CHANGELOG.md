@@ -6,6 +6,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/stop.sh` stops every running lobby server and web interface cleanly, `--force`
+  kills what still runs after ten seconds.
+
 ## [0.9.0] - 2026-10-23
 
 ### Added

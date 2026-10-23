@@ -141,6 +141,13 @@ s3lobby serve --name "Our LAN" --verbose --log-file lobby.log
 | `--verbose` | off | log every datagram with its bytes, secrets removed |
 | `--log-file` | none | also write the log to this file |
 
+To stop it, press Ctrl+C, or stop every running server and web interface at once:
+
+```sh
+scripts/stop.sh            # clean stop: players are told, UPnP forwardings removed
+scripts/stop.sh --force    # also kill whatever still runs after 10 seconds
+```
+
 ## Choosing a database
 
 By default everything lives in one SQLite file, `s3lobby.sqlite3`, readable by its owner only.
