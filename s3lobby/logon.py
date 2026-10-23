@@ -6,7 +6,9 @@ account name as player name and one of the account's access codes as password. T
 
 Every refusal uses a Result code the game knows, so the player sees the matching dialog text from
 the game's own text archive (constants.ResultCode lists them). Failed attempts are limited per IP
-and per account name, so access codes cannot be guessed by trying.
+and per account name from that IP, so access codes cannot be guessed by trying; failures from
+others never keep a player with the right code out, since anyone can see an admin's name.
+All checks together are budgeted too: each costs a scrypt hash on the event loop.
 """
 
 from __future__ import annotations
@@ -16,12 +18,21 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from s3lobby.constants import LOGON_FAILURE_BURST, LOGON_FAILURES_PER_SECOND, LogonFlag, ResultCode
-from s3lobby.database import Account, Clan, LobbyDatabase, Setting, is_valid_player_name, utc_now
+from s3lobby.constants import (
+    ACCESS_CODE_CHECK_BURST,
+    ACCESS_CODE_CHECKS_PER_SECOND,
+    LOGON_FAILURE_BURST,
+    LOGON_FAILURES_PER_SECOND,
+    LogonFlag,
+    ResultCode,
+)
+from s3lobby.database import Account, Clan, LobbyDatabase, Setting, hash_access_code, is_valid_player_name, utc_now
 from s3lobby.guards import RateLimiter
 from s3lobby.messages import Logon
 
 log = logging.getLogger(__name__)
+
+ALL_CHECKS_KEY = "all"
 
 
 @dataclass(frozen=True)
@@ -55,36 +66,46 @@ class LogonCheck:
         self._database = database
         self._clock_seconds = clock_seconds
         self._failures_by_ip = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
-        self._failures_by_name = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
+        self._failures_by_name_and_ip = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
+        self._access_code_checks = RateLimiter(ACCESS_CODE_CHECKS_PER_SECOND, ACCESS_CODE_CHECK_BURST)
 
     def decide(self, logon: Logon, client_ip: str, occupancy: LobbyOccupancy) -> AcceptedLogon | RefusedLogon:
         """Run the checks in an order that tells a guesser nothing: the public rules first, then
         the access code, and only after a correct code anything about the account itself."""
         now_seconds = self._clock_seconds()
-        name_key = logon.player_name.casefold()
+        name_and_ip_key = (logon.player_name.casefold(), client_ip)
 
         if logon.flags & LogonFlag.CREATE_PLAYER:
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "the game's create player is not offered")
-        is_limited = self._failures_by_ip.is_exhausted(client_ip, now_seconds) or self._failures_by_name.is_exhausted(
-            name_key, now_seconds
+        is_limited = self._failures_by_ip.is_exhausted(client_ip, now_seconds) or (
+            self._failures_by_name_and_ip.is_exhausted(name_and_ip_key, now_seconds)
         )
         if is_limited:
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many failed attempts, try again later")
         if not is_valid_player_name(logon.player_name):
             return RefusedLogon(ResultCode.INVALID_PLAYER_NAME, "name breaks the game's name rule")
+        if not self._access_code_checks.allows(ALL_CHECKS_KEY, now_seconds):
+            return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many logons at once, try again later")
 
         account = self._database.find_account(logon.player_name)
-        is_known = account is not None and self._database.check_access_code(account.account_id, logon.password)
+        if account is None:
+            # One hash like for a wrong code, so the time of the answer does not tell which
+            # names have accounts.
+            hash_access_code(logon.password)
+            is_known = False
+        else:
+            is_known = self._database.check_access_code(account.account_id, logon.password)
         if not is_known:
             self._failures_by_ip.record_event(client_ip, now_seconds)
-            self._failures_by_name.record_event(name_key, now_seconds)
+            self._failures_by_name_and_ip.record_event(name_and_ip_key, now_seconds)
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "unknown account or wrong access code")
 
         return self._decide_for_known_account(account, logon, occupancy)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         self._failures_by_ip.forget_quiet_keys(now_seconds)
-        self._failures_by_name.forget_quiet_keys(now_seconds)
+        self._failures_by_name_and_ip.forget_quiet_keys(now_seconds)
+        self._access_code_checks.forget_quiet_keys(now_seconds)
 
     def _decide_for_known_account(
         self, account: Account, logon: Logon, occupancy: LobbyOccupancy

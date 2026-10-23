@@ -20,6 +20,7 @@ from s3lobby.constants import (
     CLIENT_BLOCK_ID_WINDOW,
     MAX_UNACKNOWLEDGED_SERVER_BLOCKS,
     UNCONFIRMED_CONNECTION_TIMEOUT_MS,
+    GroupUpdateMask,
     MessageType,
 )
 from s3lobby.database import LobbyDatabase
@@ -27,9 +28,11 @@ from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.messages import (
     AddPlayerToGroup,
     CheckFileVersion,
+    GameBlock,
     GetImageList,
     GetLobbyServerList,
     GetTextMessage,
+    GroupUpdate,
     Logon,
     MessageId,
     OpenConnection,
@@ -105,6 +108,23 @@ class SecretsInLogTest(unittest.TestCase):
     def test_chat_group_password_is_removed(self) -> None:
         join = AddPlayerToGroup(5, 1, ("0.0.0.0", 0), "", extra_text="hunter").encode()
         self.assertNotIn("hunter", describe_for_log(join))
+
+    def test_chat_group_password_set_by_an_update_is_removed(self) -> None:
+        update = GroupUpdate(
+            message_type=MessageType.UPDATE_GROUP_2,
+            group_id=0x8000,
+            update_mask=GroupUpdateMask.THIRD_TEXT,
+            flags=0,
+            max_players=0,
+            name="Romans only",
+            second_text="",
+            third_text="hunter",
+            game_block=GameBlock(("0.0.0.0", 3343), bytes(36)),
+            description=b"",
+        ).encode()
+        description = describe_for_log(update)
+        self.assertNotIn("hunter", description)
+        self.assertNotIn(b"hunter".hex(), description)
 
     def test_unreadable_secret_bearing_message_is_not_dumped(self) -> None:
         broken_logon = RawMessage(MessageType.LOGON, b"\x0e\x00\x00\x00Alice\x00hunter")

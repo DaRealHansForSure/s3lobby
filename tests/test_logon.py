@@ -5,7 +5,14 @@ from __future__ import annotations
 import unittest
 from datetime import timedelta
 
-from s3lobby.constants import LOGON_FAILURE_BURST, LOGON_PROTOCOL_VERSION, LogonFlag, ResultCode
+from s3lobby.constants import (
+    ACCESS_CODE_CHECK_BURST,
+    ACCESS_CODE_CHECKS_PER_SECOND,
+    LOGON_FAILURE_BURST,
+    LOGON_PROTOCOL_VERSION,
+    LogonFlag,
+    ResultCode,
+)
 from s3lobby.database import LobbyDatabase, Setting, utc_now
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import Logon
@@ -78,6 +85,23 @@ class LogonCheckTest(unittest.TestCase):
             self.check.decide(logon(access_code="GUESS"), CLIENT_IP, EMPTY_LOBBY)
         self.assert_refused_with(self.check.decide(logon(), CLIENT_IP, EMPTY_LOBBY), ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
         self.clock.now_seconds += 15 * 60
+        self.assertIsInstance(self.check.decide(logon(), CLIENT_IP, EMPTY_LOBBY), AcceptedLogon)
+
+    def test_failures_from_other_addresses_do_not_lock_the_player_out(self) -> None:
+        """Every player sees an admin's name in the lobby; failing with it on purpose from elsewhere
+        must not keep the admin out."""
+        for attempt in range(LOGON_FAILURE_BURST + 1):
+            self.check.decide(logon(access_code="GUESS"), f"10.0.0.{attempt + 1}", EMPTY_LOBBY)
+        self.assertIsInstance(self.check.decide(logon(), CLIENT_IP, EMPTY_LOBBY), AcceptedLogon)
+
+    def test_access_code_checks_are_budgeted_for_all_clients_together(self) -> None:
+        """Each check costs a scrypt hash on the event loop; a flood from many addresses would
+        otherwise stall every player."""
+        for attempt in range(ACCESS_CODE_CHECK_BURST):
+            self.check.decide(logon(access_code="GUESS"), f"10.0.{attempt // 250}.{attempt % 250}", EMPTY_LOBBY)
+        refusal = self.check.decide(logon(), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(refusal, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+        self.clock.now_seconds += ACCESS_CODE_CHECK_BURST / ACCESS_CODE_CHECKS_PER_SECOND
         self.assertIsInstance(self.check.decide(logon(), CLIENT_IP, EMPTY_LOBBY), AcceptedLogon)
 
     def test_banned_account_is_told_so_only_after_a_correct_code(self) -> None:

@@ -31,9 +31,9 @@ from s3lobby.constants import (
     ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
     BOARD_FALLBACK_LANGUAGE,
+    BOARD_LANGUAGES,
     BOARD_LANGUAGE_GROUP_ID_BASE,
     BOARD_LANGUAGE_GROUP_PREFIX,
-    BOARD_LANGUAGES,
     BOARD_MESSAGE_TEXT_ID_BASE,
     BOARD_THEME_GROUP_ID_BASE,
     CHAT_THEME_GROUP_ID_BASE,
@@ -42,6 +42,8 @@ from s3lobby.constants import (
     DEFAULT_CHAT_THEME_NAME,
     FIRST_GAME_GROUP_ID,
     GAME_ZONE_NAMES,
+    GROUP_UPDATES_PER_SECOND,
+    GROUP_UPDATE_BURST,
     HOME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LADDER_NOT_SUPPORTED_TEXT,
@@ -57,6 +59,8 @@ from s3lobby.constants import (
     TEXT_ENCODING,
     UNKNOWN_TEXT_TITLE,
     WARNING_INTERVAL_SECONDS,
+    WRONG_GROUP_PASSWORDS_PER_SECOND,
+    WRONG_GROUP_PASSWORD_BURST,
     GroupFlag,
     MessageType,
     PlayerFlag,
@@ -75,7 +79,7 @@ from s3lobby.groups import (
     room_announcement,
     with_real_host_address,
 )
-from s3lobby.guards import ThrottledLogger
+from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
@@ -167,6 +171,8 @@ class Lobby:
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
         self._next_player_group_id = FIRST_GAME_GROUP_ID
+        self._wrong_group_passwords = RateLimiter(WRONG_GROUP_PASSWORDS_PER_SECOND, WRONG_GROUP_PASSWORD_BURST)
+        self._group_updates = RateLimiter(GROUP_UPDATES_PER_SECOND, GROUP_UPDATE_BURST)
         # Warnings about a client's messages are throttled per client, so a client that sends a
         # stream of bad messages within its rate limit cannot flood the log.
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
@@ -289,9 +295,11 @@ class Lobby:
         return replace(live_group, map_name=readable_text(description.map_name), team_count=description.team_count)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
-        """Let the per client warning and logon limits forget clients that went quiet."""
+        """Let the per client warning, logon, password and update limits forget clients that went quiet."""
         self._warnings.forget_quiet_keys(now_seconds)
         self._logon_check.forget_quiet_keys(now_seconds)
+        self._wrong_group_passwords.forget_quiet_keys(now_seconds)
+        self._group_updates.forget_quiet_keys(now_seconds)
 
     # Index server role.
 
@@ -401,9 +409,17 @@ class Lobby:
             return
         if player.player_id in group.member_ids:
             return
-        if group.password and request.extra_text != group.password:
-            self._refuse_join(player, group.group_id, ResultCode.WRONG_GROUP_PASSWORD, "wrong password")
-            return
+        if group.password:
+            # Every join carries one guess, and a datagram can hold hundreds: wrong guesses are
+            # limited per player, and once over the limit even the right password waits.
+            now_seconds = time.monotonic()
+            if self._wrong_group_passwords.is_exhausted(player.player_id, now_seconds):
+                self._refuse_join(player, group.group_id, ResultCode.WRONG_GROUP_PASSWORD, "too many wrong passwords")
+                return
+            if request.extra_text != group.password:
+                self._wrong_group_passwords.record_event(player.player_id, now_seconds)
+                self._refuse_join(player, group.group_id, ResultCode.WRONG_GROUP_PASSWORD, "wrong password")
+                return
         if group.is_full:
             self._refuse_join(player, group.group_id, ResultCode.GROUP_CHANGE_FAILED, "group is full")
             return
@@ -508,6 +524,10 @@ class Lobby:
         group = self._groups.get(update.group_id)
         if player is None or group is None or player.player_id not in group.member_ids:
             raise ProtocolError(f"update of group {update.group_id} by a player not in it")
+        # Each update goes on to every viewer: a budget per player keeps one client from
+        # multiplying its traffic onto everyone in a zone. A host sends a few while setting up.
+        if not self._group_updates.allows(player.player_id, time.monotonic()):
+            raise ProtocolError("more group updates than the budget allows")
         check_client_group_texts(update)
         update = replace(update, game_block=game_block_with_real_host(update.game_block, player.address))
         updated = update.applied_to(group.announcement)
