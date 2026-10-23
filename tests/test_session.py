@@ -130,6 +130,29 @@ class LobbySessionTest(LobbyTestCase):
         entry = AddPlayerToGroupWithClan.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN))
         self.assertEqual((entry.player_name, entry.clan_name), ("Bob", "Romans"))
 
+    def test_members_of_a_highlighted_clan_who_show_it_are_listed_green(self) -> None:
+        """A highlighted clan's member who ticked the clan box comes as 0x26 with HIGHLIGHTED, so
+        the member list draws the row green (0x449da1); one who did not tick it is not marked,
+        as the clan itself is not shown either."""
+        romans = self.database.create_clan("Romans")
+        self.database.set_clan_highlighted(romans.clan_id, True)
+        for name in ("Bob", "Carol"):
+            self.database.set_clan_of_account(self.database.find_account(name).account_id, romans.clan_id)
+        alice = self.new_client("Alice", nonce=17)
+        join_group(alice, LOBBY_ROOM_ID, log_on(alice))
+
+        bob = self.new_client("Bob", nonce=42)
+        go_to_lobby_server(bob)
+        send_logon(bob, flags=LogonFlag.SHOW_AS_CLAN_MEMBER)
+        bob_id = OwnPlayerWithClan.decode(bob.receive_next(MessageType.OWN_PLAYER_WITH_CLAN)).player_id
+        join_group(bob, LOBBY_ROOM_ID, bob_id)
+        marked = AddPlayerToGroupWithFlags.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS))
+        self.assertEqual((marked.player_name, marked.clan_name, marked.player_flags), ("Bob", "Romans", PlayerFlag.HIGHLIGHTED))
+
+        carol = self.new_client("Carol", nonce=77)
+        join_group(carol, LOBBY_ROOM_ID, log_on(carol))
+        alice.assert_nothing_arrives(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS)
+
     def test_admins_are_marked_in_the_member_list_only_when_set(self) -> None:
         """With mark_admins, an admin arrives as 0x26 with the HIGHLIGHTED flag and the member
         list colours the row (0x449e09); without it, admins look like everyone else, as in every

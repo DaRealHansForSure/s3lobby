@@ -7,18 +7,27 @@
   <div class="section-head">
     <h1>Clans</h1>
     <p>A clan member who ticks the Clan box in the logon dialog is shown with the clan in the
-    lobby's member lists. Put an account into a clan on its account page.</p>
+    lobby's member lists, in green for a clan marked so. Put an account into a clan on its account
+    page.</p>
   </div>
   {% if clans_with_members %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Clan</th><th>Members</th><th class="cell-actions"></th></tr></thead>
+      <thead><tr><th>Clan</th><th>Members</th><th>In the game</th><th class="cell-actions"></th></tr></thead>
       <tbody>
         {% for clan, member_names in clans_with_members %}
         <tr>
           <td>{{ clan.name }}</td>
           <td>{{ names(member_names) }}</td>
-          <td class="cell-actions">{{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--danger") }}</td>
+          <td>{% if clan.is_highlighted %}<span class="badge badge--good">green</span>{% else %}<span class="muted">usual colour</span>{% endif %}</td>
+          <td class="cell-actions">
+            {% if clan.is_highlighted %}
+            {{ action_button(url_for('accounts.highlight_clan', clan_id=clan.clan_id), "Usual colour") }}
+            {% else %}
+            {{ action_button(url_for('accounts.highlight_clan', clan_id=clan.clan_id), "Green in the game", fields={"is_highlighted": "on"}) }}
+            {% endif %}
+            {{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--danger") }}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -27,6 +36,9 @@
   {% else %}
   <p class="empty-state">No clans yet.</p>
   {% endif %}
+  <p class="meta">Green rows use a message no run with the real game has shown yet: should players
+  lose their connection when a member of a green clan enters a room, set the clan back to the usual
+  colour.</p>
 </section>
 
 <section>

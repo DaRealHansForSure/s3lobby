@@ -81,6 +81,16 @@ class CommandLineTest(unittest.TestCase):
                 exit_code, _, _ = self.run_command("serve", "--dev", *option)
                 self.assertEqual(exit_code, EXIT_FAILURE)
 
+    def test_clan_highlight_is_switched_and_listed(self) -> None:
+        self.run_command("clan", "add", "Romans")
+        exit_code, output, _ = self.run_command("clan", "highlight", "Romans")
+        self.assertEqual(exit_code, EXIT_SUCCESS)
+        self.assertTrue(self.open_database().find_clan("Romans").is_highlighted)
+        _, listing, _ = self.run_command("clan", "list")
+        self.assertIn("Romans (green in the game)", listing)
+        self.run_command("clan", "unhighlight", "Romans")
+        self.assertFalse(self.open_database().find_clan("Romans").is_highlighted)
+
     def test_web_development_mode_refuses_a_reverse_proxy(self) -> None:
         """Behind a reverse proxy the web interface is open to the internet."""
         exit_code, _, _ = self.run_command("web", "--dev", "--behind-proxy")

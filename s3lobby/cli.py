@@ -278,6 +278,18 @@ def add_clan_commands(commands: argparse._SubParsersAction, database_option: arg
     join.add_argument("account")
     join.set_defaults(admin_function=admin.join_clan)
 
+    highlight = actions.add_parser(
+        "highlight",
+        parents=[database_option],
+        help="list the clan's members green in the game's member lists (not yet tried with the game)",
+    )
+    highlight.add_argument("name")
+    highlight.set_defaults(admin_function=admin.highlight_clan)
+
+    unhighlight = actions.add_parser("unhighlight", parents=[database_option], help="list the clan's members in the usual colour")
+    unhighlight.add_argument("name")
+    unhighlight.set_defaults(admin_function=admin.unhighlight_clan)
+
     leave = actions.add_parser("leave", parents=[database_option], help="take an account out of its clan")
     leave.add_argument("account")
     leave.set_defaults(admin_function=admin.leave_clan)
