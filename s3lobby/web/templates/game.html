@@ -22,7 +22,7 @@
 <section>
   <div class="section-head"><h2>Match</h2></div>
   <div class="scroll-x">
-    <table class="table">
+    <table class="table table--facts">
       <tbody>
         <tr><th>Host</th><td>{{ game.host_name or "-" }}</td></tr>
         <tr><th>Opened</th><td>{{ game.opened_at | moment }}</td></tr>
@@ -80,7 +80,7 @@
   <div class="section-head"><h2>Setup</h2><p>What the host chose, as the lobby last showed the game.</p></div>
   {% if game.setup %}
   <div class="scroll-x">
-    <table class="table">
+    <table class="table table--facts">
       <tbody>
         <tr><th>Game type</th><td>{{ game.setup.game_type or "-" }}</td></tr>
         <tr><th>Map</th><td>{{ game.setup.map_name or "-" }}</td></tr>
@@ -126,7 +126,7 @@
   <div class="scroll-x">
     <table class="table">
       <thead>
-        <tr><th>Received</th><th>From</th><th>Outcome</th><th class="num">Game time</th><th>Players</th><th></th></tr>
+        <tr><th>Received</th><th>From</th><th>Outcome</th><th class="num">Game time</th><th>Players</th><th class="cell-actions"></th></tr>
       </thead>
       <tbody>
         {% for report in reports %}
@@ -149,7 +149,7 @@
           {% else %}
           <td colspan="3"><span class="badge badge--warn">unreadable</span> {{ report.size }} bytes</td>
           {% endif %}
-          <td><a href="{{ url_for('games.download_report', report_id=report.report_id) }}">Download</a></td>
+          <td class="cell-actions"><a href="{{ url_for('games.download_report', report_id=report.report_id) }}">Download</a></td>
         </tr>
         {% endfor %}
       </tbody>

@@ -15,17 +15,17 @@
   <div class="section-head"><h2>{{ form.audience_title }}</h2></div>
   <form method="post" action="{{ url_for('content.set_news', audience=form.audience) }}">
     {{ csrf_field() }}
-    <label class="field">
+    <label class="field field--wide">
       <span class="label">Title</span>
       <input class="input" type="text" name="title" maxlength="{{ max_name_length }}" value="{{ form.news.title if form.news else '' }}" required>
     </label>
-    <label class="field">
+    <label class="field field--wide">
       <span class="label">Text</span>
       <textarea class="textarea" name="body" rows="10" maxlength="{{ max_text_length }}">{{ form.news.body if form.news else '' }}</textarea>
       <span class="hint">Up to {{ max_text_length }} characters. Only characters of the game's Western
       European code page, so no emoji.</span>
     </label>
-    <button class="btn btn--primary" type="submit">Save</button>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Save</button></div>
   </form>
 </section>
 {% endfor %}

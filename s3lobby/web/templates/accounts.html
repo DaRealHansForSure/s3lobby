@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_field with context %}
+{% from "_macros.html" import csrf_field, checkbox_field with context %}
 {% set active_nav = "accounts" %}
 {% block title %}Accounts{% endblock %}
 {% block content %}
@@ -57,7 +57,7 @@
         <span class="hint">Optional note, for example the PC the code is for.</span>
       </label>
     </div>
-    <label class="check"><input type="checkbox" name="is_admin"> <span>Admin: may use this interface and the admin chat commands</span></label>
+    {{ checkbox_field("is_admin", "Admin", "May use this interface and the admin chat commands.") }}
     <div class="form-actions"><button class="btn btn--primary" type="submit">Create account</button></div>
   </form>
 </section>

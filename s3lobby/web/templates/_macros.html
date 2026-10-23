@@ -12,6 +12,14 @@
 </form>
 {%- endmacro %}
 
+{# A checkbox among the fields of a form, with an optional hint under its label. #}
+{% macro checkbox_field(name, label, hint="", checked=false, disabled=false) -%}
+<label class="check check--field">
+  <input type="checkbox" name="{{ name }}"{% if checked %} checked{% endif %}{% if disabled %} disabled{% endif %}>
+  <span>{{ label }}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</span>
+</label>
+{%- endmacro %}
+
 {% macro reachability_badge(reachability) -%}
 {% if reachability == "open" %}<span class="badge badge--good">open</span>
 {%- elif reachability == "blocked" %}<span class="badge badge--warn" title="Forward UDP 3343 to this player's PC">blocked</span>

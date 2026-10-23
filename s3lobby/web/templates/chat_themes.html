@@ -12,13 +12,13 @@
   {% if themes %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Theme</th><th>Description</th><th></th></tr></thead>
+      <thead><tr><th>Theme</th><th>Description</th><th class="cell-actions"></th></tr></thead>
       <tbody>
         {% for theme in themes %}
         <tr>
           <td>{{ theme.name }}</td>
           <td>{{ theme.description or "-" }}</td>
-          <td>{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--danger") }}</td>
+          <td class="cell-actions">{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--danger") }}</td>
         </tr>
         {% endfor %}
       </tbody>

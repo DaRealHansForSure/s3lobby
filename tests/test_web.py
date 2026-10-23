@@ -417,7 +417,7 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertIn("ladder game, unranked here", page)
         self.assertIn("40000", page)
 
-    def test_game_shows_its_setup_players_and_match(self) -> None:
+    def test_games_list_shows_type_map_players_and_result(self) -> None:
         """Everything the lobby kept of a game: the host's setup from its announcement, who joined,
         and the reports of its match, linked to it."""
         game_block = GameBlock(("0.0.0.0", 0), game_block_remainder(LadderType.CLANS))
@@ -447,15 +447,9 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         page = self.client.get("/games").get_data(as_text=True)
         for expected in (
             "Ladder with clans (Clanliga)",
-            "Map: \\Random",
-            "2 team(s), 1 computer opponent(s)",
-            "Players: 2",
-            "Amazons: allowed",
-            "Version 1.60",
-            f"<div>{PLAYER_NAME}</div>",
-            f"<div>{ADMIN_NAME}</div>",
+            "<td>\\Random</td>",
+            f"<td>{PLAYER_NAME}, {ADMIN_NAME}</td>",
             "Team 0 won",
-            "1 report(s)",
             f'href="/games/{game_id}"',
         ):
             with self.subTest(expected=expected):

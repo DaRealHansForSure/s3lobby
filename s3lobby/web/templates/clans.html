@@ -12,13 +12,13 @@
   {% if clans_with_members %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Clan</th><th>Members</th><th></th></tr></thead>
+      <thead><tr><th>Clan</th><th>Members</th><th class="cell-actions"></th></tr></thead>
       <tbody>
         {% for clan, member_names in clans_with_members %}
         <tr>
           <td>{{ clan.name }}</td>
           <td>{{ names(member_names) }}</td>
-          <td>{{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--danger") }}</td>
+          <td class="cell-actions">{{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--danger") }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -33,11 +33,13 @@
   <div class="section-head"><h2>New clan</h2></div>
   <form method="post" action="{{ url_for('accounts.create_clan') }}">
     {{ csrf_field() }}
-    <label class="field">
-      <span class="label">Name</span>
-      <input class="input" type="text" name="name" maxlength="{{ max_name_length }}" required>
-    </label>
-    <button class="btn btn--primary" type="submit">Create clan</button>
+    <div class="field field--action">
+      <label class="label" for="new-clan-name">Name</label>
+      <div class="input-action">
+        <input class="input" id="new-clan-name" type="text" name="name" maxlength="{{ max_name_length }}" required>
+        <button class="btn btn--primary" type="submit">Create clan</button>
+      </div>
+    </div>
   </form>
 </section>
 {% endblock %}
