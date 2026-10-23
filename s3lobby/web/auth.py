@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import urllib.parse
+from http import HTTPStatus
 
 from flask import Blueprint, Flask, current_app, flash, g, redirect, render_template, request, session, url_for
 from werkzeug.wrappers import Response
@@ -31,8 +32,6 @@ LIMITER_EXTENSION = "s3lobby_logon_failures"
 LOGON_CHECKS_EXTENSION = "s3lobby_logon_checks"
 # Longer than any name or code the game's dialog takes; longer input is cut before it is hashed.
 MAX_LOGON_FIELD_LENGTH = MAX_GROUP_TEXT_LENGTH
-HTTP_TOO_MANY_REQUESTS = 429
-HTTP_UNAUTHORIZED = 401
 SAFE_REDIRECT_PREFIX = "/"
 PROTOCOL_RELATIVE_PREFIX = "//"
 # Browsers read a backslash in a URL as a slash, so a path starting with a slash and a backslash is
@@ -101,10 +100,10 @@ def log_on() -> str | Response | tuple[str, int]:
     limiter = logon_failure_limiter()
     if limiter.is_address_blocked(client_address):
         flash("Too many failed attempts. Try again in a few minutes.", "bad")
-        return render_template("logon.html", next_path=next_path, name=name), HTTP_TOO_MANY_REQUESTS
+        return render_template("logon.html", next_path=next_path, name=name), HTTPStatus.TOO_MANY_REQUESTS
     if not logon_checks().acquire(blocking=False):
         flash("The server is busy. Try again in a moment.", "bad")
-        return render_template("logon.html", next_path=next_path, name=name), HTTP_TOO_MANY_REQUESTS
+        return render_template("logon.html", next_path=next_path, name=name), HTTPStatus.TOO_MANY_REQUESTS
     try:
         account, access_code_id = check_logon(name, access_code)
     finally:
@@ -116,7 +115,7 @@ def log_on() -> str | Response | tuple[str, int]:
         # out by failing on purpose with their (public) name.
         if limiter.is_name_blocked(name):
             flash("Too many failed attempts. Try again in a few minutes.", "bad")
-            return render_template("logon.html", next_path=next_path, name=name), HTTP_TOO_MANY_REQUESTS
+            return render_template("logon.html", next_path=next_path, name=name), HTTPStatus.TOO_MANY_REQUESTS
     is_admitted = (
         account is not None
         and access_code_id is not None
@@ -125,7 +124,7 @@ def log_on() -> str | Response | tuple[str, int]:
     )
     if not is_admitted:
         flash(REFUSED_LOGON_TEXT, "bad")
-        return render_template("logon.html", next_path=next_path, name=name), HTTP_UNAUTHORIZED
+        return render_template("logon.html", next_path=next_path, name=name), HTTPStatus.UNAUTHORIZED
 
     # A fresh session, so nothing from before the logon (such as a planted session) carries over.
     session.clear()

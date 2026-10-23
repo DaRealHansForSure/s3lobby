@@ -33,6 +33,7 @@ from pathlib import Path
 from s3lobby.backends import (
     BackendError,
     ConstraintViolation,
+    DatabaseError,
     Row,
     describe_location,
     open_backend,
@@ -41,6 +42,7 @@ from s3lobby.backends import (
 from s3lobby.constants import (
     BANNER_URL_PREFIX,
     BOARD_LANGUAGES,
+    FIRST_PRINTABLE_CHARACTER,
     MAX_ANNOUNCEMENT_LENGTH,
     MAX_GROUP_TEXT_LENGTH,
     MAX_TEXT_MESSAGE_BYTES,
@@ -150,6 +152,11 @@ SETTING_DEFAULTS = {
     Setting.CHECK_REACHABILITY: "false",
 }
 
+# A label tells an account's access codes apart, such as "laptop"; the reason for a ban is shown to
+# a player who is online when banned, and kept as a note for admins.
+MAX_ACCESS_CODE_LABEL_LENGTH = 64
+MAX_BAN_REASON_LENGTH = 200
+
 # What a player is told when their account is deleted while they are online.
 ACCOUNT_REMOVED_KICK_REASON = "Your account was removed."
 
@@ -164,7 +171,6 @@ BOOLEAN_SETTINGS = frozenset({Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS
 MAX_INTEGER_SETTING = 0xFFFFFFFF
 
 LINE_BREAK = "\n"
-FIRST_PRINTABLE_CHARACTER = " "
 
 
 @dataclass(frozen=True)
@@ -292,8 +298,10 @@ class LobbyStatistics:
     games_last_day: int
 
 
-class DatabaseError(Exception):
-    """A request the stored data does not allow, such as adding an account name twice."""
+def is_whole_number_text(text: str) -> bool:
+    """Digits 0 to 9 only. str.isdigit() also accepts characters such as "²", which int() refuses,
+    so a check with it alone would let such input through to a server error."""
+    return text.isascii() and text.isdigit()
 
 
 def is_valid_player_name(name: str) -> bool:
@@ -328,7 +336,7 @@ def check_title(label: str, title: str) -> None:
 def check_setting_value(setting: Setting, value: str) -> None:
     """Raise DatabaseError for a value the server could not use for this setting."""
     if setting in INTEGER_SETTINGS:
-        if not value.isdigit() or int(value) > MAX_INTEGER_SETTING:
+        if not is_whole_number_text(value) or int(value) > MAX_INTEGER_SETTING:
             raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_INTEGER_SETTING}")
         return
     if setting in BOOLEAN_SETTINGS:
@@ -362,10 +370,16 @@ def to_stored_time(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
-def from_stored_time(text: str | None) -> datetime | None:
+def from_stored_time(text: str) -> datetime:
+    """A time from a column that always holds one."""
+    return datetime.fromisoformat(text)
+
+
+def from_optional_stored_time(text: str | None) -> datetime | None:
+    """A time from a column that may be empty: a code never used, a game still open."""
     if text is None:
         return None
-    return datetime.fromisoformat(text)
+    return from_stored_time(text)
 
 
 def hash_access_code(access_code: str) -> str:
@@ -386,8 +400,13 @@ def is_matching_access_code(access_code: str, stored_hash: str) -> bool:
     if len(fields) != SCRYPT_HASH_FIELD_COUNT or fields[0] != SCRYPT_PREFIX:
         return False
     _, cost, block_size, parallelism, salt_hex, digest_hex = fields
-    expected_digest = bytes.fromhex(digest_hex)
-    offered_digest = scrypt_digest(access_code, bytes.fromhex(salt_hex), int(cost), int(block_size), int(parallelism))
+    try:
+        expected_digest = bytes.fromhex(digest_hex)
+        salt = bytes.fromhex(salt_hex)
+        offered_digest = scrypt_digest(access_code, salt, int(cost), int(block_size), int(parallelism))
+    except ValueError:
+        # A damaged hash matches no code; it must not turn a logon into a server error.
+        return False
     return hmac.compare_digest(offered_digest, expected_digest)
 
 
@@ -513,9 +532,16 @@ class LobbyDatabase:
         return self.get_setting(setting).strip().lower() in TRUE_SETTING_VALUES
 
     def set_setting(self, setting: Setting, value: str) -> None:
-        check_setting_value(setting, value)
+        self.set_settings({setting: value})
+
+    def set_settings(self, values: dict[Setting, str]) -> None:
+        """Check every value first, then store them all in one transaction: either all change or
+        none does."""
+        for setting, value in values.items():
+            check_setting_value(setting, value)
         with self._backend.transaction():
-            self._backend.upsert("settings", ("name",), {"name": setting.key, "value": value})
+            for setting, value in values.items():
+                self._backend.upsert("settings", ("name",), {"name": setting.key, "value": value})
 
     # Accounts and access codes.
 
@@ -530,7 +556,10 @@ class LobbyDatabase:
                 )
         except ConstraintViolation as error:
             raise DatabaseError(f"an account named {name!r} already exists") from error
-        return self.find_account_by_id(result.last_row_id)
+        account = self.find_account_by_id(result.last_row_id)
+        if account is None:
+            raise DatabaseError(f"the account {name!r} was not found right after it was made")
+        return account
 
     def find_account(self, name: str) -> Account | None:
         row = self._backend.fetch_one("SELECT * FROM accounts WHERE name = ?", (name,))
@@ -556,7 +585,9 @@ class LobbyDatabase:
 
     def ban_account(self, account_id: int, until: datetime, reason: str) -> None:
         """Bar the account from logging on until the given moment. A player who is online is also
-        removed from the running lobby; one who is offline is refused at the next logon."""
+        removed from the running lobby; one who is offline is refused at the next logon. The reason
+        is checked like any text for the game: an online player is told it."""
+        check_game_text("ban reason", reason, MAX_BAN_REASON_LENGTH)
         with self._backend.transaction():
             self._backend.execute(
                 "UPDATE accounts SET banned_until = ?, ban_reason = ? WHERE id = ?",
@@ -595,6 +626,7 @@ class LobbyDatabase:
 
     def add_access_code(self, account_id: int, access_code: str, label: str = "") -> int:
         """Store an access code for an account and return its id. The code itself is not kept."""
+        check_game_text("access code label", label, MAX_ACCESS_CODE_LABEL_LENGTH)
         with self._backend.transaction():
             result = self._backend.execute(
                 "INSERT INTO access_codes (account_id, code_hash, label, created_at) VALUES (?, ?, ?, ?)",
@@ -637,8 +669,8 @@ class LobbyDatabase:
                 code_id=row["id"],
                 label=row["label"],
                 created_at=from_stored_time(row["created_at"]),
-                last_used_at=from_stored_time(row["last_used_at"]),
-                revoked_at=from_stored_time(row["revoked_at"]),
+                last_used_at=from_optional_stored_time(row["last_used_at"]),
+                revoked_at=from_optional_stored_time(row["revoked_at"]),
             )
             for row in rows
         ]
@@ -944,7 +976,7 @@ class LobbyDatabase:
                 name=row["name"],
                 host_name=row["host_name"] or "",
                 opened_at=from_stored_time(row["opened_at"]),
-                closed_at=from_stored_time(row["closed_at"]),
+                closed_at=from_optional_stored_time(row["closed_at"]),
             )
             for row in rows
         ]
@@ -987,6 +1019,16 @@ class LobbyDatabase:
                 (text, to_stored_time(self._clock())),
             )
 
+    def discard_pending_announcements(self) -> int:
+        """Mark every queued announcement as done without sending it; returns how many. At server
+        start nobody is online, and a line queued while the server was stopped is stale by now."""
+        with self._backend.transaction():
+            result = self._backend.execute(
+                "UPDATE pending_announcements SET sent_at = ? WHERE sent_at IS NULL",
+                (to_stored_time(self._clock()),),
+            )
+        return result.row_count
+
     def take_pending_announcements(self) -> list[str]:
         """The announcements not sent yet, oldest first, marked as sent in the same step."""
         with self._backend.transaction():
@@ -1010,7 +1052,7 @@ class LobbyDatabase:
             AnnouncementRecord(
                 text=row["text"],
                 created_at=from_stored_time(row["created_at"]),
-                sent_at=from_stored_time(row["sent_at"]),
+                sent_at=from_optional_stored_time(row["sent_at"]),
             )
             for row in rows
         ]
@@ -1078,10 +1120,10 @@ def account_from_row(row: Row | None) -> Account | None:
         account_id=row["id"],
         name=row["name"],
         is_admin=bool(row["is_admin"]),
-        banned_until=from_stored_time(row["banned_until"]),
+        banned_until=from_optional_stored_time(row["banned_until"]),
         ban_reason=row["ban_reason"],
         created_at=from_stored_time(row["created_at"]),
-        last_logon_at=from_stored_time(row["last_logon_at"]),
+        last_logon_at=from_optional_stored_time(row["last_logon_at"]),
     )
 
 

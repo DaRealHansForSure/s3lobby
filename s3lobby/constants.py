@@ -20,6 +20,8 @@ DEFAULT_SERVER_PORT = 3344
 # The game binds its own UDP socket to this port, or the next free one (0x5c4b55, 0x5c4bc8). The
 # server never needs it: it always answers to the address a datagram came from.
 GAME_CLIENT_FIRST_PORT = 3343
+# How many ports from there a game may end up on: one per game running on the same machine.
+GAME_CLIENT_PORT_COUNT = 16
 
 # DirectPlay's ports, which a game's host needs reachable for the match itself: the game hands the
 # match to DirectPlay (JoinLobbyGame 0x467e00), whose TCP/IP provider listens for session lookups on
@@ -404,6 +406,18 @@ BANNER_URL_PREFIX = "ftp://"
 # stays hopeless.
 LOGON_FAILURE_BURST = 10
 LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
+
+# Bans: whole hours from one hour up to ten years, one day unless said otherwise.
+MIN_BAN_HOURS = 1
+MAX_BAN_HOURS = 10 * 365 * 24
+DEFAULT_BAN_HOURS = 24
+
+# Characters below this are control characters, which no text for the game may hold.
+FIRST_PRINTABLE_CHARACTER = " "
+
+# Admin chat commands wait this long for /confirm with a code of this many digits.
+CONFIRMATION_SECONDS = 60
+CONFIRMATION_CODE_DIGITS = 4
 
 # Wrong chat group passwords per player: a few typing mistakes at once, then one every few minutes.
 WRONG_GROUP_PASSWORD_BURST = 5

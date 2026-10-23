@@ -37,7 +37,7 @@ NEW_ACCESS_CODE_PATTERN = re.compile(r'<div class="access-code">([A-Z0-9]{12})</
 
 LIVE_STATE = LiveLobbyState(
     server_name="Test Lobby",
-    players=[
+    players=(
         LivePlayer(
             player_id=2,
             name=PLAYER_NAME,
@@ -45,19 +45,19 @@ LIVE_STATE = LiveLobbyState(
             is_admin=False,
             address="192.0.2.7:2300",
             logged_on_at="2026-10-23T12:00:00+00:00",
-            group_ids=[3, 30, FIRST_GAME_GROUP_ID],
+            group_ids=(3, 30, FIRST_GAME_GROUP_ID),
             reachability="blocked",
-        )
-    ],
-    groups=[
+        ),
+    ),
+    groups=(
         LiveGroup(group_id=3, kind=GroupKind.ROOM.value, name="GameZone", max_players=0, is_full=False,
-                  has_password=False, member_names=[PLAYER_NAME]),
+                  has_password=False, member_names=(PLAYER_NAME,)),
         LiveGroup(group_id=30, kind=GroupKind.ROOM.value, name="League 1 vs 1", max_players=0, is_full=False,
-                  has_password=False, member_names=[PLAYER_NAME]),
+                  has_password=False, member_names=(PLAYER_NAME,)),
         LiveGroup(group_id=FIRST_GAME_GROUP_ID, kind=GroupKind.GAME.value, name="<b>Alice's game</b>",
-                  max_players=4, is_full=False, has_password=False, member_names=[PLAYER_NAME],
-                  listed_in_ids=[30], map_name="\\Random", team_count=2, is_ladder_game=True),
-    ],
+                  max_players=4, is_full=False, has_password=False, member_names=(PLAYER_NAME,),
+                  listed_in_ids=(30,), map_name="\\Random", team_count=2, is_ladder_game=True),
+    ),
 )
 
 
@@ -316,9 +316,20 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 20)
         self.assertFalse(self.database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS))
 
-    def test_announcement_is_queued_for_the_server(self) -> None:
+    def test_setting_set_to_yes_elsewhere_shows_as_ticked(self) -> None:
+        """Otherwise the next save of the page would quietly turn it off."""
+        self.database.set_setting(Setting.MARK_ADMINS, "yes")
+        self.assertIn('name="mark_admins" checked', self.client.get("/settings").get_data(as_text=True))
+
+    def test_announcement_is_queued_for_the_running_server(self) -> None:
+        self.database.write_live_state(LIVE_STATE)
         self.post("/announcements", text="Server restart at 22:00")
         self.assertEqual(self.database.take_pending_announcements(), ["Server restart at 22:00"])
+
+    def test_announcement_without_a_running_server_is_not_queued(self) -> None:
+        """The server drops lines queued while it was stopped, so queueing one would only pretend."""
+        self.post("/announcements", text="Server restart at 22:00")
+        self.assertEqual(self.database.take_pending_announcements(), [])
 
     def test_match_report_downloads_as_stored(self) -> None:
         self.database.store_game_report(self.player.account_id, FIRST_GAME_GROUP_ID, b"\x01\x02\x03")

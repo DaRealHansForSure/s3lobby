@@ -26,11 +26,10 @@ from collections.abc import Sequence
 
 from s3lobby import __version__, admin
 from s3lobby.backends import describe_location
-from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_SERVER_PORT, NEWS_AUDIENCES
+from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_BAN_HOURS, DEFAULT_SERVER_PORT, NEWS_AUDIENCES
 from s3lobby.database import DatabaseError, LobbyDatabase
 from s3lobby.server import ALL_INTERFACES, DEFAULT_DATABASE_PATH, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
 
-DEFAULT_BAN_HOURS = 24
 LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)-7s %(message)s"
 LOG_TIME_FORMAT = "%H:%M:%S"
 EXIT_SUCCESS = 0

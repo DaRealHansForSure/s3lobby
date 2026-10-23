@@ -177,6 +177,18 @@ class LocationTest(unittest.TestCase):
             with self.subTest(location=incomplete), self.assertRaises(BackendError):
                 parse_mysql_location(incomplete)
 
+    def test_tls_options_are_read_and_checked(self) -> None:
+        verified = parse_mysql_location("mysql://lobby@db.example/settlers?tls=verify")
+        self.assertTrue(verified.tls_context().check_hostname)
+        own_authority = parse_mysql_location("mysql://lobby@db.example/settlers?tls=verify-ca&ca=/srv/ca.pem")
+        self.assertEqual((own_authority.tls, own_authority.ca_file), ("verify-ca", "/srv/ca.pem"))
+        self.assertIsNone(parse_mysql_location("mysql://lobby@db.example/settlers").tls_context())
+        for refused in ("mysql://lobby@db.example/settlers?tls=yes", "mysql://lobby@db.example/settlers?tls=verify-ca"):
+            with self.subTest(location=refused), self.assertRaises(BackendError):
+                parse_mysql_location(refused)
+        self.assertEqual(describe_location("mysql://lobby:secret@db.example/settlers?tls=verify"),
+                         "mysql://lobby@db.example:3306/settlers?tls=verify")
+
     def test_described_location_never_shows_the_password(self) -> None:
         described = describe_location("mysql://lobby:secret@db.example/settlers")
         self.assertNotIn("secret", described)

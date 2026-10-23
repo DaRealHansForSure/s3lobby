@@ -16,7 +16,9 @@ optional "mysql" extra, and imports it only when a mysql:// location is opened.
 
 from __future__ import annotations
 
+import logging
 import os
+import ssl
 import sqlite3
 import time
 from abc import ABC, abstractmethod
@@ -25,11 +27,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
+
+log = logging.getLogger(__name__)
 
 IN_MEMORY_DATABASE = ":memory:"
 # The file holds access code hashes and player data: readable and writable by its owner only.
 DATABASE_FILE_MODE = 0o600
+
+# How long a SQLite write waits for another process's lock before it fails.
+SQLITE_BUSY_TIMEOUT_SECONDS = 2.0
 
 MYSQL_SCHEME = "mysql"
 MYSQL_LOCATION_PREFIX = f"{MYSQL_SCHEME}://"
@@ -41,6 +48,13 @@ MYSQL_CHARACTER_SET = "utf8mb4"
 # a lobby without players may not query for that long. A connection idle for longer than this is
 # checked, and opened again if the server dropped it, before the next query.
 MYSQL_IDLE_SECONDS_BEFORE_PING = 60.0
+# Encryption of a MySQL connection, from the location's query: tls=verify or tls=verify-ca, and
+# ca=PATH for the authority's certificate (MysqlLocation explains the modes).
+TLS_OPTION = "tls"
+CA_FILE_OPTION = "ca"
+TLS_VERIFY = "verify"
+TLS_VERIFY_CA = "verify-ca"
+TLS_MODES = frozenset({"", TLS_VERIFY, TLS_VERIFY_CA})
 # Only one process at a time may migrate the schema; the others wait this long for their turn.
 MYSQL_MIGRATION_LOCK_NAME = "s3lobby_schema_migration"
 MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS = 60
@@ -49,11 +63,17 @@ MARIADB_SERVER_MARKER = "MariaDB"
 Row = dict[str, Any]
 
 
-class BackendError(Exception):
-    """The database cannot be reached or opened: a bad location, a missing driver, a refused logon."""
+class DatabaseError(Exception):
+    """A request the stored data does not allow, such as adding an account name twice, or a
+    database that failed. Callers catch this one type; the database's own errors never leak out."""
 
 
-class ConstraintViolation(Exception):
+class BackendError(DatabaseError):
+    """The database cannot be reached, opened or used: a bad location, a missing driver, a refused
+    logon, a lock that did not clear in time."""
+
+
+class ConstraintViolation(DatabaseError):
     """A write that a unique key or a foreign key of the schema refused."""
 
 
@@ -67,15 +87,37 @@ class WriteResult:
 
 @dataclass(frozen=True)
 class MysqlLocation:
+    """Where a MySQL database is. tls is "" for an unencrypted connection, TLS_VERIFY to check the
+    server's certificate and host name against the system's authorities (or ca_file), or
+    TLS_VERIFY_CA to check the certificate against ca_file only, for a server certificate made for
+    no particular host name, such as the one MySQL makes for itself."""
+
     host: str
     port: int
     user: str
     password: str
     database_name: str
+    tls: str = ""
+    ca_file: str = ""
 
     def describe(self) -> str:
         """The location without its password, for logs and error messages."""
-        return f"{MYSQL_LOCATION_PREFIX}{self.user}@{self.host}:{self.port}/{self.database_name}"
+        described = f"{MYSQL_LOCATION_PREFIX}{self.user}@{self.host}:{self.port}/{self.database_name}"
+        if self.tls:
+            return f"{described}?tls={self.tls}"
+        return described
+
+    def tls_context(self) -> ssl.SSLContext | None:
+        """The TLS settings for the connection, or None for an unencrypted one."""
+        if not self.tls:
+            return None
+        context = ssl.create_default_context(cafile=self.ca_file or None)
+        if self.tls == TLS_VERIFY_CA:
+            context.check_hostname = False
+            # Newer Pythons check certificates strictly and refuse the authority MySQL makes for
+            # itself (it lacks an Authority Key Identifier). The chain to ca_file is still checked.
+            context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        return context
 
 
 class DatabaseBackend(ABC):
@@ -163,8 +205,10 @@ def describe_location(location: str) -> str:
 
 
 def parse_mysql_location(location: str) -> MysqlLocation:
-    """Read mysql://user:password@host:port/name. The password may be left out of the location
-    and given in S3LOBBY_DATABASE_PASSWORD instead; special characters in it are percent-encoded."""
+    """Read mysql://user:password@host:port/name?tls=verify&ca=/path/ca.pem. The password may be
+    left out of the location and given in S3LOBBY_DATABASE_PASSWORD instead; special characters in
+    it are percent-encoded. Without tls the connection is not encrypted (MysqlLocation explains the
+    modes)."""
     parts = urlsplit(location)
     try:
         port = parts.port or DEFAULT_MYSQL_PORT
@@ -176,12 +220,21 @@ def parse_mysql_location(location: str) -> MysqlLocation:
     password = parts.password
     if password is None:
         password = os.environ.get(MYSQL_PASSWORD_VARIABLE, "")
+    options = parse_qs(parts.query)
+    tls = options.get(TLS_OPTION, [""])[-1]
+    ca_file = options.get(CA_FILE_OPTION, [""])[-1]
+    if tls not in TLS_MODES:
+        raise BackendError(f"tls must be {TLS_VERIFY} or {TLS_VERIFY_CA}, not {tls!r}")
+    if tls == TLS_VERIFY_CA and not ca_file:
+        raise BackendError(f"tls={TLS_VERIFY_CA} needs the authority's certificate: {CA_FILE_OPTION}=/path/ca.pem")
     return MysqlLocation(
         host=parts.hostname,
         port=port,
         user=unquote(parts.username),
         password=unquote(password),
         database_name=database_name,
+        tls=tls,
+        ca_file=ca_file,
     )
 
 
@@ -197,7 +250,9 @@ class SqliteBackend(DatabaseBackend):
             os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, DATABASE_FILE_MODE))
         try:
             # isolation_level None: no implicit transactions; transaction() opens them explicitly.
-            self._connection = sqlite3.connect(path, isolation_level=None)
+            # The timeout bounds how long a write waits for another process's lock; the server's
+            # event loop waits with it, so it is kept short.
+            self._connection = sqlite3.connect(path, isolation_level=None, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
         except sqlite3.Error as error:
             raise BackendError(str(error)) from error
         self._connection.row_factory = row_as_dict
@@ -208,32 +263,41 @@ class SqliteBackend(DatabaseBackend):
             self._connection.execute("PRAGMA journal_mode = WAL")
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> WriteResult:
-        try:
+        with sqlite_errors_translated():
             cursor = self._connection.execute(sql, parameters)
-        except sqlite3.IntegrityError as error:
-            raise ConstraintViolation(str(error)) from error
         return WriteResult(last_row_id=cursor.lastrowid, row_count=cursor.rowcount)
 
     def execute_many(self, sql: str, parameter_rows: Sequence[Sequence[Any]]) -> None:
-        try:
+        with sqlite_errors_translated():
             self._connection.executemany(sql, parameter_rows)
-        except sqlite3.IntegrityError as error:
-            raise ConstraintViolation(str(error)) from error
 
     def fetch_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[Row]:
-        return self._connection.execute(sql, parameters).fetchall()
+        with sqlite_errors_translated():
+            return self._connection.execute(sql, parameters).fetchall()
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
         # IMMEDIATE takes the write lock at once. A deferred transaction that reads first would
         # have to upgrade its lock at the first write, and fails if another process wrote meanwhile.
-        self._connection.execute("BEGIN IMMEDIATE")
+        with sqlite_errors_translated():
+            self._connection.execute("BEGIN IMMEDIATE")
         try:
             yield
+            with sqlite_errors_translated():
+                self._connection.execute("COMMIT")
         except BaseException:
-            self._connection.execute("ROLLBACK")
+            # Also after a failed COMMIT: left open, the transaction would make every later BEGIN fail.
+            self._roll_back()
             raise
-        self._connection.execute("COMMIT")
+
+    def _roll_back(self) -> None:
+        if not self._connection.in_transaction:
+            return
+        try:
+            self._connection.execute("ROLLBACK")
+        except sqlite3.Error as error:
+            # The error that led here matters more; this one is only logged.
+            log.warning("ROLLBACK failed: %s", error)
 
     def _upsert_sql(
         self, table: str, key_columns: Sequence[str], columns: Sequence[str], updated_columns: Sequence[str]
@@ -297,6 +361,7 @@ class MysqlBackend(DatabaseBackend):
                 # Report the rows an UPDATE matched, as SQLite does, not only those it changed.
                 client_flag=pymysql.constants.CLIENT.FOUND_ROWS,
                 cursorclass=pymysql.cursors.DictCursor,
+                ssl=location.tls_context(),
             )
         except pymysql.err.Error as error:
             raise BackendError(f"cannot connect to {location.describe()}: {error}") from error
@@ -305,39 +370,52 @@ class MysqlBackend(DatabaseBackend):
         self._last_used_at = time.monotonic()
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> WriteResult:
-        with self._cursor() as cursor:
-            try:
-                cursor.execute(to_pymysql_placeholders(sql), tuple(parameters))
-            except self._driver.err.IntegrityError as error:
-                raise ConstraintViolation(str(error)) from error
+        with self._errors_translated(), self._cursor() as cursor:
+            cursor.execute(to_pymysql_placeholders(sql), tuple(parameters))
             return WriteResult(last_row_id=cursor.lastrowid, row_count=cursor.rowcount)
 
     def execute_many(self, sql: str, parameter_rows: Sequence[Sequence[Any]]) -> None:
         # PyMySQL turns an INSERT run for many rows into multi-row INSERT statements.
-        with self._cursor() as cursor:
-            try:
-                cursor.executemany(to_pymysql_placeholders(sql), [tuple(row) for row in parameter_rows])
-            except self._driver.err.IntegrityError as error:
-                raise ConstraintViolation(str(error)) from error
+        with self._errors_translated(), self._cursor() as cursor:
+            cursor.executemany(to_pymysql_placeholders(sql), [tuple(row) for row in parameter_rows])
 
     def fetch_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[Row]:
-        with self._cursor() as cursor:
+        with self._errors_translated(), self._cursor() as cursor:
             cursor.execute(to_pymysql_placeholders(sql), tuple(parameters))
             return list(cursor.fetchall())
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        self._reconnect_if_idle()
-        self._connection.begin()
+        with self._errors_translated():
+            self._reconnect_if_idle()
+            self._connection.begin()
         self._is_in_transaction = True
         try:
             yield
+            with self._errors_translated():
+                self._connection.commit()
         except BaseException:
-            self._connection.rollback()
+            self._roll_back()
             raise
         finally:
             self._is_in_transaction = False
-        self._connection.commit()
+
+    def _roll_back(self) -> None:
+        try:
+            self._connection.rollback()
+        except self._driver.err.Error as error:
+            # The error that led here matters more; this one is only logged.
+            log.warning("ROLLBACK failed: %s", error)
+
+    @contextmanager
+    def _errors_translated(self) -> Iterator[None]:
+        """PyMySQL's errors as the backend's, like sqlite_errors_translated."""
+        try:
+            yield
+        except self._driver.err.IntegrityError as error:
+            raise ConstraintViolation(str(error)) from error
+        except self._driver.err.Error as error:
+            raise BackendError(f"MySQL: {error}") from error
 
     def _upsert_sql(
         self, table: str, key_columns: Sequence[str], columns: Sequence[str], updated_columns: Sequence[str]
@@ -391,6 +469,18 @@ class MysqlBackend(DatabaseBackend):
         except self._driver.err.Error as error:
             raise BackendError(f"lost the connection to the MySQL server: {error}") from error
         self._last_used_at = time.monotonic()
+
+
+@contextmanager
+def sqlite_errors_translated() -> Iterator[None]:
+    """SQLite's errors as the backend's: a refused key as ConstraintViolation, anything else (a
+    lock that did not clear in time, a full disk) as BackendError."""
+    try:
+        yield
+    except sqlite3.IntegrityError as error:
+        raise ConstraintViolation(str(error)) from error
+    except sqlite3.Error as error:
+        raise BackendError(f"SQLite: {error}") from error
 
 
 def row_as_dict(cursor: sqlite3.Cursor, values: tuple[Any, ...]) -> Row:

@@ -93,15 +93,19 @@ class RawMessage:
         return FieldReader(self.body)
 
 
-def decode_block(datagram: bytes) -> list[RawMessage]:
+def decode_block(datagram: bytes, max_messages: int | None = None) -> list[RawMessage]:
     """Split one datagram into its messages, in the order they were packed.
 
     Raises ProtocolError when a header is cut off or a size points outside the datagram; the game
-    treats such a datagram as broken as a whole, and so does the server.
+    treats such a datagram as broken as a whole, and so does the server. With max_messages it also
+    refuses a datagram holding more, as soon as it gets there: a datagram of empty messages would
+    otherwise make some sixteen thousand objects before its count could be checked.
     """
     messages = []
     position = 0
     while position < len(datagram):
+        if max_messages is not None and len(messages) == max_messages:
+            raise ProtocolError(f"more than {max_messages} messages in one datagram")
         if len(datagram) - position < MESSAGE_HEADER_SIZE:
             raise ProtocolError(f"message header cut off at byte {position}")
         message_type, _, size = struct.unpack_from(HEADER_FORMAT, datagram, position)

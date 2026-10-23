@@ -12,6 +12,7 @@ import secrets
 import threading
 import time
 from collections.abc import Hashable
+from http import HTTPStatus
 
 from flask import Response, abort, current_app, request, session
 
@@ -22,7 +23,6 @@ CSRF_SESSION_KEY = "csrf_token"
 CSRF_FORM_FIELD = "csrf_token"
 CSRF_TOKEN_BYTES = 32
 METHODS_THAT_CHANGE_STATE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-HTTP_BAD_REQUEST = 400
 
 # Pages load nothing from elsewhere and run no inline script or style, so the policy can be strict:
 # an injected script tag would not run even if a text slipped past the template escaping.
@@ -76,7 +76,7 @@ def check_csrf_token() -> None:
         offered_token.encode("utf-8"), expected_token.encode("utf-8")
     )
     if not is_token_right:
-        abort(HTTP_BAD_REQUEST, description="The form has expired. Load the page again and resend it.")
+        abort(HTTPStatus.BAD_REQUEST, description="The form has expired. Load the page again and resend it.")
 
 
 def add_security_headers(response: Response) -> Response:

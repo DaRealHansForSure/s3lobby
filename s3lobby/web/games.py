@@ -8,8 +8,9 @@ its size only.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
+from http import HTTPStatus
 
 from flask import Blueprint, Response, abort, render_template
 
@@ -25,7 +26,6 @@ blueprint.before_request(redirect_visitors_to_logon)
 
 RECENT_GAME_COUNT = 100
 RECENT_REPORT_COUNT = 100
-HTTP_NOT_FOUND = 404
 REPORT_CONTENT_TYPE = "application/octet-stream"
 RACE_NAMES = {
     Race.ROMANS: "Romans",
@@ -56,7 +56,7 @@ class ReportRow:
     map_name: str = ""
     is_ladder_game: bool = False
     outcome_text: str = ""
-    players: list[ReportPlayerRow] = field(default_factory=list)
+    players: tuple[ReportPlayerRow, ...] = ()
 
 
 @blueprint.get("/games")
@@ -75,7 +75,7 @@ def list_games() -> str:
 def download_report(report_id: int) -> Response:
     report = get_database().find_game_report(report_id)
     if report is None:
-        abort(HTTP_NOT_FOUND)
+        abort(HTTPStatus.NOT_FOUND)
     file_name = f"game-report-{report_id}.bin"
     return Response(
         report,
@@ -97,7 +97,9 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str]) -> 
     )
     try:
         status = GameStatus.decode(RawMessage(MessageType.GAME_STATUS, record.report))
-    except ProtocolError:
+    except (ProtocolError, ValueError):
+        # Reports are stored as players' games sent them; a malformed one must not take the page
+        # down for every admin.
         return row
     players = [describe_report_player(player, account_names) for player in status.players]
     players.sort(key=lambda player: player.team)

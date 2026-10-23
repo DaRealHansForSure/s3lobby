@@ -19,7 +19,7 @@ POLL_INTERVAL_SECONDS = 0.05
 
 EXAMPLE_STATE = LiveLobbyState(
     server_name="Test Lobby",
-    players=[
+    players=(
         LivePlayer(
             player_id=1,
             name="Alice",
@@ -27,10 +27,10 @@ EXAMPLE_STATE = LiveLobbyState(
             is_admin=False,
             address="127.0.0.1:2300",
             logged_on_at="2026-10-23T12:00:00+00:00",
-            group_ids=[3, 30],
-        )
-    ],
-    groups=[
+            group_ids=(3, 30),
+        ),
+    ),
+    groups=(
         LiveGroup(
             group_id=30,
             kind=GroupKind.ROOM.value,
@@ -38,9 +38,9 @@ EXAMPLE_STATE = LiveLobbyState(
             max_players=0,
             is_full=False,
             has_password=False,
-            member_names=["Alice"],
-        )
-    ],
+            member_names=("Alice",),
+        ),
+    ),
 )
 
 
@@ -87,7 +87,7 @@ class ServerWritesLiveStateTest(LobbyTestCase):
 
     def test_running_server_writes_its_lobby_at_once(self) -> None:
         stored = self.wait_for_live_state(lambda state: True)
-        self.assertEqual((stored.state.server_name, stored.state.players), ("Test Lobby", []))
+        self.assertEqual((stored.state.server_name, stored.state.players), ("Test Lobby", ()))
         room_names = {group.name for group in stored.state.groups_of_kind(GroupKind.ROOM.value)}
         self.assertTrue({"Home", "GameZone", "League 1 vs 1"} <= room_names)
 
@@ -105,7 +105,7 @@ class ServerWritesLiveStateTest(LobbyTestCase):
         self.assertEqual([player.name for player in state.players], ["Alice"])
         self.assertIn(FIRST_GAME_GROUP_ID, state.players[0].group_ids)
         game = state.groups_of_kind(GroupKind.GAME.value)[0]
-        self.assertEqual((game.name, game.member_names, game.listed_in_ids), ("Alice's game", ["Alice"], [GAME_ZONE_ID]))
+        self.assertEqual((game.name, game.member_names, game.listed_in_ids), ("Alice's game", ("Alice",), (GAME_ZONE_ID,)))
 
     def test_game_shows_what_its_description_says(self) -> None:
         alice = self.new_client("Alice", nonce=17)

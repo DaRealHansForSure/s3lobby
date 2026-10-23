@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from flask import Blueprint, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
-from s3lobby.database import DatabaseError, Setting, check_setting_value
+from s3lobby.database import TRUE_SETTING_VALUES, DatabaseError, Setting, check_setting_value
 from s3lobby.web.auth import redirect_visitors_to_logon
 from s3lobby.web.lobby_view import read_live_lobby_page
 from s3lobby.web.storage import apply_change, get_database, sentence_from_error
@@ -92,7 +92,9 @@ class SettingRow:
 
     @property
     def is_checked(self) -> bool:
-        return self.value.strip().lower() == CHECKED_SETTING_VALUE
+        # Every value the server reads as true: one set to "yes" on the command line must show as
+        # ticked, or the next save of this page would turn it off.
+        return self.value.strip().lower() in TRUE_SETTING_VALUES
 
 
 # Settings.
@@ -121,13 +123,7 @@ def save_settings() -> Response:
         flash("Nothing was saved.", "warn")
         return redirect(url_for("server_settings.show_settings"))
 
-    database = get_database()
-
-    def save_all() -> None:
-        for setting, value in new_values.items():
-            database.set_setting(setting, value)
-
-    apply_change(save_all, "Settings saved.")
+    apply_change(lambda: get_database().set_settings(new_values), "Settings saved.")
     return redirect(url_for("server_settings.show_settings"))
 
 
@@ -153,10 +149,12 @@ def show_announcements() -> str:
 
 @blueprint.post("/announcements")
 def queue_announcement() -> Response:
+    """Queue a line for the running server. Without one nobody would see it: the server drops lines
+    queued while it was stopped when it starts, as they are stale by then."""
+    if not read_live_lobby_page().is_running:
+        flash("The lobby server is not running, so nobody would see it. Nothing was sent.", "bad")
+        return redirect(url_for("server_settings.show_announcements"))
     text = form_text("text")
-    is_server_running = read_live_lobby_page().is_running
     success_text = "Queued. The server sends it to every player in the lobby within a second."
-    if not is_server_running:
-        success_text = "Queued. The server is not running; it sends the announcement when it starts."
     apply_change(lambda: get_database().queue_announcement(text), success_text)
     return redirect(url_for("server_settings.show_announcements"))

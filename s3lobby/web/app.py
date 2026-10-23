@@ -11,7 +11,7 @@ from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from s3lobby.constants import MAX_ANNOUNCEMENT_LENGTH, MAX_GROUP_TEXT_LENGTH, MAX_TEXT_MESSAGE_BYTES
-from s3lobby.database import PLAYER_NAME_PATTERN
+from s3lobby.database import PLAYER_NAME_PATTERN, TRUE_SETTING_VALUES
 from s3lobby.server import DEFAULT_DATABASE_PATH
 from s3lobby.web import accounts, auth, content, games, lobby_view, server_settings
 from s3lobby.web.auth import install_logon_failure_limiter
@@ -24,7 +24,6 @@ DATABASE_LOCATION_VARIABLE = "S3LOBBY_DATABASE"
 SECRET_KEY_VARIABLE = "S3LOBBY_WEB_SECRET"
 SECURE_COOKIES_VARIABLE = "S3LOBBY_WEB_SECURE_COOKIES"
 BEHIND_PROXY_VARIABLE = "S3LOBBY_WEB_BEHIND_PROXY"
-TRUE_VARIABLE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 # The largest form this interface has is a news text of MAX_TEXT_MESSAGE_BYTES; anything far
 # beyond that is not a form from these pages.
@@ -128,4 +127,4 @@ def create_app_from_environment() -> Flask:
 
 
 def is_variable_set(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in TRUE_VARIABLE_VALUES
+    return os.environ.get(name, "").strip().lower() in TRUE_SETTING_VALUES

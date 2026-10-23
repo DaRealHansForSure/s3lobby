@@ -6,7 +6,7 @@ few seconds (static/app.js) from /live/state, which renders the same part on its
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from flask import Blueprint, render_template
@@ -35,8 +35,8 @@ class PlayerRow:
     is_admin: bool
     address: str
     logged_on_at: str
-    tab_names: list[str]
-    group_names: list[str]
+    tab_names: tuple[str, ...]
+    group_names: tuple[str, ...]
     reachability: str
 
 
@@ -46,9 +46,9 @@ class GameRow:
     lists when the match begins."""
 
     name: str
-    member_names: list[str]
+    member_names: tuple[str, ...]
     player_count_text: str
-    zone_names: list[str]
+    zone_names: tuple[str, ...]
     is_full: bool
     has_started: bool
     map_text: str
@@ -59,15 +59,15 @@ class GameRow:
 @dataclass(frozen=True)
 class ChatGroupRow:
     name: str
-    theme_names: list[str]
-    member_names: list[str]
+    theme_names: tuple[str, ...]
+    member_names: tuple[str, ...]
     has_password: bool
 
 
 @dataclass(frozen=True)
 class RoomRow:
     name: str
-    member_names: list[str]
+    member_names: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -77,10 +77,10 @@ class LiveLobbyPage:
     is_running: bool
     server_name: str = ""
     written_at: datetime | None = None
-    players: list[PlayerRow] = field(default_factory=list)
-    games: list[GameRow] = field(default_factory=list)
-    chat_groups: list[ChatGroupRow] = field(default_factory=list)
-    rooms: list[RoomRow] = field(default_factory=list)
+    players: tuple[PlayerRow, ...] = ()
+    games: tuple[GameRow, ...] = ()
+    chat_groups: tuple[ChatGroupRow, ...] = ()
+    rooms: tuple[RoomRow, ...] = ()
 
 
 @blueprint.get("/")
@@ -118,19 +118,19 @@ def describe_live_lobby(stored: StoredLiveState | None, now: datetime) -> LiveLo
         server_name=state.server_name,
         written_at=stored.written_at,
         players=describe_players(state, names_by_id),
-        games=[describe_game(group, names_by_id) for group in state.groups_of_kind(GroupKind.GAME.value)],
-        chat_groups=[
+        games=tuple(describe_game(group, names_by_id) for group in state.groups_of_kind(GroupKind.GAME.value)),
+        chat_groups=tuple(
             describe_chat_group(group, names_by_id) for group in state.groups_of_kind(GroupKind.CHAT_GROUP.value)
-        ],
-        rooms=[
+        ),
+        rooms=tuple(
             RoomRow(name=group.name, member_names=group.member_names)
             for group in state.groups_of_kind(GroupKind.ROOM.value)
             if group.member_names
-        ],
+        ),
     )
 
 
-def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> list[PlayerRow]:
+def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> tuple[PlayerRow, ...]:
     """Rooms other than the four tabs are left out: a player on the GameZone tab is in all nine
     zones at once, which says nothing about where it is."""
     game_and_chat_group_ids = {
@@ -140,8 +140,8 @@ def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> list
     }
     rows = []
     for player in state.players:
-        tab_names = [LOBBY_TAB_GROUP_NAMES[group_id] for group_id in player.group_ids if group_id in LOBBY_TAB_GROUP_NAMES]
-        group_names = [names_by_id[group_id] for group_id in player.group_ids if group_id in game_and_chat_group_ids]
+        tab_names = tuple(LOBBY_TAB_GROUP_NAMES[group_id] for group_id in player.group_ids if group_id in LOBBY_TAB_GROUP_NAMES)
+        group_names = tuple(names_by_id[group_id] for group_id in player.group_ids if group_id in game_and_chat_group_ids)
         rows.append(
             PlayerRow(
                 name=player.name,
@@ -154,7 +154,7 @@ def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> list
                 reachability=player.reachability,
             )
         )
-    return rows
+    return tuple(rows)
 
 
 def describe_game(game: LiveGroup, names_by_id: dict[int, str]) -> GameRow:
@@ -180,8 +180,8 @@ def describe_chat_group(chat_group: LiveGroup, names_by_id: dict[int, str]) -> C
     )
 
 
-def listed_in_names(group: LiveGroup, names_by_id: dict[int, str]) -> list[str]:
-    return [names_by_id[parent_id] for parent_id in group.listed_in_ids if parent_id in names_by_id]
+def listed_in_names(group: LiveGroup, names_by_id: dict[int, str]) -> tuple[str, ...]:
+    return tuple(names_by_id[parent_id] for parent_id in group.listed_in_ids if parent_id in names_by_id)
 
 
 def map_text(map_name: str) -> str:
