@@ -52,6 +52,42 @@ function setUpThemeToggle() {
     toggle.hidden = false;
 }
 
+// The admin menus are <details> and open and close without this script; it only keeps one open at
+// a time and closes it on Escape or a click elsewhere.
+function setUpNavigationMenus() {
+    const menus = Array.from(document.querySelectorAll(".nav-menu"));
+    if (menus.length === 0) {
+        return;
+    }
+    for (const menu of menus) {
+        menu.addEventListener("toggle", () => {
+            if (!menu.open) {
+                return;
+            }
+            for (const other of menus) {
+                if (other !== menu) {
+                    other.open = false;
+                }
+            }
+        });
+    }
+    document.addEventListener("click", (event) => {
+        for (const menu of menus) {
+            if (!menu.contains(event.target)) {
+                menu.open = false;
+            }
+        }
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") {
+            return;
+        }
+        for (const menu of menus) {
+            menu.open = false;
+        }
+    });
+}
+
 // Replaces the live part of the lobby page with a fresh copy rendered by the server. The server
 // escapes every name in it, so swapping the HTML in is safe. Skipped while the tab is hidden.
 function setUpLiveRefresh() {
@@ -80,4 +116,5 @@ function setUpLiveRefresh() {
 }
 
 setUpThemeToggle();
+setUpNavigationMenus();
 setUpLiveRefresh();

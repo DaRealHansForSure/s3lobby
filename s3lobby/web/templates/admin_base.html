@@ -7,11 +7,10 @@
 {% block admin_link %}<a class="btn btn--outline btn--sm" href="{{ url_for('lobby_view.live_lobby') }}">Public site</a>{% endblock %}
 
 {% block navigation %}
-{%- set nav_groups = [
-    ("Overview", [
-        ("dashboard", "admin_home.show_dashboard", "Start"),
-        ("admin_lobby", "admin_home.admin_lobby", "Lobby"),
-    ]),
+{#- A page of its own is a link; a topic with several pages opens a menu (a <details>, so it works
+    without script; app.js only closes the other menus and closes one on Escape or a click outside). -#}
+{%- set nav_entries = [
+    ("Start", [("dashboard", "admin_home.show_dashboard", "Start")]),
     ("People", [
         ("accounts", "accounts.list_accounts", "Accounts"),
         ("clans", "accounts.list_clans", "Clans"),
@@ -19,26 +18,32 @@
     ("Content", [
         ("news", "content.show_news", "News"),
         ("chat_themes", "content.list_chat_themes", "Chat themes"),
-        ("board", "content.show_board", "Board"),
+        ("board", "content.show_board", "Message board"),
         ("announcements", "server_settings.show_announcements", "Announcements"),
     ]),
     ("Play", [
+        ("admin_lobby", "admin_home.admin_lobby", "Live lobby"),
         ("games", "games.list_games", "Games"),
         ("ladder_games", "ladder_admin.list_ladder_games", "Ladder"),
     ]),
-    ("Server", [
-        ("settings", "server_settings.show_settings", "Settings"),
-    ]),
+    ("Settings", [("settings", "server_settings.show_settings", "Settings")]),
 ] %}
 <div class="app-nav-bar app-nav-bar--admin">
   <nav class="app-nav" aria-label="Admin sections">
-    {% for group, items in nav_groups %}
-    <div class="app-nav-group" role="group" aria-label="{{ group }}">
-      <span class="app-nav-group-label" aria-hidden="true">{{ group }}</span>
-      {% for key, endpoint, label in items %}
-      <a href="{{ url_for(endpoint) }}"{% if active_nav == key %} aria-current="page"{% endif %}>{{ label }}</a>
-      {% endfor %}
-    </div>
+    {% for topic, items in nav_entries %}
+      {% set is_current_topic = items | selectattr(0, "equalto", active_nav) | list | length > 0 %}
+      {% if items | length == 1 %}
+      <a href="{{ url_for(items[0][1]) }}"{% if is_current_topic %} aria-current="page"{% endif %}>{{ topic }}</a>
+      {% else %}
+      <details class="nav-menu">
+        <summary class="nav-menu-button{% if is_current_topic %} nav-menu-button--current{% endif %}">{{ topic }}<span class="nav-menu-mark" aria-hidden="true"></span></summary>
+        <div class="nav-menu-panel">
+          {% for key, endpoint, label in items %}
+          <a href="{{ url_for(endpoint) }}"{% if active_nav == key %} aria-current="page"{% endif %}>{{ label }}</a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
     {% endfor %}
   </nav>
 </div>
