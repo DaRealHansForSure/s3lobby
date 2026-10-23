@@ -247,7 +247,13 @@ Offsets count from the first byte after the header.
   u32 edition ([0x7a7ff8]: 2 Mission CD, 3 Plus, 4 both), u32 language (config + 0x28, passed at
   0x43af70): the index into the languages of the game's text archive, 0 German, 1 English,
   2 Italian, 3 French, 4 Polish, 5 Spanish, 6 Korean, 7 Japanese. At start the game clamps it to the
-  archive's language count (0x42e94b..0x42e97b). A German game sends 0 (seen in a run).
+  archive's language count (0x42e94b..0x42e97b). A German game sends 0 (seen in a run). The value
+  comes from the voice archive, not from the registry: the sound loader (0x5fe760) reads the u32 at
+  offset 0x14 of each `Snd\siedler3_NN.dat` header and keeps the first that is not 0xffffffff (the
+  GOG copy: 0xffffffff in the effects archive siedler3_00, 0 in the German voices siedler3_01), and
+  0x498142 copies it into the configuration. The registry value `Language` (7 in the GOG copy) does
+  not change it (seen in a run with 9 and 21). `scripts/game-language.sh` changes that field in a
+  test copy of the game, so one machine can play games of several languages.
 - **Answer**: Result (below) with code 9 means "no patch" (0x5cffe1): the handler marks the answer
   as received and takes the sender as server (0x5cff1c, 0x5cff27); the patch flag stays 0.
 - **0x12 patch information** (0x5ccc50) is the alternative answer: u32 patch flag (0 = no patch),
