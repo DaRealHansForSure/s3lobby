@@ -773,6 +773,44 @@ class AddPlayerToGroupWithClan:
 
 
 @dataclass(frozen=True)
+class AddPlayerToGroupWithFlags:
+    """0x26: AddPlayerToGroupWithClan followed by u32 player flags (handler 0x5d6520; the flags
+    getter 0x5e7900 reads them right after the clan name). PlayerFlag HIGHLIGHTED colours the
+    player's row in the room member list (0x449e09..0x449eb5)."""
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS
+    group_id: int
+    player_id: int
+    player_address: Address
+    player_name: str
+    clan_id: int
+    clan_name: str
+    player_flags: int
+    extra_text: str = ""
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter()
+        writer.write_u32(self.group_id).write_u32(self.player_id).write_socket_address(self.player_address)
+        writer.write_string(self.player_name).write_string(self.extra_text)
+        writer.write_u32(self.clan_id).write_string(self.clan_name).write_u32(self.player_flags)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> AddPlayerToGroupWithFlags:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        return cls(
+            group_id=reader.read_u32(),
+            player_id=reader.read_u32(),
+            player_address=reader.read_socket_address(),
+            player_name=reader.read_string(),
+            extra_text=reader.read_string(),
+            clan_id=reader.read_u32(),
+            clan_name=reader.read_string(),
+            player_flags=reader.read_u32(),
+        )
+
+
+@dataclass(frozen=True)
 class RemovePlayerFromGroup:
     """0x0d: a player left a group. Size exactly 12.
 

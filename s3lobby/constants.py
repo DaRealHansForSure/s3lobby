@@ -83,6 +83,7 @@ class MessageType(IntEnum):
     CHAT_COMMAND_ANSWER = 0x23
     OWN_PLAYER_WITH_CLAN = 0x24
     ADD_PLAYER_TO_GROUP_WITH_CLAN = 0x25
+    ADD_PLAYER_TO_GROUP_WITH_FLAGS = 0x26
     GROUP_COUNTERS = 0x1A
     TEXT_ID_LIST = 0x14
     SERVER_STATISTICS = 0x1B
@@ -175,6 +176,14 @@ class GameStatusFlag(IntFlag):
     # Not valid for the ladder: a ladder slot has no lobby player id (0x5405ec, 0x5407b1), or the
     # lobby manager marked the game (its byte +0x675, 0x54078a).
     NOT_VALID_FOR_LADDER = 0x2
+
+
+class PlayerFlag(IntFlag):
+    """Bits of the player flags in AddPlayerToGroup 0x26 (handler 0x5d6520, read by 0x5e7900)."""
+
+    # The room member list draws the player's row in another colour (0x449e09..0x449eb5); with the
+    # clan name "BB" in yet another (inferred: Blue Byte staff). s3lobby uses it to mark admins.
+    HIGHLIGHTED = 0x1
 
 
 class MatchPlayerFlag(IntFlag):

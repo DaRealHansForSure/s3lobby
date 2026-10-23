@@ -59,6 +59,7 @@ from s3lobby.constants import (
     WARNING_INTERVAL_SECONDS,
     GroupFlag,
     MessageType,
+    PlayerFlag,
     ResultCode,
 )
 from s3lobby.commands import ChatCommands, fit_answer
@@ -80,6 +81,7 @@ from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogo
 from s3lobby.messages import (
     AddPlayerToGroup,
     AddPlayerToGroupWithClan,
+    AddPlayerToGroupWithFlags,
     ChatCommand,
     ChatCommandAnswer,
     ChatMessage,
@@ -613,10 +615,11 @@ class Lobby:
         if is_board_language_group(group.group_id):
             self._sync_board_themes(language_of_board_group(group.group_id))
         self._outbox.send(player.address, group.announcement.under_parent(JOINED_GROUP_PARENT_ID))
+        marks_admins = self._database.get_boolean_setting(Setting.MARK_ADMINS)
         for member in self._members_of(group):
-            self._outbox.send(player.address, member_entry(group.group_id, member))
-            self._outbox.send(member.address, member_entry(group.group_id, player))
-        self._outbox.send(player.address, member_entry(group.group_id, player))
+            self._outbox.send(player.address, member_entry(group.group_id, member, marks_admins))
+            self._outbox.send(member.address, member_entry(group.group_id, player, marks_admins))
+        self._outbox.send(player.address, member_entry(group.group_id, player, marks_admins))
         group.member_ids.append(player.player_id)
         player.group_ids.add(group.group_id)
         for child in self._groups_listed_in(group.group_id):
@@ -908,9 +911,26 @@ def live_player(player: Player) -> LivePlayer:
     )
 
 
-def member_entry(group_id: int, player: Player) -> EncodableMessage:
+def member_entry(group_id: int, player: Player, marks_admins: bool = False) -> EncodableMessage:
     """A group member as other clients need it: with the address the server sees the player at,
-    because they send chat straight to that address, and with the clan when the player shows one."""
+    because they send chat straight to that address, and with the clan when the player shows one.
+    With marks_admins an admin comes as 0x26 with the HIGHLIGHTED flag, so the member list colours
+    their row; the clan travels in it as well, with clan id 0 and no name for a player without one."""
+    if marks_admins and player.is_admin:
+        clan_id = 0
+        clan_name = ""
+        if player.shown_clan is not None:
+            clan_id = player.shown_clan.clan_id
+            clan_name = player.shown_clan.name
+        return AddPlayerToGroupWithFlags(
+            group_id=group_id,
+            player_id=player.player_id,
+            player_address=player.address,
+            player_name=player.name,
+            clan_id=clan_id,
+            clan_name=clan_name,
+            player_flags=PlayerFlag.HIGHLIGHTED,
+        )
     if player.shown_clan is None:
         return AddPlayerToGroup(
             group_id=group_id,

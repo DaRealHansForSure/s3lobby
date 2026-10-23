@@ -112,6 +112,9 @@ class Setting(Enum):
     BANNER_URL = "banner_url"
     BANNER_ID = "banner_id"
     BANNER_SUB_ID = "banner_sub_id"
+    # Admins' rows in the room member lists are drawn in another colour (AddPlayerToGroup 0x26).
+    # Off by default: no run with the real game has shown this message yet.
+    MARK_ADMINS = "mark_admins"
 
     @property
     def key(self) -> str:
@@ -129,6 +132,7 @@ SETTING_DEFAULTS = {
     Setting.BANNER_URL: "",
     Setting.BANNER_ID: "0",
     Setting.BANNER_SUB_ID: "0",
+    Setting.MARK_ADMINS: "false",
 }
 
 # What a player is told when their account is deleted while they are online.
@@ -141,6 +145,7 @@ TRUE_SETTING_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
 # The numeric settings travel to the game as u32 fields.
 INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BANNER_SUB_ID})
+BOOLEAN_SETTINGS = frozenset({Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS})
 MAX_INTEGER_SETTING = 0xFFFFFFFF
 
 LINE_BREAK = "\n"
@@ -303,7 +308,7 @@ def check_setting_value(setting: Setting, value: str) -> None:
         if not value.isdigit() or int(value) > MAX_INTEGER_SETTING:
             raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_INTEGER_SETTING}")
         return
-    if setting == Setting.UNIQUE_SERIAL_NUMBERS:
+    if setting in BOOLEAN_SETTINGS:
         if value.strip().lower() not in TRUE_SETTING_VALUES | FALSE_SETTING_VALUES:
             raise DatabaseError(f"{setting.key} must be true or false")
         return

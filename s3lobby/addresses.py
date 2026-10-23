@@ -26,6 +26,7 @@ from dataclasses import replace
 from s3lobby.messages import (
     AddPlayerToGroup,
     AddPlayerToGroupWithClan,
+    AddPlayerToGroupWithFlags,
     EncodableMessage,
     GroupAnnouncement,
     GroupUpdate,
@@ -71,7 +72,7 @@ class ViewerAddresses:
 
     def message_for_viewer(self, message: EncodableMessage, viewer: Address) -> EncodableMessage:
         """The message with every address in it as the viewer can reach it."""
-        if isinstance(message, (AddPlayerToGroup, AddPlayerToGroupWithClan)):
+        if isinstance(message, (AddPlayerToGroup, AddPlayerToGroupWithClan, AddPlayerToGroupWithFlags)):
             return replace(message, player_address=self.address_for_viewer(message.player_address, viewer))
         if isinstance(message, (GroupAnnouncement, GroupUpdate)) and message.game_block is not None:
             host_address = self.address_for_viewer(message.game_block.host_address, viewer)

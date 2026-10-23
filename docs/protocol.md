@@ -373,8 +373,11 @@ the AddGroupToGroup (assert `! vJoinedGroups.contains`) and drop the connection.
 - **0x25** (handler 0x5d5f60): 0x0c's fields, then u32 clan id and string clan name (readers
   0x5e6550, 0x5e6740). The room member list shows the clan name in its second column (0x449d34).
   With clan id 0 and an empty name it behaves exactly like 0x0c (0x5d5ea5).
-- **0x26** (handler 0x5d6520): 0x25 plus u32 player flags. Bit 0 colours the row; together with the
-  clan name "BB" it gets another colour (0x449e09..0x449eb5, *inferred*: Blue Byte staff).
+- **0x26** (handler 0x5d6520): 0x25 plus u32 player flags, right after the clan name (the flags
+  getter 0x5e7900 skips the three strings and 31 bytes of fixed fields). Bit 0 colours the row;
+  together with the clan name "BB" it gets another colour (0x449e09..0x449eb5, *inferred*: Blue
+  Byte staff). s3lobby sends it for admins with bit 0 when the setting `mark_admins` is on (off by
+  default: not yet seen in a run).
 - **0x0d RemovePlayerFromGroup**: u32 group id, u32 player id; size exactly 12. Sent by the client
   to leave (0x5ca5e0).
 
