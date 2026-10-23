@@ -8,9 +8,11 @@ it is not in. The docstrings name the address in S3.EXE for each.
 from __future__ import annotations
 
 import unittest
+from collections.abc import Callable
 
 from s3lobby.commands import fit_answer
 from s3lobby.constants import (
+    EMPTY_CHAT_GROUP_KEEP_SECONDS,
     ANNOUNCEMENT_GROUP_ID,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
@@ -39,6 +41,7 @@ from s3lobby.messages import (
     GroupCounters,
     GroupUpdate,
     RemoveGroupFromGroup,
+    RemovePlayerFromGroup,
     Result,
 )
 from tests.support import (
@@ -118,6 +121,14 @@ class GameTest(LobbyTestCase):
         open_game(self.bob, GAME_ZONE_ID)
         self.game_for_host = receive_announcement(self.bob)
         self.game_in_zone = receive_announcement(self.alice)
+
+    def test_host_is_told_its_game_for_the_setup(self) -> None:
+        """The game setup keeps the host's new game in an empty slot until Result 0xc names it
+        (0x452b53); setup updates (0x45506c), "show game in GameZone" (0x456370) and the match
+        start (0x454c20) all name that slot, so without it they name no game."""
+        opened = Result.decode(self.bob.receive_next(MessageType.RESULT))
+        self.assertEqual((opened.code, opened.value), (ResultCode.GROUP_OPENED, self.game_for_host.group_id))
+        self.alice.assert_nothing_arrives(MessageType.RESULT)
 
     def test_host_is_in_its_game_and_the_zone_sees_it_with_counters(self) -> None:
         self.assertEqual(self.game_for_host.parent_id, JOINED_GROUP_PARENT_ID)
@@ -254,6 +265,59 @@ class GroupRulesTest(LobbyTestCase):
         self.assertEqual((refusal.code, refusal.value), (ResultCode.WRONG_GROUP_PASSWORD, shown_to_bob.group_id))
         bob.send(AddPlayerToGroup(shown_to_bob.group_id, bob_id, ("0.0.0.0", 0), "", extra_text="hunter"))
         self.assertEqual(receive_announcement(bob).parent_id, JOINED_GROUP_PARENT_ID)
+
+    def test_chat_group_creator_is_told_its_channel(self) -> None:
+        """After opening a chat group the game's lobby screen has no channel until Result 0xc
+        names the group (0x452577). Without it the creator sat in the group without name and
+        members, and chat, whisper and new games did nothing until leaving and joining it again
+        (seen in a run)."""
+        alice, _ = self.player_in_chat_theme("Alice", 17)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "test", password="")
+        joined = receive_announcement(alice)
+        self.assertEqual(joined.parent_id, JOINED_GROUP_PARENT_ID)
+        channel = Result.decode(alice.receive_next(MessageType.RESULT))
+        self.assertEqual((channel.code, channel.value), (ResultCode.GROUP_OPENED, joined.group_id))
+
+    def test_host_finds_its_chat_group_again_after_the_game_setup(self) -> None:
+        """A player who opens a game inside a chat group leaves the group in the same block and,
+        back from the game setup, joins it again (seen in a run). Closed as empty meanwhile, the
+        join got Result 0xb, whose dialog Wine did not show over the full screen game: the screen
+        froze (seen in a run)."""
+        alice, alice_id = self.player_in_chat_theme("Alice", 17)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "test", password="")
+        chat_group_id = receive_announcement(alice).group_id
+        open_game(alice, chat_group_id)
+        alice.send(RemovePlayerFromGroup(chat_group_id, alice_id))
+        game_id = self.receive_joined_group(alice, lambda group_id: group_id != chat_group_id)
+        # A long game setup or match: the group waits while the game is open.
+        self.server.close_abandoned_chat_groups(EMPTY_CHAT_GROUP_KEEP_SECONDS * 10)
+
+        alice.send(
+            RemovePlayerFromGroup(game_id, alice_id),
+            AddPlayerToGroup(chat_group_id, alice_id, ("0.0.0.0", 0), ""),
+        )
+        self.assertEqual(self.receive_joined_group(alice, lambda group_id: True), chat_group_id)
+
+    def test_empty_chat_group_closes_after_a_while(self) -> None:
+        alice, alice_id = self.player_in_chat_theme("Alice", 17)
+        bob, _ = self.player_in_chat_theme("Bob", 42)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "test", password="")
+        chat_group_id = receive_announcement(bob).group_id
+        alice.send(RemovePlayerFromGroup(chat_group_id, alice_id))
+        alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
+
+        self.server.close_abandoned_chat_groups(EMPTY_CHAT_GROUP_KEEP_SECONDS / 2)
+        bob.assert_nothing_arrives(MessageType.REMOVE_GROUP_FROM_GROUP)
+        self.server.close_abandoned_chat_groups(EMPTY_CHAT_GROUP_KEEP_SECONDS)
+        removal = RemoveGroupFromGroup.decode(bob.receive_next(MessageType.REMOVE_GROUP_FROM_GROUP))
+        self.assertEqual((removal.parent_id, removal.group_id), (CHAT_THEME_PARENT_ID, chat_group_id))
+
+    def receive_joined_group(self, client: FakeGameClient, is_wanted: Callable[[int], bool]) -> int:
+        """The id of the next group announced to the client as joined (parent 0) that is wanted."""
+        while True:
+            announcement = receive_announcement(client)
+            if announcement.parent_id == JOINED_GROUP_PARENT_ID and is_wanted(announcement.group_id):
+                return announcement.group_id
 
     def test_wrong_group_passwords_are_limited_per_player(self) -> None:
         """Each join carries one guess and a datagram holds hundreds: without a limit a password

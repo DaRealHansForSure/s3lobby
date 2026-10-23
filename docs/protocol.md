@@ -256,6 +256,9 @@ Offsets count from the first byte after the header.
   | 9 | patch check: no patch |
   | 8 | patch check: failed |
   | 0x64, 0x65 | private chat accepted / refused (client to client, value = player id) |
+  | 0xc | a group the player opened exists, value = its id: status 1/0 (0x5d052d). LM.PollStatus fills the lobby screen's empty slot with a CGroup of that id (0x5da8a0, 0x5db590): the channel LM+0x490 in the ChatZone (0x452577), the game LM+0x6e8 in the game setup (0x452a12, 0x452b53). An already filled slot makes the client leave the group instead (0x5dd520 -> 0x5ca5e0) |
+  | 0xb | dialog "Der Wechsel in die Gruppe hat nicht geklappt" (status 2/5, 0x5d0557) |
+  | 0x62 | dialog "Das Passwort stimmte nicht", value = group id (status 2/6, 0x5d0542) |
 
   The texts live in `GFX/siedler3_09.*.dat`: at offset 0x5c a u16 text count (374) and a u16
   language count (8), from 0x60 one u32 file offset per text, all texts of language 0 (German)
@@ -322,8 +325,11 @@ and partly seen in runs:
    1, 0x435ac0; seen in runs: 2 for 1 vs 1, 1 for Human vs Computer), the long game block and the
    game description. Chat groups are opened the same way (CreateGame 0x5ca7d0, called from
    0x5dd5b9), without a game block.
-2. The server picks the id, sends the group back to the host with parent 0, and shows it in the
-   zone with its counters.
+2. The server picks the id, sends the group back to the host with parent 0 and Result 0xc with
+   the id, and shows it in the zone with its counters. The host's setup keeps its game in an
+   empty slot (SwitchZone 5 with an empty CGroup, 0x454780) until that Result fills it
+   (0x452b53); the setup updates (0x45506c), "show game in GameZone" (0x456370) and the match
+   start (0x454c20) all name the game in that slot.
 3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
    take an update only for a group they see in a parent, never for one they are in (0x5d8de6): the
    server keeps the new state and passes the update to the zone.
@@ -448,6 +454,20 @@ theme, group id 0xffffffff, flags 0x301073 (with 0x1000 when it has a password),
 0xffffffff (no limit) and the password as third text (0x4546cb). Joining one sends the password as
 the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 ("Das Passwort
 stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
+The creator's lobby screen leaves the ChatZone with an empty channel (CreateChatGroup 0x4542c0
+switches to zone 3 with an empty CGroup, 0x4520e0). Chat, whisper and "Erzeuge Spiel" go to the
+channel's group id (LM.SendChat 0x454140 sends to LM+0x490), so the server answers the new group
+with Result 0xc, value = its id, after the group (parent 0) and the creator's member entry; the
+screen then takes it as its channel (0x452577). Without it the channel stayed without name and
+members and nothing worked until the player left and joined the group again (seen in a run).
+
+A player who opens a game inside a chat group ("Erzeuge Spiel") leaves the chat group in the
+same block (seen in a run). Leaving zone 3 keeps the channel (0x451ee0), and back from the game
+setup the client joins it again (SwitchZone 3 with an empty group joins the kept one, 0x451160).
+When that group no longer exists the answer is Result 0xb and its dialog; under Wine the dialog
+did not show over the full screen game and the screen stayed frozen (seen in a run). So s3lobby
+keeps an empty chat group open while a game opened in it is open and two minutes after that
+(*inferred*: what Blue Byte's server did is unknown).
 Without any theme listed, players cannot open chat groups at all.
 
 ### The MessageZone tab
@@ -505,7 +525,7 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 | 3 | closes, opens a new connection: OpenConnection, Logon | OpenConnection, acks, Result 0x66, own player 0x0e |
 | 4 | AddPlayerToGroup for its lobby room (1 to 3) and its zones (30 to 38) | AddGroupToGroup (parent 0), AddPlayerToGroup per member incl. the client, the games in the room |
 | 5 | chat to the other members directly | tells members about arrivals (0x0c) and departures (0x0d) |
-| 6 | AddGroupToGroup2 under the room (open a game) | relays it to the room, host address filled in |
+| 6 | AddGroupToGroup2 under the room (open a game) | the game with parent 0, the host's member entry and Result 0xc (its id) to the host; relays it to the room, host address filled in |
 | 7 | game ends: AdjustConnectionTimeout 60000, joins its rooms again (never leaves the game) | takes the player out of its game without telling it (a RemovePlayerFromGroup for a game the client already dropped, as after "Zurück" in the game setup, hangs the game), closes it, answers the joins |
 | 8 | Logout, CloseConnection | removes the player from its groups |
 

@@ -51,6 +51,7 @@ from s3lobby.constants import (
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
     MAX_CHAT_COMMAND_LENGTH,
+    EMPTY_CHAT_GROUP_KEEP_SECONDS,
     MAX_OPEN_GROUPS_PER_PLAYER,
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
@@ -527,6 +528,10 @@ class Lobby:
         # The creator's client does not count itself in the new group (CreateGame 0x5ca7d0): it is
         # in once the server announces the group to it with parent 0, like after any other join.
         self._add_player_to_group(player, group)
+        # The creator's lobby screen keeps the new group in an empty slot until this Result names
+        # it (see GROUP_OPENED). Without it a chat group's creator had no name, no members and no
+        # working chat, whisper or new game until leaving and joining again (seen in a run).
+        self._outbox.send(player.address, Result(ResultCode.GROUP_OPENED, value=group_id))
         self._list_group_in(group, parent)
         self._tell_about_ladder(group, [player])
 
@@ -690,6 +695,7 @@ class Lobby:
             self._outbox.send(member.address, member_entry(group.group_id, player, marks_admins))
         self._outbox.send(player.address, member_entry(group.group_id, player, marks_admins))
         group.member_ids.append(player.player_id)
+        group.empty_since_seconds = None
         player.group_ids.add(group.group_id)
         for child in self._groups_listed_in(group.group_id):
             self._show_group(player, child, group.group_id)
@@ -788,9 +794,12 @@ class Lobby:
             self._outbox.send(member.address, departure)
         if is_player_told:
             self._outbox.send(player.address, departure)
-        if not group.member_ids and not group.is_room:
+        if not group.member_ids and group.kind == GroupKind.GAME:
             self._close_player_group(group)
             return
+        if not group.member_ids and group.kind == GroupKind.CHAT_GROUP:
+            # Kept for its players to come back to (see EMPTY_CHAT_GROUP_KEEP_SECONDS).
+            group.empty_since_seconds = time.monotonic()
         self._send_counters_to_viewers(group)
 
     def _take_player_out_of_games(self, player: Player) -> None:
@@ -818,6 +827,22 @@ class Lobby:
         group.listed_in_parent_ids.discard(parent_id)
         for player in list(self._players_by_id.values()):
             self._hide_group(player, group.group_id, parent_id)
+
+    def close_abandoned_chat_groups(self, now_seconds: float) -> None:
+        """Close the chat groups that have been empty for EMPTY_CHAT_GROUP_KEEP_SECONDS and hold
+        no open game. The time counts from the later of the last departure and the end of the last
+        game opened in the group, so a host who played a long match still finds the group."""
+        parent_ids_of_open_games = {
+            group.announcement.parent_id for group in self._groups.values() if group.kind == GroupKind.GAME
+        }
+        for group in list(self._groups.values()):
+            if group.kind != GroupKind.CHAT_GROUP or group.empty_since_seconds is None:
+                continue
+            if group.group_id in parent_ids_of_open_games:
+                group.empty_since_seconds = now_seconds
+                continue
+            if now_seconds - group.empty_since_seconds >= EMPTY_CHAT_GROUP_KEEP_SECONDS:
+                self._close_player_group(group)
 
     def _close_player_group(self, group: Group) -> None:
         for parent_id in list(group.listed_in_parent_ids):

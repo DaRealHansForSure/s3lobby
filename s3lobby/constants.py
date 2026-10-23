@@ -163,6 +163,15 @@ class ResultCode(IntEnum):
     NOT_A_CLAN_MEMBER = 0x6D
 
     # Group answers.
+    # A group the player opened (a chat group or a game) exists; value = its id. The Result handler
+    # posts status 1/0 with the value (0x5d052d), and LM.PollStatus fills the lobby screen's empty
+    # slot with a CGroup of that id (0x5da8a0, copied by 0x5db590): the channel LM+0x490 in the
+    # ChatZone (0x452577), the game LM+0x6e8 in the game setup (0x452a12, 0x452b53). Only this
+    # fills them after opening: chat, whisper and "Erzeuge Spiel" go to the channel (LM.SendChat
+    # 0x454140); setup updates (0x45506c), "show game in GameZone" (0x456370) and the match start
+    # (0x454c20) name the game slot. A slot that is already filled makes the client leave the
+    # group instead (0x5dd520 -> 0x5ca5e0).
+    GROUP_OPENED = 0x0C
     # Dialog "Der Wechsel in die Gruppe hat nicht geklappt" (joining a group failed).
     GROUP_CHANGE_FAILED = 0x0B
     # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
@@ -562,6 +571,13 @@ MAX_CHAT_COMMAND_LENGTH = 256
 # This server's limit for an announcement or the welcome line. ChatCommandAnswer wraps it into
 # lines the chat window shows; 256 characters stay within its line cap.
 MAX_ANNOUNCEMENT_LENGTH = 256
+
+# A chat group whose last member left stays open this long, and as long as a game opened in it is
+# open. A player who opens a game inside a chat group leaves the group in the same block (seen in a
+# run) and, back from the game setup, joins it again (0x451160 joins the channel kept at LM+0xc98).
+# A group closed meanwhile answers that join with Result 0xb, whose dialog Wine does not show over
+# the full screen game: it waited unseen, and the screen stayed frozen (seen in a run).
+EMPTY_CHAT_GROUP_KEEP_SECONDS = 120.0
 
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4
