@@ -148,7 +148,11 @@ Types 4, 8, 0x13, 0x17 and 0x18 are neither built nor handled by this client.
 - Blocks that hold only acks carry `MessageId(last own id)`, which the receiver ignores.
 - Delivery to the lobby layer is not in order: a new block is delivered when it arrives, a
   duplicate is acknowledged but not delivered again.
-- Messages sent "unguaranteed" (flag of send 0x606ff0) travel in blocks without MessageId.
+- Messages sent "unguaranteed" (flag of send 0x606ff0) travel in blocks without MessageId. The
+  lobby never uses it: every call passes 0 for the flag (tested at 0x607069), including the two
+  that pass it in a register, which is zeroed first (0x5c5ebe for the logout, 0x5ca80e in
+  CreateGame). s3lobby therefore refuses lobby messages in blocks without MessageId: only someone
+  sending from the player's address would send them.
 
 ### Opening a connection
 
@@ -175,11 +179,23 @@ game answers like any peer, PP.OpenIncoming 0x6045c0); the probe then closes wit
 
 ### Timing
 
-- At most one send pass per peer every 250 ms.
+- Each poll of the lobby thread (after every datagram, or every 500 ms, 0x5c4564..0x5c4659) packs
+  everything queued into one new block with the next id (FlushQueue 0x604ff0, called at 0x604a67
+  before any timing check): there is no limit on blocks waiting for acknowledgement, and a
+  message never joins a block already sent. Only sending is paced: at most one send pass per peer
+  every 250 ms, in which every due block goes out as a datagram of its own, the first one carrying
+  the acknowledgements (0x604b24..0x604d4a). s3lobby accepts client block ids within 32 of the
+  oldest one missing; a client could only go further under heavy loss while it keeps sending, and
+  a refused block is not acknowledged, so the client sends it again later.
+- Blocks that only acknowledge carry MessageId with the client's last used id, not a new one
+  (SendAckBlock 0x604ebb..0x604ecb).
 - Retries of a block after 750, 1500, 3000, 5000, 5000, ... ms (table 0x65d498, 0x6017c0).
 - After 5 s without hearing the peer the client stops resending data and only sends ack probes; at
   60 s it drops the peer (state 7). Any datagram resets that timer (table 0x65d47c).
-- With nothing outstanding the client sends a keepalive every 5 s (0x604da4).
+- With nothing outstanding the client sends a keepalive every 5 s (0x604da4), during a match too
+  (seen in a run). s3lobby uses that to tell a game that started over from a forged
+  OpenConnection: a new nonce from the address of a logged on player is ignored while the old
+  connection is not silent for 20 s (four keepalives).
 - AdjustConnectionTimeout sets the sender's own timeout and tells the peer: the client sends
   600000 (10 minutes) when its match starts (UnlinkGameFromZones, 0x454d6f) and 60000 again when
   it leaves the game slots after the match (0x452072 in 0x451ee0).
@@ -191,17 +207,35 @@ CloseConnection moves an open client (state 3) to 4 and tells its lobby layer, o
 peer without a connection (0x608813).
 
 A CloseConnection from the server ends the lobby session cleanly (PP.ReceivedCloseConnection
-0x606050): the connection checks it is in sync first (PP.CheckInSync 0x606310, an error
-otherwise; *inferred*: no blocks of its own still waiting for acknowledgement), moves to state 4
-and calls the session's ConnectionClosed (0x5cc840) with both reasons 0. For the server's address
+0x606050): an open client (state 3) checks it is in sync first (PP.CheckInSync 0x606310 via
+InSync 0x606550), that is, that no earlier block of the *server's* is still missing on its side
+(+0x170, ids received above the contiguous point, set by RegisterReceivedId 0x605a40), and throws
+sync error 0x600 otherwise (0x6064be). Then it moves to state 4 and calls the session's
+ConnectionClosed (0x5cc840) with both reasons 0. For the server's address
 that logs out (0x5cc918) and posts status 6 with value 7 (0x5cc972). The lobby screen shows
 status 6 as "The connection to the lobby server dropped." (0x44836a, text 0x900a7), a running
 match as "Lobby connection lost!" (0x540d39, text 0x90146).
 
+The rest of the state machine (state at +0x278; IsClosed 0x604980 is true for 0, 7 and 8):
+- PP.Close (0x604790, through LP.Close 0x608ea0): state 3 queues CloseConnection and goes to 5,
+  state 4 queues it and goes to 6; any other state asserts 'Invalid state'.
+- ReceivedCloseConnection in state 5 goes to 6 without a check; in a state other than 3 or 5 it
+  asserts '(state == iStateOpen) || (state == iStateCloseMe)'.
+- State 6 ends (state 0, 0x604d55..0x604d76) once nothing of its own is unacknowledged (+0x94),
+  no acknowledgement is owed (+0x18c), the peer's MinMissingAcknowledge equals the next id
+  expected (+0x19c == +0x194 + 1), and an acknowledgement-only block arrived (+0x1a0, set by
+  ReceivedBlock 0x605a27; 0x604a6c..0x604a8d). Until then it keeps sending acknowledgement blocks;
+  after 60 s it times out (state 7).
+- New messages are dropped silently outside states 1 to 4 (PP.Queue 0x6051a0).
+- After the server closes, ConnectionClosed logs out (0x5cc918 to 0x5c5e80): the client sends one
+  numbered block with Logout and CloseConnection (state 4 to 6).
+
 s3lobby closes connections this way when an admin removes a player (a kick, a ban of a player who
-is online, a deleted account) and when it stops. It sends the CloseConnection in a numbered block
-that acknowledges everything received so far, after the block with the reason for the player,
-and ignores lobby messages that still arrive on the closing connection.
+is online, a deleted account) and when it stops. The reason for the player goes first; the
+CloseConnection follows once the client has acknowledged every earlier block, so a lost reason
+line cannot trip the sync check above (when the server stops it cannot wait and sends it at once).
+It goes in a numbered block that acknowledges everything received so far, and lobby messages that
+still arrive on the closing connection are ignored.
 
 ## Lobby layer: message bodies
 
@@ -229,7 +263,9 @@ Offsets count from the first byte after the header.
 
 ### Logon
 
-- **0x07 Logon** (constructor 0x5e1d50): u32 14 (*inferred*: protocol version), string name,
+- **0x07 Logon** (constructor 0x5e1d50): u32 14 (a constant, `push 0xe` at 0x5e1d74; the client
+  never sends another value and never compares it with anything from the server; *inferred*: a
+  protocol version), string name,
   string password, u32 flags, string serial number. The client sends it to every listed server
   with the first server's name. Flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4):
 
@@ -245,7 +281,7 @@ Offsets count from the first byte after the header.
   |---|---|
   | 0x66 | logon accepted (LogonRetval 0, 0x5cde49), sender becomes the server |
   | 1, 5 | 0x9006a "An error occurred while connecting to the lobby." |
-  | 2 | 0x9009f "There is already a player with this name. Please choose a different name." |
+  | 2 | 0x9009f "There is already a player with this name. Please choose a different name." after the create button, else 0x90069 like code 3 (0x43bcfd..0x43bdc9) |
   | 3 | 0x90069 "The server refuses your combination of username and password." |
   | 6 | 0x9009d "Another player with this name or serial number is already logged in ..." |
   | 7 | 0x90017 "You entered an invalid serial number!" |
@@ -256,6 +292,9 @@ Offsets count from the first byte after the header.
   | 9 | patch check: no patch |
   | 8 | patch check: failed |
   | 0x64, 0x65 | private chat accepted / refused (client to client, value = player id) |
+  | 0xc | a group the player opened exists, value = its id: status 1/0 (0x5d052d). LM.PollStatus fills the lobby screen's empty slot with a CGroup of that id (0x5da8a0, 0x5db590): the channel LM+0x490 in the ChatZone (0x452577), the game LM+0x6e8 in the game setup (0x452a12, 0x452b53). An already filled slot makes the client leave the group instead (0x5dd520 -> 0x5ca5e0) |
+  | 0xb | dialog "Der Wechsel in die Gruppe hat nicht geklappt" (status 2/5, 0x5d0557) |
+  | 0x62 | dialog "Das Passwort stimmte nicht", value = group id (status 2/6, 0x5d0542) |
 
   The texts live in `GFX/siedler3_09.*.dat`: at offset 0x5c a u16 text count (374) and a u16
   language count (8), from 0x60 one u32 file offset per text, all texts of language 0 (German)
@@ -310,9 +349,12 @@ can be accepted as they come.
   0x20 game block, 0x40 description. **0x21** is the same with the 0x34 game block.
 - **0x10 RemoveGroupFromGroup**: u32 parent, u32 group id; size exactly 12.
 - **0x1a group counters** (handler 0x5d8580): u32 group id, u32 players, u32 maximum, u32 flags
-  (bit 0: full), for a group shown inside a group the client is in. The game list shows
-  "players/max" and marks full games (0x44b635); the client refuses to join a full game (0x4437c1,
-  text 0x900a6) and a full chat group (0x442cf2).
+  (bit 0: full), for a group shown inside a group the client is in. The handler stores them on the
+  listed group (CGroup.SetCounters 0x5dbf60, +0x78, +0x7c, +0x80) and ignores a group no joined
+  group lists (0x5d89c6). Only bit 0 of the flags is ever read (CGroup.IsFull 0x5db520), by the
+  game list (0x44ba9b), the chat group list (0x44745e) and the join refusals for a full game
+  (0x4437c1, text 0x900a6) and a full chat group (0x442cf2, before the password prompt); the client
+  never compares players with the maximum itself. The game list shows "players/max" (0x44b635).
 
 **Games, from opening to the match.** Read from the code (0x4547f6, 0x45506c, 0x45637f, 0x454c20)
 and partly seen in runs:
@@ -322,13 +364,21 @@ and partly seen in runs:
    1, 0x435ac0; seen in runs: 2 for 1 vs 1, 1 for Human vs Computer), the long game block and the
    game description. Chat groups are opened the same way (CreateGame 0x5ca7d0, called from
    0x5dd5b9), without a game block.
-2. The server picks the id, sends the group back to the host with parent 0, and shows it in the
-   zone with its counters.
+2. The server picks the id, sends the group back to the host with parent 0 and Result 0xc with
+   the id, and shows it in the zone with its counters. The host's setup keeps its game in an
+   empty slot (SwitchZone 5 with an empty CGroup, 0x454780) until that Result fills it
+   (0x452b53); the setup updates (0x45506c), "show game in GameZone" (0x456370) and the match
+   start (0x454c20) all name the game in that slot.
 3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
    take an update only for a group they see in a parent, never for one they are in (0x5d8de6): the
    server keeps the new state and passes the update to the zone.
-4. "Show game in GameZone": AddGroupToGroup with the game's id, flags 0 and empty texts, then an
-   UpdateGroup clearing 0x1000. The server lists the game in that zone.
+4. "Show game in GameZone", the setup's middle button "Warp" (text 0x90052, built at 0x48bb44):
+   AddGroupToGroup with the game's id, flags 0 and empty texts, then an UpdateGroup clearing
+   0x1000. The server lists the game in that zone (seen in a run: zones 30 and 32). The button is
+   enabled (0x4552c0, polled at 0x48e2ac) in the game setup (zone 5) once the game slot LM+0x6e8
+   holds the game (Result 0xc) with a game block (0x400), while the game is not yet listed
+   (0x1000) or when it was opened from a chat group (LM+0x2de == 3). "Weiter" needs the same
+   game slot (0x455280, polled at 0x48e273).
 5. A joiner first connects DirectPlay to the host (0x443bc8), then leaves the GameZone groups and
    sends AddPlayerToGroup for the game (0x460c8b). It gets the game with parent 0 and every member.
 6. At the match start the host sends RemoveGroupFromGroup(zone, game) for every zone the game is
@@ -383,10 +433,14 @@ the AddGroupToGroup (assert `! vJoinedGroups.contains`) and drop the connection.
   0x5e6550, 0x5e6740). The room member list shows the clan name in its second column (0x449d34).
   With clan id 0 and an empty name it behaves exactly like 0x0c (0x5d5ea5).
 - **0x26** (handler 0x5d6520): 0x25 plus u32 player flags, right after the clan name (the flags
-  getter 0x5e7900 skips the three strings and 31 bytes of fixed fields). Bit 0 colours the row;
-  together with the clan name "BB" it gets another colour (0x449e09..0x449eb5, *inferred*: Blue
-  Byte staff). s3lobby sends it for admins with bit 0 when the setting `mark_admins` is on (off by
-  default: not yet seen in a run).
+  getter 0x5e7900 skips the three strings and 31 bytes of fixed fields). Bit 0 draws the row's
+  name and clan in green (0xff00, 0x449da1..0x449dbe); with the clan name exactly "BB" (text at
+  0x69a568) they get 0xff3300 instead (0x449de2..0x449eb5; *inferred*: Blue Byte staff), which is
+  blue: the game's colours are Windows colour values, blue byte first (seen in a run: a member of
+  the highlighted clan "BB" listed in blue, the connection unharmed). No other bit and no other
+  colour exists, so clans cannot have colours of their own. s3lobby sends bit 0 for admins when
+  the setting `mark_admins` is on, and for players who show a clan an admin marked green
+  (`s3lobby clan highlight`, the Clans page).
 - **0x0d RemovePlayerFromGroup**: u32 group id, u32 player id; size exactly 12. Sent by the client
   to leave (0x5ca5e0).
 
@@ -432,22 +486,58 @@ private address is shown to a receiver on the internet at the configured public 
   (0x60bbe0). It shows the title, an empty line, then the lines (0x4497ff). Without a list entry it
   shows "No message of the day present" (0x4497c3).
 - **0x1d GetImageList**: u32 group id, sent for joined groups with flag 0x4000000 (0x5d3261).
-  **0x1c** answers u32 group id, u32 n, n x (u32 banner id, u32 banner sub id, string url). Only
-  Home uses it, and only the last entry: when the banner id is not 0 and the pair differs from the
-  registry values BannerId and BannerSubId, the client downloads the url by anonymous FTP (it skips
-  the first six characters, "ftp://", and splits host and path at the first slash, 0x449938), saves
-  it as `Banner\Banner.png` and stores the pair (0x448998). Only Blue Byte's old FTP host got a
-  special login (0x465a0f).
+  **0x1c** answers u32 group id, u32 n (n <= 0 is an empty list, 0x5ec063), n x (u32 banner id,
+  u32 banner sub id, string url) (reader 0x5ec000). The client takes it only for a group it is in
+  and drops the connection otherwise (assert 'index != -1', 0x5d5258..0x5d5296), so s3lobby
+  answers only for a group the player is in. Only Home uses it (getter 0x5db560, called once at
+  0x4468aa), and only the last entry (0x44c620):
+  - banner id 0: nothing happens (0x449894);
+  - otherwise the pair is compared with the registry values BannerId and BannerSubId (0x5ebfd0),
+    never the url: a new picture needs a new id or sub id;
+  - the new pair is stored on the lobby screen before the download ends (0x44998f) and kept in the
+    configuration only on success (0x448960, 0x413ba0), with the picture as `Banner\Banner.png`.
+    After a failure the finished download stays registered (0x448983), so that lobby screen fetches
+    no banner again; the next lobby screen (constructor 0x43e800 clears it at 0x4400ab and reloads
+    the configured pair at 0x441668) tries again (*inferred*: on the next entry into the lobby);
+  - the url: the first six characters are skipped unchecked, the host runs to the first slash
+    after them, the path from there (0x46501f..0x465110). The client connects anonymously on port
+    21 (only Blue Byte's old host 193.158.243.3 got a special login, 0x4659fd..0x465a0f), with
+    flags 0, so in active mode (PORT). s3lobby therefore requires `ftp://HOST/PATH` without port or
+    user, and offers no banner while its id is 0.
 
 ### The ChatZone tab
 
 The ChatZone (group 2) lists chat themes: groups whose name and second text fill the theme list's
 name and "Description" columns (0x44711d, 0x447186). A player chooses a theme by joining it, and
 sees the chat groups listed inside. A player opens a chat group with AddGroupToGroup2 under the
-theme, group id 0xffffffff, flags 0x301073 (with 0x1000 when it has a password), maximum players
-0xffffffff (no limit) and the password as third text (0x4546cb). Joining one sends the password as
+theme, group id 0xffffffff, flags 0x300073, maximum players 0xffffffff (no limit).
+
+With a password it goes differently (CreateChatGroup 0x4542c0 compares the password with the empty
+text at 0x454315): the client joins **group 5**, a group it builds itself with id 5 and empty
+texts (0x454516, switched to at 0x452120), and opens the chat group under group 5 with flags
+0x301073 (0x1000: password), the creator's name in brackets as second text ("(Bob) ", format
+0x69a8ac) and the password as third text (0x4546cb); it leaves group 5 and the ChatZone in the same
+block (seen in a run). Blue Byte's server must have had group 5; without it the join is answered
+with Result 0xb ("Der Wechsel in die Gruppe hat nicht geklappt") and the chat group never opens
+(seen in a run). s3lobby keeps group 5 hidden (listed nowhere) and lists such a chat group in the
+chat theme its creator was in last as well, so the others find it there (*inferred*: how the
+original server showed them is unknown). Joining one sends the password as
 the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 ("Das Passwort
 stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
+The creator's lobby screen leaves the ChatZone with an empty channel (CreateChatGroup 0x4542c0
+switches to zone 3 with an empty CGroup, 0x4520e0). Chat, whisper and "Erzeuge Spiel" go to the
+channel's group id (LM.SendChat 0x454140 sends to LM+0x490), so the server answers the new group
+with Result 0xc, value = its id, after the group (parent 0) and the creator's member entry; the
+screen then takes it as its channel (0x452577). Without it the channel stayed without name and
+members and nothing worked until the player left and joined the group again (seen in a run).
+
+A player who opens a game inside a chat group ("Erzeuge Spiel") leaves the chat group in the
+same block (seen in a run). Leaving zone 3 keeps the channel (0x451ee0), and back from the game
+setup the client joins it again (SwitchZone 3 with an empty group joins the kept one, 0x451160).
+When that group no longer exists the answer is Result 0xb and its dialog; under Wine the dialog
+did not show over the full screen game and the screen stayed frozen (seen in a run). So s3lobby
+keeps an empty chat group open while a game opened in it is open and two minutes after that
+(*inferred*: what Blue Byte's server did is unknown).
 Without any theme listed, players cannot open chat groups at all.
 
 ### The MessageZone tab
@@ -460,6 +550,17 @@ listed in that language group are the themes; a theme's text id list (0x14) hold
 own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
 theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
 
+A client bug, not reachable from the server: the screen's group lookup (0x452390) returns the
+GameZone slot instead of the MessageZone's own group for level 0 (0x452455). That slot is always
+empty there (leaving the GameZone clears it, 0x452039), so chat typed on the board screen is
+silently not sent (0x443e4e), and a private chat invitation from there looks the invited player up
+in the client's first joined group instead (0x44532b, 0x44d664). The board itself uses levels 1
+and 2 (0x446cb0, 0x446d0a) and works (seen in a run on Windows 10: a theme's message fetched with
+0x16 and shown, the join answered with 0x26 for an admin). Only patching S3.EXE would fix it (the `add ecx, 0x5ac` at
+0x452459 would need 0x824, the MessageZone's own group); s3lobby works with unmodified games, so
+it can only say so: with the setting `board_chat_hint` a player who opens the MessageZone hears
+once per logon, as a server line, that chat there reaches nobody (off until a run confirms it).
+
 ### Other
 
 - **0x1f GameStatus** (Logic.SendGameStatus 0x540500, constructor 0x5ec280): a report on the
@@ -468,17 +569,23 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
   (0x53ae66, once). Body: u32 group id (the lobby game), u32 flags (1 ladder game, game settings
   +0x2a; 2 not valid for the ladder: a ladder slot without lobby player id, 0x5405ec, or the lobby
   manager's mark +0x675), u32 winning team (0xffffffff while more than one team is left: a team
-  counts while it still owns something of the types 0xf, 0x10 or 0x12, 0x5406e7..0x540768;
-  *inferred*: buildings), u32
-  game time (the game's tick counter, global 0x7dfd48), string map (the map file of the game
+  counts while it still owns a finished military building, 0x5406e7..0x540768: the game's
+  building records (count 0x1499e60, 0x3a bytes each, owner +0, type +6) of type 0x10 BigTower,
+  0x12 Castle (the computer player's "Baue BigTower" and "Baue Castle", 0x57da96, 0x57db52) and
+  0xf (*inferred*: the small tower) whose +0x21 is 0 (set 1 when placed, 0x4dd33f, 0 by 0x4dbc50;
+  *inferred*: finished), counted for the owner's team when that player plays (+0x11943dc); one team
+  with any is the winner, more than one or none leave 0xffffffff), u32
+  game time (the game's tick counter, global 0x7dfd48: one tick per 64 ms, the logic thread's
+  timer at 0x53d761, shown by the game's own clock as (ticks * 64) / 1000 seconds at 0x4b3fa2; it
+  stands still while the game waits for its players), string map (the map file of the game
   settings, +0x2c via 0x436a60), u32 n, then n records of six u32 per slot in the match
   (0x5ec316..0x5ec505):
 
   | Field | Meaning |
   |---|---|
-  | flags | 1 computer opponent (slot state 2), 2 slot state 3 (*inferred*: a player who left), 4 no player number in the match (0x540625..0x540680) |
+  | flags | 1 computer opponent (slot state 2), 2 slot state 3: a human who left the DirectPlay session after it was closed to new players (written only by PARAMS: DestroyPlayer 0x434b19 when "NET: OnDeletePlayer" 0x470980 reports it with the session closed, set at 0x471571; *inferred*: closed because the match started), 4 the race was "Random" in the setup and the race field holds the one drawn (setup record +0x64 is 0xff, 0x540625..0x54063e; seen in a run) |
   | lobby player id | the id the lobby gave the slot's player (0x1195d7c table) |
-  | race | 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons (*inferred* from the setup's race choices 0x48c2a3 and the per-race tables indexed with it, 0x4dd2fc) |
+  | race | 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons: the setup's texts for these values (0x9002d..0x9002f at 0x49053c..0x4907b1, 0x90155 at 0x4908e5); any other value it shows as "Random" (0x4909f0) |
   | unused | always 0 (0x54061d) |
   | slot | slot number, 0 to 19 |
   | team | the slot's team, numbered as the winning team |
@@ -505,7 +612,7 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 | 3 | closes, opens a new connection: OpenConnection, Logon | OpenConnection, acks, Result 0x66, own player 0x0e |
 | 4 | AddPlayerToGroup for its lobby room (1 to 3) and its zones (30 to 38) | AddGroupToGroup (parent 0), AddPlayerToGroup per member incl. the client, the games in the room |
 | 5 | chat to the other members directly | tells members about arrivals (0x0c) and departures (0x0d) |
-| 6 | AddGroupToGroup2 under the room (open a game) | relays it to the room, host address filled in |
+| 6 | AddGroupToGroup2 under the room (open a game) | the game with parent 0, the host's member entry and Result 0xc (its id) to the host; relays it to the room, host address filled in |
 | 7 | game ends: AdjustConnectionTimeout 60000, joins its rooms again (never leaves the game) | takes the player out of its game without telling it (a RemovePlayerFromGroup for a game the client already dropped, as after "Zurück" in the game setup, hangs the game), closes it, answers the joins |
 | 8 | Logout, CloseConnection | removes the player from its groups |
 
@@ -538,9 +645,11 @@ on every start. Restoring GOG's value fixes it.
 Each needs a run of the real game (start S3 with `-netmon`, which writes traffic to `trace.lis`,
 and compare with the server's `--verbose` log):
 
-- Two real players: chat between clients, joining another player's game, the game's own
-  DirectPlay connection between two machines.
-- How long one tick of GameStatus's game time is.
+- Two real players on two machines: the game's own DirectPlay connection across a network, which
+  needs the host address the server hands out to be reachable. Seen in a run on one machine (two
+  copies under Wine, 2026-10-23): chat between the two players in one chat group, a second player
+  joining a game opened in that chat group, the host starting the match, both reporting it (start
+  and winner, the same slots), and both coming back to the lobby while the server closes the game.
 
 Not answerable from the game: what Blue Byte's server named the zone groups 30..38 and the rooms
 1..3. Only a recording of the original server would tell; s3lobby uses the names the client's own

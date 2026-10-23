@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% set active_nav = "games" %}
+{% block title %}{{ game.name }}{% endblock %}
+
+{# A player's name, linked to the account page while the account exists. #}
+{% macro account_link(name, account_id) -%}
+{% if account_id is not none %}<a href="{{ url_for('accounts.show_account', account_id=account_id) }}">{{ name }}</a>{% else %}{{ name }}{% endif %}
+{%- endmacro %}
+
+{% macro player_notes(player) %}
+  {% for note in player.notes %}<span class="badge">{{ note }}</span>{% endfor %}
+{% endmacro %}
+
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>{{ game.name }}</h1>
+    <p class="badges">
+      {% if game.closed_at %}<span class="badge">closed</span>{% else %}<span class="badge badge--good">open</span>{% endif %}
+      {% if game.match_started_at %}<span class="badge badge--accent">match played</span>{% endif %}
+      {% if winner_names %}<span class="badge badge--good">won by {{ winner_names | join(", ") }}</span>{% endif %}
+    </p>
+    <p><a href="{{ url_for('games.list_games') }}">All games</a></p>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Match</h2></div>
+  <div class="scroll-x">
+    <table class="table table--facts">
+      <tbody>
+        <tr><th>Host</th><td>{{ game.host_name or "-" }}</td></tr>
+        <tr><th>Opened</th><td>{{ game.opened_at | moment }}</td></tr>
+        <tr><th>Match started</th><td>{% if game.match_started_at %}{{ game.match_started_at | moment }}{% else %}<span class="muted">not started</span>{% endif %}</td></tr>
+        <tr>
+          <th>Decided</th>
+          <td>
+            {% if decided_report %}
+            {{ decided_report.received_at | moment }}: {{ decided_report.outcome_text }}
+            <span class="muted">after {{ decided_report.played_text }} of play</span>
+            {% else %}
+            <span class="muted">no winner reported</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr><th>Closed</th><td>{% if game.closed_at %}{{ game.closed_at | moment }} <span class="muted">(open {{ game.open_for }})</span>{% else %}<span class="badge badge--good">open</span>{% endif %}</td></tr>
+        <tr><th>Lobby group</th><td>{% if game.group_id is not none %}{{ "%#x" | format(game.group_id) }}{% else %}-{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="meta">Time of play is the game's own clock: 64 ms per tick of game time, which stands still while the game waits for its players.</p>
+</section>
+
+<section>
+  <div class="section-head"><h2>Teams</h2><p>As the last report of the match saw them.</p></div>
+  {% if teams %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Team</th><th>Slot</th><th>Player</th><th>Race</th><th class="num">Lobby id</th><th></th></tr></thead>
+      <tbody>
+        {% for team in teams %}
+        {% for player in team.players %}
+        <tr>
+          <td>
+            Team {{ team.team }}
+            {% if team.has_won and loop.first %}<span class="badge badge--good">won</span>{% endif %}
+          </td>
+          <td>{{ player.slot }}</td>
+          <td>{{ account_link(player.name, player.account_id) }}</td>
+          <td>{{ player.race }}</td>
+          <td class="num">{{ player.lobby_player_id }}</td>
+          <td><div class="badges">{{ player_notes(player) }}</div></td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No report of the match.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head"><h2>Setup</h2><p>What the host chose, as the lobby last showed the game.</p></div>
+  {% if game.setup %}
+  <div class="scroll-x">
+    <table class="table table--facts">
+      <tbody>
+        <tr><th>Game type</th><td>{{ game.setup.game_type or "-" }}</td></tr>
+        <tr><th>Map</th><td>{{ game.setup.map_name or "-" }}</td></tr>
+        <tr><th>Teams</th><td>{% if game.setup.team_count is not none %}{{ game.setup.team_count }}{% else %}-{% endif %}</td></tr>
+        <tr><th>Computer opponents</th><td>{% if game.setup.computer_opponent_count is not none %}{{ game.setup.computer_opponent_count }}{% else %}-{% endif %}</td></tr>
+        <tr><th>Human players</th><td>{{ game.setup.max_players }}</td></tr>
+        <tr><th>Amazons</th><td>{% if game.setup.allows_amazons is none %}-{% elif game.setup.allows_amazons %}allowed{% else %}not allowed{% endif %}</td></tr>
+        <tr><th>Game version</th><td>{{ game.setup.version or "-" }}</td></tr>
+        <tr><th>Program checksum</th><td>{{ game.setup.program_checksum or "-" }}</td></tr>
+        <tr><th>DirectPlay session</th><td>{{ game.setup.session_guid or "-" }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Not recorded: the server kept no setup for games opened before it learned to.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head"><h2>Players who joined</h2></div>
+  {% if players %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Player</th><th class="num">Account id</th><th>Joined</th></tr></thead>
+      <tbody>
+        {% for player in players %}
+        <tr>
+          <td>{{ account_link(player.name, player.account_id) }}</td>
+          <td class="num">{% if player.account_id is not none %}{{ player.account_id }}{% else %}<span class="muted">deleted</span>{% endif %}</td>
+          <td class="cell-time">{{ player.joined_at | moment }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Not recorded.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Match reports</h2>
+    <p>Every player's game reports once when the match starts and once when a single team is left.</p>
+  </div>
+  {% if reports %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead>
+        <tr><th>Received</th><th>From</th><th>Outcome</th><th class="num">Played</th><th>Players</th><th class="cell-actions"></th></tr>
+      </thead>
+      <tbody>
+        {% for report in reports %}
+        <tr>
+          <td>{{ report.received_at | moment }}</td>
+          <td>{{ report.sender_name or "-" }}</td>
+          {% if report.is_readable %}
+          <td>
+            <div class="badges">
+              {{ report.outcome_text }}
+              {% for note in report.flag_notes %}<span class="badge">{{ note }}</span>{% endfor %}
+            </div>
+          </td>
+          <td class="num" title="{{ report.game_time }} ticks">{{ report.played_text }}</td>
+          <td>
+            {% for player in report.players %}
+            <div>Team {{ player.team }}, slot {{ player.slot }}: {{ player.name }} ({{ player.race }})</div>
+            {% endfor %}
+          </td>
+          {% else %}
+          <td colspan="3"><span class="badge badge--warn">unreadable</span> {{ report.size }} bytes</td>
+          {% endif %}
+          <td class="cell-actions"><a href="{{ url_for('games.download_report', report_id=report.report_id) }}">Download</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No reports.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -26,7 +26,13 @@ from collections.abc import Sequence
 
 from s3lobby import __version__, admin
 from s3lobby.backends import describe_location
-from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_BAN_HOURS, DEFAULT_SERVER_PORT, NEWS_AUDIENCES
+from s3lobby.constants import (
+    BOARD_LANGUAGES,
+    DEFAULT_BAN_HOURS,
+    DEFAULT_SERVER_PORT,
+    DEVELOPMENT_PASSWORD,
+    NEWS_AUDIENCES,
+)
 from s3lobby.database import DatabaseError, LobbyDatabase
 from s3lobby.server import ALL_INTERFACES, DEFAULT_DATABASE_PATH, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
 
@@ -44,6 +50,7 @@ log = logging.getLogger(__name__)
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
+    """Parse the command line and run the chosen subcommand; returns the process exit code."""
     parser = build_parser()
     options = parser.parse_args(arguments)
     if options.command is None:
@@ -57,7 +64,16 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
 
 def run_server(options: argparse.Namespace) -> int:
+    """Run the lobby server (s3lobby serve) until it is stopped; returns the exit code.
+
+    --dev is refused together with --public-host or --upnp, as the shared development password must
+    never be usable on a server the internet can reach."""
     configure_logging(options.verbose, options.log_file)
+    is_reachable_from_the_internet = bool(options.public_host) or options.upnp
+    if options.dev and is_reachable_from_the_internet:
+        # A shared, well-known password must never meet a server that is open to the internet.
+        log.error("--dev cannot be combined with --public-host or --upnp")
+        return EXIT_FAILURE
     settings = ServerSettings(
         bind_host=options.host,
         port=options.port,
@@ -65,6 +81,7 @@ def run_server(options: argparse.Namespace) -> int:
         public_host=options.public_host,
         database_location=options.database,
         use_upnp=options.upnp,
+        is_development_mode=options.dev,
     )
     try:
         asyncio.run(serve_forever(settings))
@@ -86,15 +103,23 @@ def run_web_interface(options: argparse.Namespace) -> int:
     from s3lobby.web.app import create_app
 
     configure_logging(options.verbose, log_file=None)
+    if options.dev and options.behind_proxy:
+        # A reverse proxy means the interface is reachable from the internet; a shared, well-known
+        # password must never meet that.
+        log.error("--dev cannot be combined with --behind-proxy")
+        return EXIT_FAILURE
     try:
         app = create_app(
             database_location=options.database,
             secret_key=os.environ.get(WEB_SECRET_VARIABLE),
             secure_cookies=options.secure_cookies,
             is_behind_proxy=options.behind_proxy,
+            is_development_mode=options.dev,
         )
         # Never the interactive debugger, even with FLASK_DEBUG set: it would run code for anyone.
-        app.run(host=options.host, port=options.port, threaded=True, debug=False, use_debugger=False, use_reloader=False)
+        app.run(
+            host=options.host, port=options.port, threaded=True, debug=False, use_debugger=False, use_reloader=False
+        )
     except OSError as error:
         log.error("cannot serve the web interface: %s", error)
         return EXIT_FAILURE
@@ -102,7 +127,12 @@ def run_web_interface(options: argparse.Namespace) -> int:
 
 
 def run_admin(options: argparse.Namespace) -> int:
+    """Open the database and run one administration subcommand; returns the exit code.
+
+    Errors are printed for the person who typed the command, not logged. database status opens
+    the database without applying migrations, so looking changes nothing."""
     try:
+        # Only database status sets applies_migrations; every other subcommand brings the schema up to date.
         applies_migrations = getattr(options, "applies_migrations", True)
         database = LobbyDatabase(options.database, applies_migrations=applies_migrations)
     except (OSError, DatabaseError) as error:
@@ -119,16 +149,28 @@ def run_admin(options: argparse.Namespace) -> int:
 
 
 def configure_logging(is_verbose: bool, log_file: str | None) -> None:
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    """INFO on the console. is_verbose adds every datagram at DEBUG: into the log file when there is
+    one, so the console stays readable while the file keeps the full detail for checking a run
+    against the game, and onto the console only when there is no file to take it."""
+    detail_level = logging.INFO
+    if is_verbose:
+        detail_level = logging.DEBUG
+    console = logging.StreamHandler()
+    console.setLevel(detail_level)
+    handlers: list[logging.Handler] = [console]
     if log_file:
-        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
-    level = logging.DEBUG if is_verbose else logging.INFO
-    logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_TIME_FORMAT, handlers=handlers)
+        console.setLevel(logging.INFO)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(detail_level)
+        handlers.append(file_handler)
+    # force replaces the handlers of an earlier call, as main() may run more than once in one process.
+    logging.basicConfig(level=detail_level, format=LOG_FORMAT, datefmt=LOG_TIME_FORMAT, handlers=handlers, force=True)
     # asyncio announces its event loop selector at debug level; that is noise in this log.
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The argument parser for every subcommand; each one shares the --database option."""
     database_option = argparse.ArgumentParser(add_help=False)
     database_option.add_argument(
         "--database",
@@ -157,10 +199,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_serve_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the serve subcommand, which runs the lobby server."""
     serve = commands.add_parser("serve", parents=[database_option], help="run the lobby server")
     serve.add_argument("--host", default=ALL_INTERFACES, help="address to listen on (default: all interfaces)")
     serve.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT, help="UDP port (default: %(default)s)")
-    serve.add_argument("--name", default=DEFAULT_SERVER_NAME, help="server name shown in the game (default: %(default)s)")
+    serve.add_argument(
+        "--name", default=DEFAULT_SERVER_NAME, help="server name shown in the game (default: %(default)s)"
+    )
     serve.add_argument(
         "--public-host",
         default="",
@@ -171,11 +216,25 @@ def add_serve_command(commands: argparse._SubParsersAction, database_option: arg
         action="store_true",
         help="let the router forward the server's port and one port per player in this network (UPnP)",
     )
-    serve.add_argument("--verbose", action="store_true", help="log every datagram (secrets removed)")
+    serve.add_argument(
+        "--dev",
+        action="store_true",
+        help=f"development mode: every account also logs on with the password {DEVELOPMENT_PASSWORD}, "
+        "from this machine and its LAN only; never on a server others can reach",
+    )
+    serve.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "log every datagram (secrets removed): into the --log-file only when one is given, "
+            "the console stays at INFO"
+        ),
+    )
     serve.add_argument("--log-file", help="also write the log to this file")
 
 
 def add_account_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the account subcommands: create, access codes, admin rights, bans and kicks."""
     account = commands.add_parser("account", help="manage player accounts and their access codes")
     actions = account.add_subparsers(dest="account_command", metavar="action", required=True)
 
@@ -227,6 +286,7 @@ def add_account_commands(commands: argparse._SubParsersAction, database_option: 
 
 
 def add_clan_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the clan subcommands: create, remove, list, membership and the green highlight."""
     clan = commands.add_parser("clan", help="manage clans and their members")
     actions = clan.add_subparsers(dest="clan_command", metavar="action", required=True)
 
@@ -246,12 +306,27 @@ def add_clan_commands(commands: argparse._SubParsersAction, database_option: arg
     join.add_argument("account")
     join.set_defaults(admin_function=admin.join_clan)
 
+    highlight = actions.add_parser(
+        "highlight",
+        parents=[database_option],
+        help="list the clan's members green in the game's member lists (blue for the clan BB)",
+    )
+    highlight.add_argument("name")
+    highlight.set_defaults(admin_function=admin.highlight_clan)
+
+    unhighlight = actions.add_parser(
+        "unhighlight", parents=[database_option], help="list the clan's members in the usual colour"
+    )
+    unhighlight.add_argument("name")
+    unhighlight.set_defaults(admin_function=admin.unhighlight_clan)
+
     leave = actions.add_parser("leave", parents=[database_option], help="take an account out of its clan")
     leave.add_argument("account")
     leave.set_defaults(admin_function=admin.leave_clan)
 
 
 def add_news_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the news subcommands for the text on the lobby's Home tab."""
     news = commands.add_parser("news", help="the news on the lobby's Home tab")
     actions = news.add_subparsers(dest="news_command", metavar="action", required=True)
 
@@ -266,6 +341,7 @@ def add_news_commands(commands: argparse._SubParsersAction, database_option: arg
 
 
 def add_chat_theme_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the chat-theme subcommands for the themes listed on the ChatZone tab."""
     chat_theme = commands.add_parser("chat-theme", help="the themes listed on the ChatZone tab")
     actions = chat_theme.add_subparsers(dest="chat_theme_command", metavar="action", required=True)
 
@@ -283,6 +359,7 @@ def add_chat_theme_commands(commands: argparse._SubParsersAction, database_optio
 
 
 def add_board_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the board subcommands for the themes and messages on the MessageZone tab."""
     board = commands.add_parser("board", help="the message board on the MessageZone tab")
     actions = board.add_subparsers(dest="board_command", metavar="action", required=True)
 
@@ -312,6 +389,7 @@ def add_board_commands(commands: argparse._SubParsersAction, database_option: ar
 
 
 def add_setting_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the setting subcommands for the server settings kept in the database."""
     setting = commands.add_parser("setting", help="server settings stored in the database")
     actions = setting.add_subparsers(dest="setting_command", metavar="action", required=True)
 
@@ -325,6 +403,7 @@ def add_setting_commands(commands: argparse._SubParsersAction, database_option: 
 
 
 def add_announce_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the announce subcommand, which sends a line to every player in the running lobby."""
     announce = commands.add_parser(
         "announce", parents=[database_option], help="send a line to every player in the running lobby"
     )
@@ -333,6 +412,7 @@ def add_announce_command(commands: argparse._SubParsersAction, database_option: 
 
 
 def add_database_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the database subcommands: schema status, migrating, and copying to another location."""
     database = commands.add_parser("database", help="the database itself: its schema, moving it elsewhere")
     actions = database.add_subparsers(dest="action", metavar="action", required=True)
 
@@ -358,6 +438,7 @@ def add_database_commands(commands: argparse._SubParsersAction, database_option:
 
 
 def add_web_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the web subcommand, which runs the web interface."""
     web = commands.add_parser(
         "web",
         parents=[database_option],
@@ -375,10 +456,17 @@ def add_web_command(commands: argparse._SubParsersAction, database_option: argpa
         action="store_true",
         help="take the client address from the reverse proxy's X-Forwarded-For header",
     )
+    web.add_argument(
+        "--dev",
+        action="store_true",
+        help=f"development mode: every admin also logs on with the password {DEVELOPMENT_PASSWORD}, "
+        "from this machine and its LAN only; never where others can reach it",
+    )
     web.add_argument("--verbose", action="store_true", help="log every request")
 
 
 def add_text_source(parser: argparse.ArgumentParser) -> None:
+    """Require the text of a news item or board message either as --text or from a --file."""
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--text", help="the text itself")
     source.add_argument("--file", help="a UTF-8 text file holding the text")

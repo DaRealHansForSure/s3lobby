@@ -6,13 +6,15 @@
 
 **Bring the online lobby of the original The Settlers III back to life.**
 
-[![Tests](https://github.com/DaRealHansForSure/s3lobby/actions/workflows/tests.yml/badge.svg)](https://github.com/DaRealHansForSure/s3lobby/actions/workflows/tests.yml)
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?logo=python&logoColor=white)
-![No dependencies](https://img.shields.io/badge/dependencies-none-17603f)
-[![MIT License](https://img.shields.io/badge/license-MIT-17603f)](LICENSE)
-![SQLite, MySQL, MariaDB](https://img.shields.io/badge/database-SQLite%20%7C%20MySQL%20%7C%20MariaDB-1b3a6b)
-![UDP 3344](https://img.shields.io/badge/protocol-UDP%203344-6d5a10)
-![The Settlers III](https://img.shields.io/badge/game-The%20Settlers%20III%20(1998)-dec470)
+[![Tests](https://img.shields.io/github/actions/workflow/status/DaRealHansForSure/s3lobby/tests.yml?branch=main&style=flat&label=tests&logo=github)](https://github.com/DaRealHansForSure/s3lobby/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/tag/DaRealHansForSure/s3lobby?style=flat&label=release&color=1b3a6b)](CHANGELOG.md)
+[![Last commit](https://img.shields.io/github/last-commit/DaRealHansForSure/s3lobby/develop?style=flat&color=1b3a6b)](https://github.com/DaRealHansForSure/s3lobby/commits/develop)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?style=flat&logo=python&logoColor=white)
+![No dependencies](https://img.shields.io/badge/dependencies-none-17603f?style=flat)
+[![MIT License](https://img.shields.io/badge/license-MIT-17603f?style=flat)](LICENSE)
+![SQLite, MySQL, MariaDB](https://img.shields.io/badge/database-SQLite%20%7C%20MySQL%20%7C%20MariaDB-1b3a6b?style=flat)
+![UDP 3344](https://img.shields.io/badge/protocol-UDP%203344-6d5a10?style=flat)
+![The Settlers III](https://img.shields.io/badge/game-The%20Settlers%20III%20(1998)-dec470?style=flat)
 
 [Quick start](#quick-start) ·
 [Database](#choosing-a-database) ·
@@ -34,19 +36,21 @@ files: point the game at your server and log on.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/live-lobby-dark.png">
-  <img src="docs/images/live-lobby-light.png" alt="The live lobby page of the s3lobby web interface: three players online and one open game">
+  <img src="docs/images/live-lobby-light.png" alt="The live lobby page of the s3lobby web interface: five players online, one open game and a chat group, two players in green and one in blue as in the game's member lists">
 </picture>
 
 ## Contents
 
 - [Features](#features)
 - [Status](#status)
+- [Known issues](#known-issues)
 - [Quick start](#quick-start)
 - [Installation](#installation)
 - [Running the server](#running-the-server)
 - [Choosing a database](#choosing-a-database)
 - [Accounts and lobby content](#accounts-and-lobby-content)
 - [Web interface](#web-interface)
+- [Screenshots](#screenshots)
 - [Pointing the game at the server](#pointing-the-game-at-the-server)
 - [Playing over the internet](#playing-over-the-internet)
 - [Running the game on Linux with Wine](#running-the-game-on-linux-with-wine)
@@ -59,14 +63,20 @@ files: point the game at your server and log on.
 ## Features
 
 - **The original lobby, working again**: logon, the lobby rooms and game zones, chat, opening and
-  joining games, chat groups, clans, the Home tab with news and statistics, the ChatZone and the
-  MessageZone board.
+  joining games, chat groups with and without a password, clans, the Home tab with news,
+  statistics and an advert banner, the ChatZone and the MessageZone board.
+- **Clans and admins in colour**: the game's member lists draw marked clans and admins in green
+  (the clan "BB" in blue, the colour the game kept for Blue Byte's staff).
 - **Accounts made by the server's admins**: players log on with an access code instead of a
   self-chosen password; codes are stored as salted scrypt hashes only.
 - **Server lines in the game's chat**: welcome message, announcements, and the chat commands
   `/who`, `/clan`, `/help` and, for admins, `/announce`.
 - **Web interface**: a public live view of the lobby, and administration of accounts, clans, news,
-  themes, the board, settings and announcements, with past games and match reports.
+  themes, the board, settings and announcements. Every game gets a page with its setup, teams,
+  winners and time of play, decoded from the reports the game sends; every account a list of its
+  games and results.
+- **For testing**: a development mode that lets every account log on with `1234` from the LAN,
+  and scripts that start and stop the server and the web interface together.
 - **SQLite or MySQL**: a single file by default; MySQL or MariaDB with one switch, and a command
   that moves an existing lobby across.
 - **Schema migrations** that upgrade the database in place on every start, with checksums that
@@ -78,19 +88,50 @@ files: point the game at your server and log on.
 
 ## Status
 
-Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine 10 on Linux:
+> [!NOTE]
+> **Tested on two systems only.** Everything below that says "tested" ran on this server machine:
+> Ubuntu 26.04.1 LTS (Linux 7.0, GNOME on Wayland), Python 3.14, Wine 10.0 with Microsoft's
+> DirectPlay (`winetricks directplay`), the GOG "Ultimate Collection" of The Settlers III in German
+> (game version 1.60), the server and the game on the same machine, at most two copies of the game
+> at once. One more machine in the same LAN ran the same game on Windows 10 Pro 64-bit (build
+> 19045) against that server. The automated tests also ran against MySQL 8.4 and MariaDB 11.4 in
+> containers. Not tried yet: other releases or languages of the game, a server on Windows or
+> macOS, players on different networks, and a match between players on different machines.
+> Reports from other systems are welcome.
+
+Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine 10 on Linux, and
+from Windows 10 in the LAN where noted:
 
 - patch check, lobby server list and logon with accounts made on the server
 - the lobby rooms and the game zones, switching between them
-- opening a game, playing it, and coming back to the lobby
+- the ChatZone: chat themes, opening chat groups, chat between two players in one group
+- opening a game (in a zone or from a chat group), changing its setup, listing it in a zone
+  ("Warp"), another player joining it, playing the match, the match reports, coming back to the
+  lobby (two copies of the game on one machine)
+- clans shown in the member lists, and a clan's row coloured by the server
+- server lines, and the web interface with every page
+- from Windows 10: logon, a chat group, a game opened from it and listed in a zone, a match with
+  its reports, coming back, and the MessageZone with a board message read
 
-Implemented from the game's code, not yet tried with the real game: joining another player's game,
-games listed in several zones, full games, game settings updated during setup, chat groups with
-passwords, clans, the Home tab's news and statistics, the banner, the ChatZone, the MessageZone,
-the chat commands, match reports and the web interface.
+Implemented from the game's code, not yet tried with the real game: full games, joining a chat
+group with a password, the Home tab's news and statistics, the banner, the chat
+commands, and kicks and bans of players who are online.
 
-Not tested yet with two real players on two machines: chat between players, joining another
-player's game, and the game's own DirectPlay connection between them.
+Not tested yet with players on two machines: the game's own DirectPlay connection between them.
+
+## Known issues
+
+- **A player who leaves too quickly stays listed for a minute.** Leaving the MessageZone or the
+  lobby while the game still waits for the server's answer can close the game's side without a
+  Logout (seen once in a run from Windows 10; *inferred*: a click during the answer). The server
+  then sees a quiet connection and removes the player after 60 seconds; until then the others
+  still see them. Logging on again from the same PC works once the old connection has been quiet
+  for 20 seconds, so the game's retries may take a few seconds longer. A server cannot tell a game
+  that left this way from one that is only slow, so it waits.
+- **Chat typed on the MessageZone screen reaches nobody.** This is a bug of the game itself
+  (`docs/protocol.md`, "The MessageZone tab"), which only a patched S3.EXE could fix. The board's
+  messages work. The setting `board_chat_hint` tells players so once per logon.
+- **Ladder games are played but not ranked.** See the [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -138,8 +179,23 @@ s3lobby serve --name "Our LAN" --verbose --log-file lobby.log
 | `--name` | `LAN Lobby` | server name shown in the game |
 | `--public-host` | none | host name or IP that players from the internet log on to |
 | `--upnp` | off | let the router forward the server's port and one port per LAN player (UPnP) |
-| `--verbose` | off | log every datagram with its bytes, secrets removed |
+| `--dev` | off | development mode: every account also logs on with the password `1234`, from this machine and its LAN only, and several players may share a serial number; refused together with `--public-host` or `--upnp` |
+| `--verbose` | off | log every datagram with its bytes, secrets removed; with `--log-file` only into the file, the console stays at INFO |
 | `--log-file` | none | also write the log to this file |
+
+To stop it, press Ctrl+C, or stop every running server and web interface at once:
+
+```sh
+scripts/stop.sh            # clean stop: players are told, UPnP forwardings removed
+scripts/stop.sh --force    # also kill whatever still runs after 10 seconds
+```
+
+To start the server and the web interface together in the background, from the checkout:
+
+```sh
+scripts/start.sh           # datagrams in lobby.log, output in lobby-console.log and web-console.log
+scripts/start.sh --dev     # both in development mode
+```
 
 ## Choosing a database
 
@@ -219,6 +275,7 @@ same database:
 ```sh
 s3lobby clan add Romans
 s3lobby clan join Romans Alice
+s3lobby clan highlight Romans    # members who show the clan get a green row in the game
 s3lobby news set --audience german --title "Willkommen" --file news-de.txt
 s3lobby news set --audience other --title "Welcome" --file news-en.txt
 s3lobby chat-theme add "General" --description "Talk about anything"
@@ -229,7 +286,9 @@ s3lobby setting list
 
 The Home tab shows the news for the game's language (German, or the other text for every other
 language) and a statistics table of players and games. An advert banner can be shown too: the game
-downloads it by anonymous FTP whenever the banner id changes.
+downloads it by anonymous FTP whenever the banner id or sub id changes, never for a new address
+alone. The address is `ftp://HOST/PATH` without a port or a user (the game always connects
+anonymously on port 21, in active mode), and the id must not be 0, which the game ignores.
 
 ```sh
 s3lobby setting set banner_url ftp://192.168.1.10/banner.png
@@ -241,7 +300,8 @@ A line for every player in the running lobby, and a welcome line after each logo
 ```sh
 s3lobby announce "Server restart at 22:00"
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
-s3lobby setting set mark_admins true    # admins' rows in another colour; not yet tried with the game
+s3lobby setting set mark_admins true    # admins' rows green in the game's member lists
+s3lobby setting set board_chat_hint true  # tell players chat on the message board reaches nobody (a game bug)
 ```
 
 In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
@@ -267,7 +327,9 @@ the same from a browser.
 A small web application on the same database: a live view of the lobby for everyone, and pages for
 admins to manage accounts and access codes, clans, news, chat themes, the message board, settings
 and announcements, to remove players from the running lobby, and to look through past games and
-match reports.
+match reports: each game with the setup its host chose (type, map, teams, computer opponents,
+player limit, Amazons, version), who joined it, when its match started and how it ended, and
+every report decoded field by field, and a page per game with its teams and winners.
 
 ```sh
 .venv/bin/pip install '.[web]'
@@ -288,6 +350,7 @@ once, right after it is made.
 | `--port` | 8080 | TCP port |
 | `--secure-cookies` | off | send the session cookie over HTTPS only |
 | `--behind-proxy` | off | take the client address from the reverse proxy's `X-Forwarded-For` |
+| `--dev` | off | development mode: every admin also logs on with the password `1234`, from this machine and its LAN only; refused together with `--behind-proxy` |
 
 `S3LOBBY_WEB_SECRET` signs the session cookie; without it admins are logged out whenever the web
 interface restarts. `s3lobby web` uses Flask's own server, which is fine on a LAN. To reach the
@@ -298,6 +361,46 @@ above, or run it under a WSGI server:
 S3LOBBY_DATABASE=/srv/lobby.sqlite3 S3LOBBY_WEB_SECRET=... S3LOBBY_WEB_SECURE_COOKIES=1 \
 S3LOBBY_WEB_BEHIND_PROXY=1 gunicorn "s3lobby.web.app:create_app_from_environment()"
 ```
+
+## Screenshots
+
+The screenshots show a demo lobby. Names in green and blue are the ones the game's member lists
+draw in those colours.
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/games-dark.png">
+        <img src="docs/images/games-light.png" alt="The Games page: one line per game with host, type, map, players, opening time, result and how long it was open">
+      </picture>
+      <p align="center"><b>Games</b>: every game opened in the lobby, one line each.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/game-details-dark.png">
+        <img src="docs/images/game-details-light.png" alt="A game's page: when it was opened, started, decided and closed, the winner, the teams with slot, race and lobby id, and the setup">
+      </picture>
+      <p align="center"><b>A game</b>: timeline, winners, teams, setup and reports.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/account-dark.png">
+        <img src="docs/images/account-light.png" alt="An account's page: its access codes, the form for a new code, and the games it joined with team, race and result">
+      </picture>
+      <p align="center"><b>An account</b>: access codes and the games it played.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/clans-dark.png">
+        <img src="docs/images/clans-light.png" alt="The Clans page: clans with their members, which ones the game lists in green or blue, and the buttons to change that">
+      </picture>
+      <p align="center"><b>Clans</b>: members, and the colour the game lists them in.</p>
+    </td>
+  </tr>
+</table>
 
 ## Pointing the game at the server
 
@@ -431,6 +534,9 @@ The code follows the same layers:
 | `s3lobby/connection.py` | the reliable layer for one client: numbering, acknowledgements, retries |
 | `s3lobby/guards.py` | rate limits and a throttled log against flooding senders |
 | `s3lobby/lobby.py` | players, rooms, zones and games, and the answer to every request |
+| `s3lobby/groups.py` | one group (room, game or chat group) and the rules about groups |
+| `s3lobby/logon.py` | who may log on: accounts, access codes, bans, limits, development mode |
+| `s3lobby/commands.py` | the chat commands (`/who`, `/clan`, `/announce`, `/kick`, `/ban`, ...) |
 | `s3lobby/server.py` | the UDP socket and one connection per client |
 | `s3lobby/addresses.py` | the address each player is shown to another, so chat and joins can reach it |
 | `s3lobby/upnp.py`, `s3lobby/forwarding.py` | port forwarding on the router by UPnP (`--upnp`) |
@@ -454,9 +560,10 @@ Planned or wished for, roughly in order:
   results per player and per clan, show the standings on the web interface and the Home tab, and
   confirm valid ladder results to the game (Result 0x6c) once the reports are trusted enough,
   for example only when every player of a match sent a matching report.
-- Hardening that needs a recorded game session first: refusing forged datagrams from a logged on
-  player's address, and a confirmation code for admin chat commands.
-- MySQL over TLS for databases on another machine.
+- **What a match tells the lobby** is all that a ranking can use: the game reports each match
+  twice, at the start and when one team is left, with its slots, teams, races and the winning team
+  (the only team that still has a finished military building). The match itself runs between the
+  players over DirectPlay and never passes through the server.
 
 ## Development
 
@@ -493,6 +600,8 @@ documented:
   behaviour gets a session test that says what breaks in the game without it.
 - A schema change adds the next migration number to every folder in `s3lobby/schema/`; released
   migration files are never edited.
+- Every function, method and class has a docstring that says what it is for, and why where that
+  is not obvious: whoever continues this work has to understand it from the code.
 - The server and the command line stay on the standard library.
 - Never commit game files, the game's executable, or recordings that contain them.
 

@@ -49,6 +49,8 @@ class ViewerAddresses:
         public_ip: Callable[[], str | None],
         forwarded_port: Callable[[Address], int | None] = lambda subject: None,
     ) -> None:
+        """Take the three lookups described in the class docstring; without forwarded_port, no player
+        has a forwarded port of its own."""
         self._local_ip_facing = local_ip_facing
         self._public_ip = public_ip
         self._forwarded_port = forwarded_port
@@ -56,15 +58,21 @@ class ViewerAddresses:
     def address_for_viewer(self, subject: Address, viewer: Address) -> Address:
         """The address the viewer should use for the subject."""
         subject_host, subject_port = subject
+        # Something that is not an IP cannot be classified as local or public; it is passed on as
+        # it is rather than guessed at.
         try:
             subject_ip = ipaddress.ip_address(subject_host)
             viewer_ip = ipaddress.ip_address(viewer[0])
         except ValueError:
             return subject
-        # 0.0.0.0 is a host's own placeholder, not an address: nothing to translate.
+        # 0.0.0.0 is a host's own placeholder, not an address: nothing to translate. A viewer on
+        # the subject's own IP (the same machine, or the same router seen from the internet)
+        # reaches it there already.
         if subject_ip.is_unspecified or subject_ip == viewer_ip:
             return subject
         is_viewer_on_the_internet = viewer_ip.is_global
+        # The subject runs on the server's own machine, so every other viewer needs an address of
+        # this machine that it can reach.
         if subject_ip.is_loopback:
             this_machine = self._this_machine_for(viewer, is_viewer_on_the_internet)
             if this_machine is None:
@@ -73,6 +81,8 @@ class ViewerAddresses:
         is_subject_hidden_from_viewer = not subject_ip.is_global and is_viewer_on_the_internet
         if not is_subject_hidden_from_viewer:
             return subject
+        # Without a public host (none configured, or its name did not resolve) the private address
+        # is still the best the server knows, even though this viewer cannot reach it.
         public_ip = self._public_ip()
         if public_ip is None:
             return subject
@@ -82,6 +92,8 @@ class ViewerAddresses:
         """The message with every address in it as the viewer can reach it."""
         if isinstance(message, (AddPlayerToGroup, AddPlayerToGroupWithClan, AddPlayerToGroupWithFlags)):
             return replace(message, player_address=self.address_for_viewer(message.player_address, viewer))
+        # Only a game carries an address in a group message: its host's, which joining clients
+        # connect DirectPlay to. The messages are frozen, so the changed one is a copy.
         if isinstance(message, (GroupAnnouncement, GroupUpdate)) and message.game_block is not None:
             host_address = self.address_for_viewer(message.game_block.host_address, viewer)
             return replace(message, game_block=replace(message.game_block, host_address=host_address))
@@ -103,6 +115,8 @@ class ViewerAddresses:
         public_ip = self._public_ip()
         if is_viewer_on_the_internet and public_ip is not None:
             return public_ip
+        # The lookup asks the operating system for a route to the viewer (server.local_ip_facing),
+        # which raises OSError when there is none, for example while the network is down.
         try:
             return self._local_ip_facing(viewer)
         except OSError:

@@ -21,6 +21,7 @@ def format_moment(moment: datetime | str | None) -> str:
     """"2026-10-23 14:05 UTC"; the server and the web interface both keep UTC."""
     if moment is None:
         return NO_MOMENT
+    # The live lobby arrives as JSON, where moments are ISO 8601 text rather than datetimes.
     if isinstance(moment, str):
         moment = datetime.fromisoformat(moment)
     return f"{moment:%Y-%m-%d %H:%M} UTC"
@@ -32,6 +33,8 @@ def format_relative_moment(moment: datetime | str | None) -> str:
         return NO_MOMENT
     if isinstance(moment, str):
         moment = datetime.fromisoformat(moment)
+    # A moment slightly ahead of this clock (the server wrote it a moment ago) reads "just now",
+    # never as a negative age.
     elapsed_seconds = max(0, int((utc_now() - moment).total_seconds()))
     if elapsed_seconds < SECONDS_PER_MINUTE:
         return "just now"

@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 from s3lobby.constants import (
+    CHAT_ZONE_GROUP_ID,
     FIRST_GAME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
@@ -29,6 +30,8 @@ from s3lobby.messages import (
     LobbyServerList,
     Logon,
     Logout,
+    MessageId,
+    OpenConnection,
     OwnPlayerWithClan,
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
@@ -55,6 +58,8 @@ from tests.support import (
 
 
 class LobbySessionTest(LobbyTestCase):
+    """Whole sessions with fake game clients against a running server, each step as the real game takes it."""
+
     def test_patch_check_says_no_patch_and_the_list_names_this_server(self) -> None:
         """Without Result NO_PATCH_NEEDED the client stops with "patch check failed"; an empty
         server list stops it with error 0x1e."""
@@ -127,12 +132,36 @@ class LobbySessionTest(LobbyTestCase):
         entry = AddPlayerToGroupWithClan.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN))
         self.assertEqual((entry.player_name, entry.clan_name), ("Bob", "Romans"))
 
+    def test_members_of_a_highlighted_clan_who_show_it_are_listed_green(self) -> None:
+        """A highlighted clan's member who ticked the clan box comes as 0x26 with HIGHLIGHTED, so
+        the member list draws the row green (0x449da1); one who did not tick it is not marked,
+        as the clan itself is not shown either."""
+        romans = self.database.create_clan("Romans")
+        self.database.set_clan_highlighted(romans.clan_id, True)
+        for name in ("Bob", "Carol"):
+            self.database.set_clan_of_account(self.database.find_account(name).account_id, romans.clan_id)
+        alice = self.new_client("Alice", nonce=17)
+        join_group(alice, LOBBY_ROOM_ID, log_on(alice))
+
+        bob = self.new_client("Bob", nonce=42)
+        go_to_lobby_server(bob)
+        send_logon(bob, flags=LogonFlag.SHOW_AS_CLAN_MEMBER)
+        bob_id = OwnPlayerWithClan.decode(bob.receive_next(MessageType.OWN_PLAYER_WITH_CLAN)).player_id
+        join_group(bob, LOBBY_ROOM_ID, bob_id)
+        marked = AddPlayerToGroupWithFlags.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS))
+        self.assertEqual((marked.player_name, marked.clan_name, marked.player_flags), ("Bob", "Romans", PlayerFlag.HIGHLIGHTED))
+
+        carol = self.new_client("Carol", nonce=77)
+        join_group(carol, LOBBY_ROOM_ID, log_on(carol))
+        alice.assert_nothing_arrives(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS)
+
     def test_admins_are_marked_in_the_member_list_only_when_set(self) -> None:
-        """With mark_admins, an admin arrives as 0x26 with the HIGHLIGHTED flag and the member
-        list colours the row (0x449e09); without it, admins look like everyone else, as in every
-        run with the real game so far. Other players are never marked."""
+        """With mark_admins (the default), an admin arrives as 0x26 with the HIGHLIGHTED flag and
+        the member list colours the row (0x449da1); turned off, admins look like everyone else.
+        Other players are never marked."""
         bob_account = self.database.find_account("Bob")
         self.database.set_admin(bob_account.account_id, True)
+        self.database.set_setting(Setting.MARK_ADMINS, "false")
         alice = self.new_client("Alice", nonce=17)
         alice_id = log_on(alice)
         join_group(alice, LOBBY_ROOM_ID, alice_id)
@@ -163,6 +192,21 @@ class LobbySessionTest(LobbyTestCase):
             bob.send(Logout())
             departure = RemovePlayerFromGroup.decode(alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP))
         self.assertEqual(departure.player_id, bob_id)
+
+    def test_logon_succeeds_even_when_the_database_cannot_record_it(self) -> None:
+        """The session row only feeds the statistics; if writing it fails, the game must still get its
+        Result and OwnPlayer, or it waits on the logon screen for an answer that never comes."""
+        alice = self.new_client("Alice", nonce=17)
+        with mock.patch.object(LobbyDatabase, "record_logon", side_effect=DatabaseError("database is locked")):
+            alice_id = log_on(alice)
+        join_group(alice, LOBBY_ROOM_ID, alice_id)
+        bob = self.new_client("Bob", nonce=42)
+        join_group(bob, LOBBY_ROOM_ID, log_on(bob))
+        receive_member_entry(bob, LOBBY_ROOM_ID, alice_id)
+        # Without a session row there is nothing to close at the logout, and the logout still reaches Bob.
+        alice.send(Logout())
+        departure = RemovePlayerFromGroup.decode(bob.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP))
+        self.assertEqual(departure.player_id, alice_id)
 
     def test_member_list_carries_the_address_the_server_saw(self) -> None:
         """Clients chat straight to each other's addresses and only know themselves as 0.0.0.0."""
@@ -235,6 +279,36 @@ class LobbySessionTest(LobbyTestCase):
         self.assertEqual((removal.parent_id, removal.group_id), (GAME_ZONE_ID, FIRST_GAME_GROUP_ID))
         # The confirmation would have come in the same block as the room, which join_group read.
         self.assertEqual(bob.unread_messages_of_type(MessageType.REMOVE_PLAYER_FROM_GROUP), [])
+
+
+class ForgedDatagramTest(LobbyTestCase):
+    """Someone who sends UDP datagrams with a logged on player's address, without seeing the
+    answers. The server must not take those as the player's."""
+
+    def test_unnumbered_lobby_message_from_a_player_address_is_ignored(self) -> None:
+        """The game sends every lobby message in a numbered block (0x606ff0, flag 0 at every
+        call). Without this, anyone could move a player between rooms or speak for them."""
+        alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        alice.send_raw(AddPlayerToGroup(CHAT_ZONE_GROUP_ID, alice_id, ("0.0.0.0", 0), ""))
+        alice.assert_nothing_arrives(MessageType.ADD_GROUP_TO_GROUP)
+
+    def test_new_connection_from_an_active_player_address_is_ignored(self) -> None:
+        """A forged OpenConnection used to end the player's session: the game then lost its
+        lobby. A client that is still sending keepalives has not started over."""
+        alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        bob, _ = self.player_in_room("Bob", 42, GAME_ZONE_ID)
+        alice.send_raw(MessageId(1), OpenConnection(200))
+        bob.assert_nothing_arrives(MessageType.REMOVE_PLAYER_FROM_GROUP)
+        join_group(alice, CHAT_ZONE_GROUP_ID, alice_id)
+
+    def test_new_connection_after_the_old_one_fell_silent_is_taken(self) -> None:
+        """A game that crashed and starts again comes back from the same address with a new
+        nonce; once its old connection is quiet, the server lets it in again."""
+        alice, _ = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        bob, _ = self.player_in_room("Bob", 42, GAME_ZONE_ID)
+        with mock.patch("s3lobby.server.RECONNECT_AFTER_QUIET_MS", 0):
+            alice.send_raw(MessageId(1), OpenConnection(200))
+            bob.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
 
 
 if __name__ == "__main__":

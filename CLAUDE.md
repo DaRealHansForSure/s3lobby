@@ -46,7 +46,14 @@ another project; its history was carried over, so the early commits describe tha
 Run from this folder:
 
 - Tests: `python3 -m unittest`
-- Server: `python3 -m s3lobby serve --verbose --log-file lobby.log`
+- Server and web interface together, in the background: `scripts/start.sh [--dev]`; stop both with
+  `scripts/stop.sh [--force]`. Datagrams go to `lobby.log`, console output to `lobby-console.log`
+  and `web-console.log`.
+- Server alone: `python3 -m s3lobby serve --verbose --log-file lobby.log` (with `--log-file` the
+  datagrams of `--verbose` go to the file only; the console stays at INFO)
+- Development mode for tests with the game: `serve --dev` and `web --dev` accept the password
+  `1234` for every account (web: admins) from this machine and the LAN, and several players may
+  share a serial; refused with `--public-host`, `--upnp` or `--behind-proxy`.
 - Administration: `python3 -m s3lobby account add NAME` and the other subcommands (`--help`)
 - Web interface: `.venv/bin/python -m s3lobby web --database s3lobby.sqlite3` (needs Flask)
 - All tests including the web ones: `.venv/bin/python -m unittest` (a `.venv` with `flask`)
@@ -81,9 +88,15 @@ SQLite needs nothing extra.
   `tests/support.py`.
 - A new lobby behaviour gets a session test in `tests/test_session.py` whose docstring says what
   breaks in the game without it.
-- Code style: descriptive names, docstrings and why-comments, early returns, no magic numbers, no
-  compressed one-liners, four spaces. Never write an em dash or en dash anywhere (code, comments,
-  docs, commit messages); use a plain hyphen.
+- Code style: descriptive names, early returns, no magic numbers, no compressed one-liners, four
+  spaces. Never write an em dash or en dash anywhere (code, comments, docs, commit messages); use
+  a plain hyphen.
+- Documentation in the code, because a human has to be able to continue this work: every
+  function, method and class has a docstring that says what it is for and, where it is not
+  obvious, why it exists or which rule of the game it follows (check with an AST walk; none may be
+  missing). Inside functions, a comment above every step a junior programmer would not understand
+  at once: the reason for a check, what a number or flag means for the game, why an order
+  matters. No comments that restate the code.
 - Never commit game files, the game's executable, or recordings that contain them.
 - Network safety, learned from the security review (`a05c8b9`, `e91a88f`):
   - Anything answered before a logon is no bigger than the request: sender addresses can be
@@ -124,12 +137,15 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 - Git flow: `main` holds releases only, `develop` the work in progress. Every change goes on a
   branch from `develop` (`feature/...`, `fix/...`, `docs/...`, `refactor/...`) and is merged back
   with `git merge --no-ff BRANCH -m "Merge branch 'BRANCH' into develop"`.
-- Releases follow SemVer (before 1.0.0, minor for features or anything that changes behaviour,
-  patch for fixes only; 1.0.0 once the real game is confirmed on two machines). A release is a
+- Releases follow SemVer: minor for features or anything that changes behaviour, patch for fixes
+  only. **Never release 1.0.0 (or any 1.x) until the owner explicitly says so**, whatever is
+  finished or tested; until then every release stays 0.x. A release is a
   branch `release/X.Y.Z` from `develop` with one commit `chore(release): X.Y.Z` that sets
   `__version__` in `s3lobby/__init__.py` and moves the `Unreleased` part of `CHANGELOG.md` into a
-  section for the version (Keep a Changelog: Added, Changed, Fixed, Security, with links at the
-  end). It is merged into `main` (`Merge branch 'release/X.Y.Z'`), tagged there with an annotated
+  section for the version (Keep a Changelog: Added, Changed, Fixed, Security, then `Key commits`
+  with at most three commits that matter most, shown and linked by their 7 character short
+  SHA, and the version links at the end). It is merged into `main` (`Merge branch
+  'release/X.Y.Z'`), tagged there with an annotated
   `vX.Y.Z`, and merged back into `develop`. Every change worth telling admins adds a line under
   `Unreleased` in `CHANGELOG.md` in the same commit.
 - Identity of this repository (stored in its local git config, the whole history was rewritten
@@ -161,18 +177,23 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
   changed, and `grep` for em and en dashes in what changed.
 - UPnP can be tried against the owner's router (192.168.1.1): a mapping added in a test must be
   deleted again, and `GetSpecificPortMappingEntry` (error 714) confirms it is gone.
+- Two copies of the game on one machine: `build/wine/run-s3.sh --window 1` and `--window 2` (each
+  in its own Wine desktop, game filled in by cnc-ddraw's settings in ddraw.ini, `--monitor NAME`
+  remembered, `--stop` ends every copy). Log the second copy on with a second account (the name is
+  shared between the copies' settings).
+- Checking web pages by eye: render them with headless Chrome (`google-chrome --headless=new
+  --window-size=1280,900 --screenshot=FILE file://PAGE.html`) from HTML fetched with Flask's test
+  client, `/static/` rewritten to file paths; check light and dark (`data-theme` on `<html>`) and
+  375 px wide. The README screenshots come from a demo database, never the owner's data.
 
 ## Open review findings
 
 The Python, network and web reviews of 2026-10-23 are worked through; SECURITY.md lists the known
-limits. Still open, as each touches behaviour the real game relies on and needs a recorded session
-first:
-
-- Dropping unnumbered lobby messages from logged on players and narrowing the client block id
-  window: a forged datagram from a player's address is still taken as theirs (admin commands are
-  safe through /confirm, ordinary actions are not).
-- Ignoring a nonce reset (a new OpenConnection) from an address that has a logged on player:
-  a forged one ends that player's session today.
+limits. The forged datagram findings are closed with evidence from the game's code: lobby
+messages outside numbered blocks are refused (the game sends none), the block id window is 32,
+and a new nonce from an active player's address is ignored (keepalive every 5 s, 0x604da4). What
+remains is inherent: the game's datagrams carry no secret, so a forger who guesses the next block
+number can still slip in an ordinary action; admin commands are safe through /confirm.
 
 ## Future work
 

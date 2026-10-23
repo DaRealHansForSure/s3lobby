@@ -59,6 +59,7 @@ class RefuseRedirects(urllib.request.HTTPRedirectHandler):
     """A router answers its own requests; a redirect elsewhere is refused, not followed."""
 
     def redirect_request(self, *arguments: object) -> None:
+        """Refuse every redirect, so a request never leaves the router."""
         return None
 
 
@@ -70,6 +71,7 @@ class UpnpError(Exception):
     """The router could not be found, or refused or failed an action."""
 
     def __init__(self, message: str, error_code: int | None = None) -> None:
+        """Keep the router's UPnP error code, when it gave one, for callers that act on it (718, 725)."""
         super().__init__(message)
         self.error_code = error_code
 
@@ -117,6 +119,7 @@ def discover_gateway(timeout_seconds: float = SSDP_DISCOVERY_SECONDS) -> Gateway
 
 def location_from_ssdp_answer(answer: bytes) -> str | None:
     """The LOCATION header of an SSDP answer, or None when it has none."""
+    # latin-1 decodes every byte, so a malformed answer cannot raise here; the header is ASCII anyway.
     for line in answer.decode("latin-1").split("\r\n"):
         name, separator, value = line.partition(":")
         if separator and name.strip().lower() == "location":
@@ -150,6 +153,7 @@ def gateway_from_description(location: str) -> Gateway:
         root = ElementTree.fromstring(description)
     except ElementTree.ParseError as error:
         raise UpnpError(f"unreadable device description: {error}") from error
+    # ElementTree names a namespaced tag "{namespace}tag"; doubled braces in an f-string are literal ones.
     for service in root.iter(f"{{{DEVICE_NAMESPACE}}}service"):
         service_type = service.findtext(f"{{{DEVICE_NAMESPACE}}}serviceType", "").strip()
         control_path = service.findtext(f"{{{DEVICE_NAMESPACE}}}controlURL", "").strip()
@@ -165,9 +169,12 @@ class PortMapper:
     """The port mapping actions of one router."""
 
     def __init__(self, gateway: Gateway) -> None:
+        """Talk to the port mapping service of this gateway."""
         self.gateway = gateway
 
     def external_ip(self) -> str:
+        """The router's public address; raises UpnpError when it is missing, malformed or not a
+        public one."""
         answer = self._call("GetExternalIPAddress", {})
         external_ip = answer.get("NewExternalIPAddress", "")
         try:
@@ -196,12 +203,14 @@ class PortMapper:
         try:
             self._call("AddPortMapping", arguments)
         except UpnpError as error:
+            # Only a router that rejected the lease time itself gets the same request again, as permanent.
             if error.error_code != ONLY_PERMANENT_LEASES_ERROR:
                 raise
             arguments["NewLeaseDuration"] = str(PERMANENT_LEASE)
             self._call("AddPortMapping", arguments)
 
     def delete(self, external_port: int, protocol: str) -> None:
+        """Remove the forwarding of external_port for protocol."""
         arguments = {"NewRemoteHost": "", "NewExternalPort": str(external_port), "NewProtocol": protocol}
         self._call("DeletePortMapping", arguments)
 
@@ -245,6 +254,7 @@ def fetch(url: str) -> tuple[bytes, str]:
 def local_ip_towards(host: str) -> str:
     """This machine's address on the way to host: the address the router forwards to."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        # Connecting a UDP socket sends nothing, it only picks the route; any port will do.
         probe.connect((host, SSDP_GROUP[1]))
         return probe.getsockname()[0]
 
@@ -257,8 +267,11 @@ def answer_arguments(answer: bytes, action: str) -> dict[str, str]:
         raise UpnpError(f"{action}: unreadable answer: {error}") from error
     arguments = {}
     for element in root.iter():
+        # Envelope, Body and the action's response element only wrap others; the out arguments are
+        # the leaves with text.
         is_argument = len(element) == 0 and element.text is not None
         if is_argument:
+            # Drop the "{namespace}" ElementTree puts in front of the tag name.
             arguments[element.tag.rpartition("}")[2]] = element.text.strip()
     return arguments
 
@@ -272,10 +285,12 @@ def upnp_error_from_fault(action: str, fault: bytes) -> UpnpError:
     code_text = root.findtext(f".//{{{CONTROL_NAMESPACE}}}errorCode", "")
     description = root.findtext(f".//{{{CONTROL_NAMESPACE}}}errorDescription", "")
     error_code = None
+    # isdigit alone also accepts digits such as a superscript two, which int() refuses; isascii excludes them.
     if code_text.isascii() and code_text.isdigit():
         error_code = int(code_text)
     return UpnpError(f"{action} failed: {error_code} {description}".rstrip(), error_code)
 
 
 def escape_xml(text: str) -> str:
+    """Escape the characters that would break a SOAP argument's element text."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

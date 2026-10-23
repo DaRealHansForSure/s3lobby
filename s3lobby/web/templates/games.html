@@ -1,23 +1,47 @@
 {% extends "base.html" %}
+{% from "_macros.html" import names %}
 {% set active_nav = "games" %}
 {% block title %}Games{% endblock %}
+
+{% macro report_players(players) %}
+  {% for player in players %}
+  <div>
+    Team {{ player.team }}, slot {{ player.slot }}: {{ player.name }} ({{ player.race }})
+    {% for note in player.notes %}<span class="badge">{{ note }}</span>{% endfor %}
+  </div>
+  {% else %}
+  -
+  {% endfor %}
+{% endmacro %}
+
 {% block content %}
 <section>
   <div class="section-head">
     <h1>Games</h1>
-    <p>The newest games opened in the lobby. The open ones are on the Lobby page too.</p>
+    <p>The newest games opened in the lobby. Each game's page has its setup, teams, winners and
+    reports; the open ones are on the Lobby page too.</p>
   </div>
   {% if games %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Game</th><th>Host</th><th>Opened</th><th>Closed</th></tr></thead>
+      <thead>
+        <tr><th>Game</th><th>Host</th><th>Type</th><th>Map</th><th>Players</th><th>Opened</th><th>Match</th><th>Open for</th></tr>
+      </thead>
       <tbody>
         {% for game in games %}
         <tr>
-          <td>{{ game.name }}</td>
+          <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
           <td>{{ game.host_name or "-" }}</td>
-          <td>{{ game.opened_at | moment }}</td>
-          <td>{% if game.closed_at %}{{ game.closed_at | moment }}{% else %}<span class="badge badge--good">open</span>{% endif %}</td>
+          <td>{% if game.setup and game.setup.game_type %}{{ game.setup.game_type }}{% else %}<span class="muted">-</span>{% endif %}</td>
+          <td>{% if game.setup and game.setup.map_name %}{{ game.setup.map_name }}{% else %}<span class="muted">-</span>{% endif %}</td>
+          <td>{{ names(game.player_names) }}</td>
+          <td class="cell-time">{{ game.opened_at | moment }}</td>
+          <td>
+            {% if game.outcome_text %}{{ game.outcome_text }}
+            {%- elif game.match_started_at %}played
+            {%- else %}<span class="muted">not started</span>{% endif %}
+          </td>
+          <td class="cell-time">{% if game.closed_at %}{{ game.open_for }}{% else %}<span class="badge badge--good">open</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -32,39 +56,43 @@
   <div class="section-head">
     <h2>Match reports</h2>
     <p>Every player's game reports once when the match starts and once when a single team is left.
-    The original bytes stay downloadable.</p>
+    Played is the game's own clock, 64 ms per tick. The original bytes stay downloadable.</p>
   </div>
   {% if reports %}
   <div class="scroll-x">
     <table class="table">
       <thead>
-        <tr><th>Received</th><th>From</th><th>Map</th><th>Outcome</th><th>Players</th><th class="num">Game id</th><th></th></tr>
+        <tr>
+          <th>Received</th><th>From</th><th>Game</th><th>Map</th><th>Outcome</th><th class="num">Played</th>
+          <th>Players</th><th class="cell-actions"></th>
+        </tr>
       </thead>
       <tbody>
         {% for report in reports %}
         <tr>
           <td>{{ report.received_at | moment }}</td>
           <td>{{ report.sender_name or "-" }}</td>
+          <td>
+            {% if report.game_id is not none %}
+            <a href="{{ url_for('games.show_game', game_id=report.game_id) }}">{{ report.game_name or "game" }}</a>
+            {% else %}
+            <span class="muted">group {{ "%#x" | format(report.group_id) }}</span>
+            {% endif %}
+          </td>
           {% if report.is_readable %}
           <td>{{ report.map_name or "-" }}</td>
           <td>
             <div class="badges">
               {{ report.outcome_text }}
-              {% if report.is_ladder_game %}<span class="badge">ladder, unranked</span>{% endif %}
+              {% for note in report.flag_notes %}<span class="badge">{{ note }}</span>{% endfor %}
             </div>
           </td>
-          <td>
-            {% for player in report.players %}
-            <div>Team {{ player.team }}: {{ player.name }} ({{ player.race }})</div>
-            {% else %}
-            -
-            {% endfor %}
-          </td>
+          <td class="num" title="{{ report.game_time }} ticks">{{ report.played_text }}</td>
+          <td>{{ report_players(report.players) }}</td>
           {% else %}
-          <td colspan="3"><span class="badge badge--warn">unreadable</span> {{ report.size }} bytes</td>
+          <td colspan="4"><span class="badge badge--warn">unreadable</span> {{ report.size }} bytes</td>
           {% endif %}
-          <td class="num">{{ "%#x" | format(report.group_id) }}</td>
-          <td><a href="{{ url_for('games.download_report', report_id=report.report_id) }}">Download</a></td>
+          <td class="cell-actions"><a href="{{ url_for('games.download_report', report_id=report.report_id) }}">Download</a></td>
         </tr>
         {% endfor %}
       </tbody>

@@ -21,7 +21,10 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from s3lobby.constants import (
+    BLUE_BYTE_CLAN_NAME,
     FIRST_PRINTABLE_CHARACTER,
+    GAME_ROW_BLUE,
+    GAME_ROW_GREEN,
     GROUP_COUNTERS_FULL,
     JOINED_GROUP_PARENT_ID,
     MAX_GROUP_DESCRIPTION_BYTES,
@@ -39,6 +42,8 @@ UNKNOWN_HOST = "0.0.0.0"
 
 
 class GroupKind(Enum):
+    """The three kinds of group the server tells apart: they differ in who opens them and when they close."""
+
     ROOM = "room"
     GAME = "game"
     CHAT_GROUP = "chat group"
@@ -59,23 +64,34 @@ class Group:
     password: str = ""
     creator_player_id: int | None = None
     game_record_id: int | None = None
+    # Players already recorded as having joined this game (each is recorded once).
+    recorded_player_ids: set[int] = field(default_factory=set)
+    # When the last member of a chat group left (time.monotonic()); None while it has members.
+    empty_since_seconds: float | None = None
     # Players of a ladder game who were told that this server keeps no ladder (each hears it once).
     ladder_notice_player_ids: set[int] = field(default_factory=set)
 
     @property
     def group_id(self) -> int:
+        """The group's id, as its announcement carries it."""
         return self.announcement.group_id
 
     @property
     def is_room(self) -> bool:
+        """True for a group the server keeps for as long as it runs (tabs, zones, themes)."""
         return self.kind == GroupKind.ROOM
 
     @property
     def is_full(self) -> bool:
+        """True when the group has a player limit and reached it; a limit of 0 or UNLIMITED_PLAYERS means
+        there is none."""
         max_players = self.announcement.max_players
+        # Rooms are announced with 0 and chat groups with UNLIMITED_PLAYERS; neither is ever full.
         return max_players != UNLIMITED_PLAYERS and max_players > 0 and len(self.member_ids) >= max_players
 
     def counters(self) -> GroupCounters:
+        """The GroupCounters that show viewers in a parent how many players the group has and whether
+        it is full."""
         status_flags = GROUP_COUNTERS_FULL if self.is_full else 0
         return GroupCounters(
             group_id=self.group_id,
@@ -121,6 +137,8 @@ def is_ladder_game(announcement: GroupAnnouncement) -> bool:
 def room_announcement(group_id: int, name: str, flags: int = 0, description_text: str = "") -> GroupAnnouncement:
     """The announcement of a room the server offers. description_text fills the second text, which
     chat theme lists show in their Description column."""
+    # The parent is only a placeholder: every send puts the room under the right parent with
+    # under_parent. A maximum of 0 means no player limit (see Group.is_full).
     return GroupAnnouncement(
         message_type=MessageType.ADD_GROUP_TO_GROUP,
         parent_id=JOINED_GROUP_PARENT_ID,
@@ -147,6 +165,26 @@ def with_real_host_address(announcement: GroupAnnouncement, host_client_address:
     return replace(announcement, game_block=game_block_with_real_host(announcement.game_block, host_client_address))
 
 
+def game_row_colour(is_highlighted: bool, clan_name: str) -> str:
+    """The colour the game draws a member's row in: none without the HIGHLIGHTED flag, blue for
+    the clan BB, green otherwise (0x449da1, 0x449de2). Empty for the usual colour."""
+    if not is_highlighted:
+        return ""
+    if clan_name == BLUE_BYTE_CLAN_NAME:
+        return GAME_ROW_BLUE
+    return GAME_ROW_GREEN
+
+
+def stored_game_announcement(announcement: GroupAnnouncement) -> bytes:
+    """A game as the database keeps it for the Games page: the announcement's body with the host
+    address zeroed, since the page has no use for players' IP addresses. The password is never in
+    a stored announcement (the third text is always empty there)."""
+    if announcement.game_block is not None:
+        anonymous_block = replace(announcement.game_block, host_address=(UNKNOWN_HOST, 0))
+        announcement = replace(announcement, game_block=anonymous_block)
+    return announcement.encode().body
+
+
 def game_block_with_real_host(game_block: GameBlock, host_client_address: Address) -> GameBlock:
     """A host announces its game with its own address, which reads 0.0.0.0 on the host. Put in the
     IP the server sees the host at, so other players can connect DirectPlay to it, and keep the
@@ -162,13 +200,17 @@ def check_client_group_texts(group: GroupAnnouncement | GroupUpdate) -> None:
     """Raise ProtocolError when a group from a client carries text the server will not pass on."""
     for label, text in (("name", group.name), ("second text", group.second_text), ("third text", group.third_text)):
         check_client_text(label, text)
+    # The description is the host's encoded GameDescription, so it is limited in bytes, not characters.
     if len(group.description) > MAX_GROUP_DESCRIPTION_BYTES:
         raise ProtocolError(f"group description of {len(group.description)} bytes")
 
 
 def check_client_text(label: str, text: str) -> None:
+    """Raise ProtocolError for a text that is longer than the server passes on or holds control
+    characters; label names the text in the error."""
     if len(text) > MAX_GROUP_TEXT_LENGTH:
         raise ProtocolError(f"{label} of {len(text)} characters")
+    # Compares code points: every character below the space is a control character.
     has_control_character = any(character < FIRST_PRINTABLE_CHARACTER for character in text)
     if has_control_character:
         raise ProtocolError(f"{label} contains control characters")

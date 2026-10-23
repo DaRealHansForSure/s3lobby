@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_field, action_button with context %}
+{% from "_macros.html" import csrf_field, action_button, checkbox_field, in_game_colour with context %}
 {% set active_nav = "accounts" %}
 {% block title %}{{ account.name }}{% endblock %}
 {% block content %}
 <section>
   <div class="section-head">
-    <h1>{{ account.name }}</h1>
+    <h1>{{ in_game_colour(account.name, row_colour) }}</h1>
     <p class="badges">
       {% if is_online %}<span class="badge badge--good">online</span>{% endif %}
       {% if account.is_admin %}<span class="badge badge--accent">admin</span>{% endif %}
@@ -31,39 +31,74 @@
     <p>Each code works on its own; revoke the code of a PC that is no longer used.</p>
   </div>
   {% if access_codes %}
-  <div class="scroll-x">
-    <table class="table">
-      <thead><tr><th>Label</th><th>Created</th><th>Last used</th><th>State</th><th></th></tr></thead>
-      <tbody>
-        {% for code in access_codes %}
-        <tr>
-          <td>{{ code.label or "-" }}</td>
-          <td>{{ code.created_at | moment }}</td>
-          <td>{{ code.last_used_at | moment }}</td>
-          <td>{% if code.is_active %}<span class="badge badge--good">active</span>{% else %}<span class="badge">revoked {{ code.revoked_at | moment }}</span>{% endif %}</td>
-          <td>{% if code.is_active %}{{ action_button(url_for('accounts.revoke_access_code', account_id=account.account_id, code_id=code.code_id), "Revoke") }}{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="table-block">
+    <div class="scroll-x">
+      <table class="table">
+        <thead><tr><th>Label</th><th>Created</th><th>Last used</th><th>State</th><th class="cell-actions"></th></tr></thead>
+        <tbody>
+          {% for code in access_codes %}
+          <tr>
+            <td>{{ code.label or "-" }}</td>
+            <td>{{ code.created_at | moment }}</td>
+            <td>{{ code.last_used_at | moment }}</td>
+            <td>{% if code.is_active %}<span class="badge badge--good">active</span>{% else %}<span class="badge">revoked {{ code.revoked_at | moment }}</span>{% endif %}</td>
+            <td class="cell-actions">{% if code.is_active %}{{ action_button(url_for('accounts.revoke_access_code', account_id=account.account_id, code_id=code.code_id), "Revoke") }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="table-actions">
+      {{ action_button(url_for('accounts.revoke_all_access_codes', account_id=account.account_id), "Revoke every code", "btn--danger") }}
+    </div>
   </div>
   {% else %}
   <p class="empty-state">No access codes.</p>
   {% endif %}
   <form method="post" action="{{ url_for('accounts.issue_access_code', account_id=account.account_id) }}">
     {{ csrf_field() }}
-    <div class="form-grid">
-      <label class="field">
-        <span class="label">Label for a new code</span>
-        <input class="input" type="text" name="label" maxlength="{{ max_name_length }}">
-        <span class="hint">Optional, for example the PC the code is for.</span>
-      </label>
-      <div><button class="btn btn--primary" type="submit">Issue a new code</button></div>
+    <div class="field field--action">
+      <label class="label" for="new-code-label">Label for a new code</label>
+      <div class="input-action">
+        <input class="input" id="new-code-label" type="text" name="label" maxlength="{{ max_name_length }}">
+        <button class="btn btn--primary" type="submit">Issue a new code</button>
+      </div>
+      <span class="hint">Optional, for example the PC the code is for.</span>
     </div>
   </form>
-  <div class="form-actions">
-    {{ action_button(url_for('accounts.revoke_all_access_codes', account_id=account.account_id), "Revoke every code", "btn--danger") }}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Games</h2>
+    <p>The games {{ account.name }} joined, newest first, with team, race and result from the match's last report.</p>
   </div>
+  {% if games %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Game</th><th>Host</th><th>Opened</th><th class="num">Team</th><th>Race</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for game in games %}
+        <tr>
+          <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
+          <td>{{ game.host_name or "-" }}</td>
+          <td class="cell-time">{{ game.opened_at | moment }}</td>
+          <td class="num">{% if game.team is not none %}{{ game.team }}{% else %}<span class="muted">-</span>{% endif %}</td>
+          <td>{{ game.race or "-" }}</td>
+          <td>
+            {% if game.result == "won" %}<span class="badge badge--good">won</span>
+            {%- elif game.result == "lost" %}<span class="badge badge--bad">lost</span>
+            {%- elif game.result %}<span class="muted">{{ game.result }}</span>
+            {%- else %}<span class="muted">not played</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No games recorded for {{ account.name }} yet.</p>
+  {% endif %}
 </section>
 
 <section>
@@ -81,18 +116,15 @@
         </select>
         <span class="hint">Shown next to the name when the player ticks the logon dialog's Clan box.</span>
       </label>
-      <button class="btn btn--outline" type="submit">Save clan</button>
+      <div class="form-actions"><button class="btn btn--outline" type="submit">Save clan</button></div>
     </form>
     <form class="card" method="post" action="{{ url_for('accounts.set_admin', account_id=account.account_id) }}">
       {{ csrf_field() }}
-      <label class="check">
-        <input type="checkbox" name="is_admin"{% if account.is_admin %} checked{% endif %}{% if is_own_account %} disabled{% endif %}>
-        <span>Admin: may use this interface and the admin chat commands</span>
-      </label>
+      {{ checkbox_field("is_admin", "Admin", "May use this interface and the admin chat commands.", account.is_admin, is_own_account) }}
       {% if is_own_account %}
         <p class="meta">You cannot take away your own admin rights.</p>
       {% else %}
-        <button class="btn btn--outline" type="submit">Save rights</button>
+        <div class="form-actions"><button class="btn btn--outline" type="submit">Save rights</button></div>
       {% endif %}
     </form>
   </div>
@@ -133,11 +165,13 @@
   </div>
   <form method="post" action="{{ url_for('accounts.delete_account', account_id=account.account_id) }}">
     {{ csrf_field() }}
-    <label class="field">
-      <span class="label">Type {{ account.name }} to confirm</span>
-      <input class="input" type="text" name="confirm_name" autocomplete="off" required>
-    </label>
-    <button class="btn btn--danger" type="submit">Remove account</button>
+    <div class="field field--action">
+      <label class="label" for="confirm-name">Type {{ account.name }} to confirm</label>
+      <div class="input-action">
+        <input class="input" id="confirm-name" type="text" name="confirm_name" autocomplete="off" required>
+        <button class="btn btn--danger" type="submit">Remove account</button>
+      </div>
+    </div>
   </form>
 </section>
 {% endif %}

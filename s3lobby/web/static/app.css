@@ -1,6 +1,16 @@
 /* s3lobby's own rules on top of the UI kit (tokens.css, base.css, components.css). Colours, sizes
    and spaces all come from the kit's tokens. */
 
+/* The two colours the game's member lists draw players in (0x449da1, 0x449de2), from the UI kit's
+   category colours, so they read in both themes. */
+:root {
+  --game-row-green: var(--data-3);
+  --game-row-blue: var(--data-1);
+}
+.game-row { font-weight: 600; }
+.game-row--green { color: var(--game-row-green); }
+.game-row--blue { color: var(--game-row-blue); }
+
 /* Navigation: a row of its own under the header, scrolling sideways on a phone instead of
    disappearing like the kit's .site-nav does below 34rem. */
 .app-nav-bar {
@@ -40,9 +50,80 @@
   padding-block: var(--space-8);
 }
 .page > section:first-of-type { padding-top: 0; }
+/* Messages after an action (logged on, saved, refused) sit above the page's first section, with
+   the kit's sibling space under them; two of them keep the kit's own space between them. */
+.page > .note { margin-bottom: var(--space-6); }
+.page > .note:has(+ .note) { margin-bottom: var(--space-3); }
+/* Blocks that follow each other in a section (a table, its form, a row of actions) keep the kit's
+   sibling space. The heading block keeps its own, smaller space to what it introduces. */
+.page > section > :not(.section-head) + :not(.meta) { margin-top: var(--space-6); }
 
 /* A form whose button sits in a table cell or a row of buttons. */
 .inline-form { display: inline; margin: 0; }
+
+/* The last column of a table that holds a row's actions (Revoke, Remove, Download): at the
+   table's right edge, like the actions for the whole table under it. */
+.table .cell-actions { text-align: end; white-space: nowrap; }
+
+/* A table of facts about one thing, one per row: the row heading names it, the cell gives it.
+   The headings are a column, not a table head, so they keep the rows' own line. */
+.table--facts th {
+  width: 14rem;
+  border-bottom-color: var(--border);
+}
+/* Two columns fit a phone, so the kit's minimum width for wide tables is lifted, and long values
+   (a session id, a date with its note) wrap rather than run past the frame. */
+.table--facts { min-width: 0; }
+.table--facts td { overflow-wrap: anywhere; }
+/* On a phone a fixed label column would leave the values no room. */
+@media (max-width: 48rem) {
+  .table--facts th { width: 40%; }
+}
+
+/* A numeric column's heading sits over its right-aligned numbers. */
+.table th.num { text-align: right; }
+
+/* A table that ends its section: the section's own line closes it. With both lines, the space the
+   kit keeps before a section line (one row high) reads as an empty last row. */
+.page > section > .scroll-x:last-child .table tbody tr:last-child > *,
+.page > section > .table-block:last-child .table tbody tr:last-child > * { border-bottom: 0; }
+
+/* A date and time in a table, kept on one line so a column of times reads down evenly. */
+.table .cell-time { white-space: nowrap; }
+
+/* A table with actions for all of its rows under it, such as "Revoke every code": the actions
+   sit at the table's right edge, at the space the kit gives a table and its note. */
+.table-block > * + * { margin-top: var(--space-3); }
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  /* The table's own cell padding, so these buttons end where the row buttons above them end. */
+  padding-inline: var(--space-4);
+}
+
+/* A field whose one button belongs to it, such as a label and "Issue a new code": input and
+   button share a row and line up with each other, the hint goes under both. On a phone the
+   button wraps under the input. */
+.field--action { max-width: 34rem; }
+.input-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.input-action > .input { flex: 1 1 12rem; width: auto; min-width: 0; }
+.input-action > .btn { flex: 0 0 auto; }
+
+/* A checkbox in a form of fields: it keeps a field's space under it and width, and its hint looks
+   like a field's hint. */
+.check--field { margin-bottom: var(--space-4); max-width: 26rem; }
+.check--field .hint {
+  display: block;
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+}
 
 /* Fields side by side where there is room, stacked on a phone by the grid. */
 .form-grid {
@@ -50,7 +131,12 @@
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--space-4);
   align-items: end;
+  /* As wide as a wide field, so a form keeps one column edge, and a field's space under it. */
+  max-width: 34rem;
+  margin-bottom: var(--space-4);
 }
+/* A field for longer text (a title, a message), as wide as a row of fields. */
+.field--wide { max-width: 34rem; }
 .form-grid .field { max-width: none; margin-bottom: 0; }
 
 .form-actions {

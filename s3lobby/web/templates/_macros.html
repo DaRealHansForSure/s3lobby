@@ -4,12 +4,28 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 {%- endmacro %}
 
-{# A form with a single button, for actions in a table row or a button row. #}
-{% macro action_button(action, label, style="btn--outline") -%}
+{# A form with a single button, for actions in a table row or a button row; fields are sent along
+   as hidden values. #}
+{% macro action_button(action, label, style="btn--outline", fields={}) -%}
 <form class="inline-form" method="post" action="{{ action }}">
   {{ csrf_field() }}
+  {% for name, value in fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
   <button class="btn {{ style }} btn--sm" type="submit">{{ label }}</button>
 </form>
+{%- endmacro %}
+
+{# A checkbox among the fields of a form, with an optional hint under its label. #}
+{% macro checkbox_field(name, label, hint="", checked=false, disabled=false) -%}
+<label class="check check--field">
+  <input type="checkbox" name="{{ name }}"{% if checked %} checked{% endif %}{% if disabled %} disabled{% endif %}>
+  <span>{{ label }}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</span>
+</label>
+{%- endmacro %}
+
+{# A player's or clan's name in the colour the game's member lists draw it in (green, or blue for
+   the clan BB); the plain name otherwise. #}
+{% macro in_game_colour(text, colour) -%}
+{% if colour %}<span class="game-row game-row--{{ colour }}" title="{{ colour }} in the game's member lists">{{ text }}</span>{% else %}{{ text }}{% endif %}
 {%- endmacro %}
 
 {% macro reachability_badge(reachability) -%}

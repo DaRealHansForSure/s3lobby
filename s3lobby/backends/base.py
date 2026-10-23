@@ -68,7 +68,11 @@ class DatabaseBackend(ABC):
         """Insert a row, or update the row that has the same key. values holds every column to
         write, the key columns included. Table and column names come from this program only."""
         columns = list(values)
+        # The key columns identify the row, so only the others are overwritten when it exists. At
+        # least one column must be left over: an upsert of key columns only would build an empty SET.
         updated_columns = [column for column in columns if column not in key_columns]
+        if not updated_columns:
+            raise ValueError(f"upsert into {table} needs a column besides the key columns {list(key_columns)}")
         sql = self._upsert_sql(table, key_columns, columns, updated_columns)
         self.execute(sql, [values[column] for column in columns])
 
@@ -101,4 +105,5 @@ class DatabaseBackend(ABC):
 
 
 def placeholders(count: int) -> str:
+    """count comma-separated ? placeholders, for an INSERT or an IN list."""
     return ", ".join("?" for _ in range(count))

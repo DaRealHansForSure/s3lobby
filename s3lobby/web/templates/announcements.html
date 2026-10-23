@@ -15,11 +15,13 @@
   {% endif %}
   <form method="post" action="{{ url_for('server_settings.queue_announcement') }}">
     {{ csrf_field() }}
-    <label class="field">
-      <span class="label">Text</span>
-      <input class="input" type="text" name="text" maxlength="{{ max_announcement_length }}" required>
-    </label>
-    <button class="btn btn--primary" type="submit">Announce</button>
+    <div class="field field--action">
+      <label class="label" for="announcement-text">Text</label>
+      <div class="input-action">
+        <input class="input" id="announcement-text" type="text" name="text" maxlength="{{ max_announcement_length }}" required>
+        <button class="btn btn--primary" type="submit">Announce</button>
+      </div>
+    </div>
   </form>
 </section>
 

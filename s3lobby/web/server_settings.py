@@ -57,21 +57,29 @@ SETTING_FIELDS = (
     SettingField(
         Setting.BANNER_URL,
         "Banner URL",
-        "ftp:// address of the advert banner on the Home tab; the game fetches it by anonymous FTP. "
-        "Empty for no banner.",
+        "ftp://HOST/PATH of the advert banner on the Home tab, no port or user: the game fetches it "
+        "by anonymous active FTP on port 21. Empty for no banner.",
     ),
     SettingField(
         Setting.BANNER_ID,
         "Banner id",
-        "The game downloads the banner again only when this or the sub id changes: raise it after "
-        "replacing the picture.",
+        "Must not be 0, which the game ignores. The game downloads the banner again only when this or "
+        "the sub id changes, never for a new address alone: raise it after replacing the picture.",
     ),
     SettingField(Setting.BANNER_SUB_ID, "Banner sub id", "Second half of the banner's version."),
     SettingField(
         Setting.MARK_ADMINS,
         "Mark admins in the member lists",
-        "Draw admins' rows in the room member lists in another colour. Not yet tried with the real "
-        "game: turn it off again if players lose their connection when an admin enters a room.",
+        "Draw admins' rows in the room member lists in green (blue for an admin who shows the clan "
+        "BB). The message is the one highlighted clans use, which a run with the game confirmed.",
+        is_checkbox=True,
+    ),
+    SettingField(
+        Setting.BOARD_CHAT_HINT,
+        "Tell players the message board has no chat",
+        "Chat typed in the MessageZone reaches nobody, a bug of the game itself. With this on, a player "
+        "who opens the MessageZone hears so once per logon as a server line. Not yet tried with the "
+        "real game.",
         is_checkbox=True,
     ),
     SettingField(
@@ -87,11 +95,14 @@ SETTING_FIELDS = (
 
 @dataclass(frozen=True)
 class SettingRow:
+    """One setting on the settings page with its current stored value."""
+
     field: SettingField
     value: str
 
     @property
     def is_checked(self) -> bool:
+        """True when the stored value is one the server reads as true, so the checkbox shows ticked."""
         # Every value the server reads as true: one set to "yes" on the command line must show as
         # ticked, or the next save of this page would turn it off.
         return self.value.strip().lower() in TRUE_SETTING_VALUES
@@ -102,6 +113,7 @@ class SettingRow:
 
 @blueprint.get("/settings")
 def show_settings() -> str:
+    """The settings page with every setting's current value."""
     database = get_database()
     rows = [SettingRow(field=field, value=database.get_setting(field.setting)) for field in SETTING_FIELDS]
     return render_template("settings.html", rows=rows)
@@ -128,6 +140,8 @@ def save_settings() -> Response:
 
 
 def setting_value_from_form(field: SettingField) -> str:
+    """The value the form sent for a setting; a checkbox becomes the stored on or off value."""
+    # A browser leaves an unticked checkbox out of the form, so "off" has to be written explicitly.
     if field.is_checkbox:
         if form_flag(field.setting.key):
             return CHECKED_SETTING_VALUE
@@ -140,6 +154,7 @@ def setting_value_from_form(field: SettingField) -> str:
 
 @blueprint.get("/announcements")
 def show_announcements() -> str:
+    """The announcements page: the recent announcements and whether a server is running to send one."""
     return render_template(
         "announcements.html",
         announcements=get_database().list_recent_announcements(RECENT_ANNOUNCEMENT_COUNT),

@@ -26,6 +26,7 @@ def get_database() -> LobbyDatabase:
 
 
 def close_database(error: BaseException | None = None) -> None:
+    """Close the request's database connection when the request opened one; Flask calls this at teardown."""
     database = g.pop(DATABASE_ATTRIBUTE, None)
     if database is not None:
         database.close()
@@ -46,4 +47,5 @@ def apply_change(change: Callable[[], object], success_text: str) -> bool:
 def sentence_from_error(error: DatabaseError) -> str:
     """DatabaseError texts start in lower case for the command line's "error: ..." form."""
     message = str(error)
+    # Slicing instead of message[0], so an empty message cannot raise.
     return f"{message[:1].upper()}{message[1:]}."

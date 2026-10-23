@@ -163,6 +163,15 @@ class ResultCode(IntEnum):
     NOT_A_CLAN_MEMBER = 0x6D
 
     # Group answers.
+    # A group the player opened (a chat group or a game) exists; value = its id. The Result handler
+    # posts status 1/0 with the value (0x5d052d), and LM.PollStatus fills the lobby screen's empty
+    # slot with a CGroup of that id (0x5da8a0, copied by 0x5db590): the channel LM+0x490 in the
+    # ChatZone (0x452577), the game LM+0x6e8 in the game setup (0x452a12, 0x452b53). Only this
+    # fills them after opening: chat, whisper and "Erzeuge Spiel" go to the channel (LM.SendChat
+    # 0x454140); setup updates (0x45506c), "show game in GameZone" (0x456370) and the match start
+    # (0x454c20) name the game slot. A slot that is already filled makes the client leave the
+    # group instead (0x5dd520 -> 0x5ca5e0).
+    GROUP_OPENED = 0x0C
     # Dialog "Der Wechsel in die Gruppe hat nicht geklappt" (joining a group failed).
     GROUP_CHANGE_FAILED = 0x0B
     # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
@@ -190,8 +199,12 @@ class GameStatusFlag(IntFlag):
 class PlayerFlag(IntFlag):
     """Bits of the player flags in AddPlayerToGroup 0x26 (handler 0x5d6520, read by 0x5e7900)."""
 
-    # The room member list draws the player's row in another colour (0x449e09..0x449eb5); with the
-    # clan name "BB" in yet another (inferred: Blue Byte staff). s3lobby uses it to mark admins.
+    # The room member list draws the player's name and clan in green (0xff00, 0x449da1..0x449dbe);
+    # with the clan name exactly "BB" in blue instead (0xff3300, a Windows colour value with blue
+    # first; compared with the text at 0x69a568, 0x449de2..0x449eb5; inferred: Blue Byte staff).
+    # Seen in a run: a member of the highlighted clan "BB" was listed in blue, nothing broke. No
+    # other colour exists. s3lobby
+    # uses it for admins (setting mark_admins) and for the members of highlighted clans.
     HIGHLIGHTED = 0x1
 
 
@@ -201,19 +214,38 @@ class MatchPlayerFlag(IntFlag):
     # The slot is a computer opponent (slot state 2; the setup names the states at 0x48fd26..0x490309:
     # 0 free, 1 human, 2 computer opponent, 4 closed).
     COMPUTER = 0x1
-    # The slot is in state 3, which the setup never shows (inferred: a human player who left).
+    # The slot is in state 3: a human who left the DirectPlay session after it was closed to new
+    # players (written only at 0x434b19, PARAMS: DestroyPlayer, when "NET: OnDeletePlayer" 0x470980
+    # reports it with the session closed, 0x471571; inferred: closed because the match started).
     SLOT_STATE_3 = 0x2
-    # The slot has no player number in the match (its number is 0xff, 0x540631).
-    NO_PLAYER_NUMBER = 0x4
+    # The slot's race was "Random" in the game setup: the setup record's race (+0x64) is 0xff
+    # (0x540625..0x54063e), which the setup shows as "Zufall" (0x4909f0). The report's race is the
+    # one the game drew. Seen in a run: set for both players of a match set up with random races.
+    RANDOM_RACE = 0x4
 
+
+# The clan name the game's member list draws in blue instead of green, for a player with the
+# HIGHLIGHTED flag (compared with the text at 0x69a568, 0x449de2; inferred: Blue Byte staff).
+BLUE_BYTE_CLAN_NAME = "BB"
+# The colours of a player's row in the game's member list, as the web interface shows them too.
+GAME_ROW_GREEN = "green"
+GAME_ROW_BLUE = "blue"
+
+# One step of a match's game time (GameStatus's game_time, the tick counter 0x7dfd48): the logic
+# thread's timer runs every 64 ms (0x53d761), and the game's own clock shows the counter as
+# (ticks * 64) / 1000 seconds (0x4b3fa2..0x4b3fb6). Game time stops while the game waits for its
+# players, so it can lag behind the clock on the wall, never run ahead.
+GAME_TICK_MS = 64
 
 # GameStatus's winning team while more than one team is still in the match (0x540747..0x540768).
 NO_WINNING_TEAM = 0xFFFFFFFF
 
 
 class Race(IntEnum):
-    """A slot's race in a match report (MatchReportPlayer.race). Inferred from the setup's race
-    choices (0x48c2a3..0x48c2df) and the per-race tables the game indexes with the value (0x4dd2fc)."""
+    """A slot's race in a match report (MatchReportPlayer.race): the race the setup record keeps at
+    +0x64 (getter 0x49f510). The setup shows 0 to 3 with the texts Romans, Egyptians, Asians and
+    Amazons (0x9002d..0x9002f at 0x49053c..0x4907b1, 0x90155 at 0x4908e5), any other value as
+    "Random" (0x90030 at 0x4909f0)."""
 
     ROMANS = 0
     EGYPTIANS = 1
@@ -271,6 +303,15 @@ GAME_ZONE_NAMES = {
     37: "Human vs Computer",
     38: "Other games",
 }
+
+# A chat group with a password is opened under this group, not under the chat theme: CreateChatGroup
+# (0x4542c0) compares the password with the empty text (0x454315) and, when one is set, joins group
+# 5 (a group it builds with id 5 and empty texts, 0x454516, switched to at 0x452120), opens the chat
+# group under it, and leaves it again, all in one block (seen in a run). Blue Byte's server must
+# have had this group; s3lobby keeps it hidden (listed nowhere) and lists such a chat group in the
+# chat theme its creator just left as well, so other players can find it (inferred: how the
+# original server showed them is unknown).
+PASSWORD_CHAT_GROUP_PARENT_ID = 5
 
 # A host opens its game with this group id and leaves the choice of the real id to the server
 # (seen in a run: CreateGame 0x5ca7d0 sends 0xffffffff).
@@ -397,9 +438,13 @@ UNKNOWN_TEXT_TITLE = "Not available"
 # Keeps a text message within one unfragmented datagram on any network; longer texts are cut.
 MAX_TEXT_MESSAGE_BYTES = 1200
 
-# The banner's url must start like this; the game skips the first six characters and splits the rest
-# into host and path at the first slash (0x449938).
+# The banner's url must start like this; the game skips the first six characters without checking
+# them and splits the rest into host and path at the first slash (0x46501f..0x465110). The host is
+# used as it is, on port 21 and anonymously (0x4659fd..0x465a0f): no ":port", no "user@".
 BANNER_URL_PREFIX = "ftp://"
+# The game ignores a banner with id 0 (0x449894); it downloads one whenever its id or sub id
+# differs from the pair it saw last, never because the url changed (0x5ebfd0).
+NO_BANNER_ID = 0
 
 # Logon attempts: a token bucket per IP and per account name from that IP, drawn on by failed
 # attempts only, so a LAN party behind one router can log on together while guessing access codes
@@ -414,6 +459,18 @@ DEFAULT_BAN_HOURS = 24
 
 # Characters below this are control characters, which no text for the game may hold.
 FIRST_PRINTABLE_CHARACTER = " "
+
+# A new connection (an OpenConnection with another nonce) from an address whose logged on player is
+# still active is ignored: the game sends a keepalive every 5 seconds when it has nothing else to
+# send (0x604da4), during a match too (seen in a run), so a connection this quiet has a client
+# that ended. A forged OpenConnection from an active player's address no longer ends their
+# session, and a game that crashed and starts again gets in once its old connection fell silent.
+RECONNECT_AFTER_QUIET_MS = 20_000
+
+# Development mode (s3lobby serve --dev): every account also logs on with this password, from this
+# machine or its LAN only. For testing with the game without copying access codes; never on a
+# server others can reach.
+DEVELOPMENT_PASSWORD = "1234"
 
 # Admin chat commands wait this long for /confirm with a code of this many digits.
 CONFIRMATION_SECONDS = 60
@@ -486,6 +543,16 @@ ANNOUNCEMENT_GROUP_ID = 0
 # keeps no ladder.
 LADDER_NOT_SUPPORTED_TEXT = "Ladder games are not supported on this server: you can play, but the result is not ranked."
 
+# Server line for a player who opens the MessageZone (setting board_chat_hint). The game looks up the
+# wrong group for chat typed there (0x452455: the GameZone slot, always empty on that screen), so
+# that chat reaches nobody; the server cannot change that. The game shows server lines only in a
+# screen with a chat view, so the line may only appear once the player is back in a room, and is
+# worded to make sense there too.
+# At most 100 characters (MAX_ANSWER_LINE_LENGTH), so it stays one chat line.
+BOARD_CHAT_HINT_TEXT = (
+    "Chat typed on the message board reaches nobody (a bug of the game); please chat in the ChatZone."
+)
+
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.
 HOUSEKEEPING_INTERVAL_SECONDS = 0.25
@@ -517,10 +584,13 @@ DATAGRAM_BURST_PER_ADDRESS = 200
 # about a dozen messages.
 MAX_MESSAGES_PER_BLOCK = 256
 
-# How far ahead of the oldest missing block a client's block id may be. The game numbers its blocks
-# one by one and waits for acknowledgements, so it is never more than a few ahead; the window keeps
-# the memory for duplicate detection bounded.
-CLIENT_BLOCK_ID_WINDOW = 256
+# How far a client's block id may be from the oldest block still missing. The game packs whatever
+# it has queued into at most one new block per send pass, and passes come at most every 250 ms
+# (docs/protocol.md, "Timing"), while the server acknowledges at once: only a few blocks are ever
+# unacknowledged (inferred; seen in runs: one or two). The window keeps the memory for duplicate
+# detection bounded, and the narrower it is, the less a blind forger who sends from a player's
+# address can hope to hit a block id the server takes as new.
+CLIENT_BLOCK_ID_WINDOW = 32
 
 # The most a client may raise its silence timeout to: the game asks for 600000 ms around a match
 # and 60000 ms after it (0x454d6f, 0x452072), never more.
@@ -557,6 +627,13 @@ MAX_CHAT_COMMAND_LENGTH = 256
 # This server's limit for an announcement or the welcome line. ChatCommandAnswer wraps it into
 # lines the chat window shows; 256 characters stay within its line cap.
 MAX_ANNOUNCEMENT_LENGTH = 256
+
+# A chat group whose last member left stays open this long, and as long as a game opened in it is
+# open. A player who opens a game inside a chat group leaves the group in the same block (seen in a
+# run) and, back from the game setup, joins it again (0x451160 joins the channel kept at LM+0xc98).
+# A group closed meanwhile answers that join with Result 0xb, whose dialog Wine does not show over
+# the full screen game: it waited unseen, and the screen stayed frozen (seen in a run).
+EMPTY_CHAT_GROUP_KEEP_SECONDS = 120.0
 
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4

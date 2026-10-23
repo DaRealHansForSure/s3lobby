@@ -1,5 +1,5 @@
 {# The live part of the lobby page. Rendered on its own for app.js to swap in every few seconds. #}
-{% from "_macros.html" import names, reachability_badge with context %}
+{% from "_macros.html" import in_game_colour, names, reachability_badge with context %}
 <section>
   <div class="section-head">
     <h1>{{ page.server_name or "Lobby" }}</h1>
@@ -34,8 +34,8 @@
       <tbody>
         {% for player in page.players %}
         <tr>
-          <td>{{ player.name }}{% if admin and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
-          <td>{{ player.clan or "-" }}</td>
+          <td>{{ in_game_colour(player.name, player.row_colour) }}{% if admin and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
+          <td>{{ in_game_colour(player.clan, player.row_colour) if player.clan else "-" }}</td>
           <td>{{ names(player.tab_names) }}</td>
           <td>{{ names(player.group_names) }}</td>
           <td>{{ player.logged_on_at | relative_moment }}</td>

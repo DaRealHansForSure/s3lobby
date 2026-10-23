@@ -28,14 +28,18 @@ class FakeGame(asyncio.DatagramProtocol):
     told to stay silent like a player behind a router that drops the probe."""
 
     def __init__(self, answers: bool) -> None:
+        """A game that answers OpenConnection when answers is true and stays silent otherwise."""
         self.answers = answers
         self.received: list[list[int]] = []
         self.transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        """Keep the transport to answer on."""
         self.transport = transport
 
     def datagram_received(self, data: bytes, address: Address) -> None:
+        """Record the message types of each datagram and answer an OpenConnection like the game, when told to.
+        """
         messages = decode_block(data)
         self.received.append([message.message_type for message in messages])
         is_opening = any(message.message_type == MessageType.OPEN_CONNECTION for message in messages)
@@ -50,7 +54,10 @@ class FakeGame(asyncio.DatagramProtocol):
 
 
 class ReachabilityProberTest(unittest.IsolatedAsyncioTestCase):
+    """The prober on a loopback port, probing fake games that answer or stay silent."""
+
     async def asyncSetUp(self) -> None:
+        """Start a prober on a free loopback port whose results go into a queue."""
         self.results: asyncio.Queue[tuple[Address, Reachability]] = asyncio.Queue()
         loop = asyncio.get_running_loop()
         _, self.prober = await loop.create_datagram_endpoint(
@@ -60,6 +67,7 @@ class ReachabilityProberTest(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.prober.close)
 
     async def start_game(self, answers: bool) -> tuple[FakeGame, Address]:
+        """Start a fake game on a free loopback port; returns it and its address."""
         loop = asyncio.get_running_loop()
         transport, game = await loop.create_datagram_endpoint(
             lambda: FakeGame(answers), local_addr=(LOOPBACK, ANY_FREE_PORT)
@@ -68,9 +76,13 @@ class ReachabilityProberTest(unittest.IsolatedAsyncioTestCase):
         return game, transport.get_extra_info("sockname")
 
     async def next_result(self) -> tuple[Address, Reachability]:
+        """The next address and result the prober reports; fails after RESULT_TIMEOUT_SECONDS."""
         return await asyncio.wait_for(self.results.get(), RESULT_TIMEOUT_SECONDS)
 
     async def test_game_that_answers_is_open_and_its_connection_is_closed(self) -> None:
+        """A game that answers the probe counts as open, and the prober closes the connection it opened,
+        acknowledging the game's block in the same block as the close, as the game requires, so the probe
+        leaves nothing behind in the player's game."""
         game, address = await self.start_game(answers=True)
         self.prober.probe(address)
         self.assertEqual(await self.next_result(), (address, Reachability.OPEN))
@@ -89,6 +101,8 @@ class ReachabilityProberTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_silent_game_is_blocked_after_every_attempt(self) -> None:
+        """A game that never answers counts as blocked, but only after the probe was sent three times, so one
+        lost datagram does not tell a player their router blocks others."""
         game, address = await self.start_game(answers=False)
         with mock.patch("s3lobby.reachability.REACHABILITY_PROBE_INTERVAL_SECONDS", SHORT_PROBE_INTERVAL_SECONDS):
             self.prober.probe(address)
@@ -96,6 +110,8 @@ class ReachabilityProberTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(game.received), 3, "the probe is retried before it counts as blocked")
 
     async def test_datagrams_from_strangers_are_ignored(self) -> None:
+        """A datagram from an address the prober did not probe is ignored, so nobody can fake a result for a
+        player."""
         stranger = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.addCleanup(stranger.close)
         stranger.bind((LOOPBACK, ANY_FREE_PORT))
