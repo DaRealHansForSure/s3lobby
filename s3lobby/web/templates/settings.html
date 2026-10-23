@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_field with context %}
+{% from "_macros.html" import csrf_field, checkbox_field with context %}
 {% set active_nav = "settings" %}
 {% block title %}Settings{% endblock %}
 {% block content %}
@@ -13,10 +13,7 @@
     {{ csrf_field() }}
     {% for row in rows %}
       {% if row.field.is_checkbox %}
-      <label class="check">
-        <input type="checkbox" name="{{ row.field.setting.key }}"{% if row.is_checked %} checked{% endif %}>
-        <span>{{ row.field.label }}<br><span class="muted">{{ row.field.hint }}</span></span>
-      </label>
+      {{ checkbox_field(row.field.setting.key, row.field.label, row.field.hint, row.is_checked) }}
       {% else %}
       <label class="field">
         <span class="label">{{ row.field.label }}</span>

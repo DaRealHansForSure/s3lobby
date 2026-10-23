@@ -20,7 +20,7 @@
     {% if entry.messages %}
     <div class="scroll-x">
       <table class="table">
-        <thead><tr><th>Message</th><th>Author</th><th>Posted</th><th></th></tr></thead>
+        <thead><tr><th>Message</th><th>Author</th><th>Posted</th><th class="cell-actions"></th></tr></thead>
         <tbody>
           {% for message in entry.messages %}
           <tr>
@@ -32,7 +32,7 @@
             </td>
             <td>{{ message.author or "-" }}</td>
             <td>{{ message.posted_at | moment }}</td>
-            <td>{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--danger") }}</td>
+            <td class="cell-actions">{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--danger") }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -66,15 +66,15 @@
         <input class="input" type="text" name="author" maxlength="{{ max_name_length }}" value="{{ default_author }}">
       </label>
     </div>
-    <label class="field">
+    <label class="field field--wide">
       <span class="label">Title</span>
       <input class="input" type="text" name="title" maxlength="{{ max_name_length }}" required>
     </label>
-    <label class="field">
+    <label class="field field--wide">
       <span class="label">Text</span>
       <textarea class="textarea" name="body" rows="8" maxlength="{{ max_text_length }}"></textarea>
     </label>
-    <button class="btn btn--primary" type="submit">Post message</button>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Post message</button></div>
   </form>
 </section>
 {% endif %}
