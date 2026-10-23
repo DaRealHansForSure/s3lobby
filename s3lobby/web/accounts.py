@@ -30,7 +30,8 @@ HTTP_NOT_FOUND = 404
 DEFAULT_BAN_HOURS = 24
 MAX_BAN_HOURS = 10 * 365 * 24
 NO_CLAN_VALUE = ""
-# The reason is a note for other admins and never reaches the game; the limit only keeps it short.
+# The reason is a note for other admins, and an online player is told it as they are removed; the
+# database checks it like every text for the game.
 MAX_BAN_REASON_LENGTH = 200
 
 

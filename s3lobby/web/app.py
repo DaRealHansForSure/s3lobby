@@ -31,6 +31,7 @@ TRUE_VARIABLE_VALUES = frozenset({"1", "true", "yes", "on"})
 MAX_REQUEST_BYTES = 64 * 1024
 SESSION_LIFETIME = timedelta(hours=12)
 SECRET_KEY_BYTES = 32
+SECURE_SESSION_COOKIE_NAME = "__Host-s3lobby"
 # Behind a reverse proxy, the one proxy in front sets X-Forwarded-For and X-Forwarded-Proto.
 TRUSTED_PROXY_COUNT = 1
 
@@ -64,7 +65,12 @@ def create_app(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=secure_cookies,
+        S3LOBBY_HTTPS_ONLY=secure_cookies,
     )
+    if secure_cookies:
+        # The __Host- prefix makes browsers refuse the cookie unless it is secure, host-only and
+        # for path /, so a sibling subdomain cannot plant or overwrite it.
+        app.config["SESSION_COOKIE_NAME"] = SECURE_SESSION_COOKIE_NAME
     app.jinja_env.filters["moment"] = format_moment
     app.jinja_env.filters["relative_moment"] = format_relative_moment
 
@@ -106,10 +112,16 @@ def create_app_from_environment() -> Flask:
 
         S3LOBBY_DATABASE=/srv/lobby.sqlite3 S3LOBBY_WEB_SECRET=... \\
             gunicorn "s3lobby.web.app:create_app_from_environment()"
+
+    The secret is required here: a WSGI server runs several worker processes, and a random key per
+    worker would log admins out whenever a request reached another worker.
     """
+    secret_key = os.environ.get(SECRET_KEY_VARIABLE)
+    if not secret_key:
+        raise RuntimeError(f"set {SECRET_KEY_VARIABLE} to a long random string")
     return create_app(
         database_location=os.environ.get(DATABASE_LOCATION_VARIABLE, DEFAULT_DATABASE_PATH),
-        secret_key=os.environ.get(SECRET_KEY_VARIABLE),
+        secret_key=secret_key,
         secure_cookies=is_variable_set(SECURE_COOKIES_VARIABLE),
         is_behind_proxy=is_variable_set(BEHIND_PROXY_VARIABLE),
     )
