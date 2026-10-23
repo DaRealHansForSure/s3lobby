@@ -1096,9 +1096,9 @@ class MatchReportPlayer:
 
     flags holds MatchPlayerFlag bits. lobby_player_id is the player id the lobby gave the slot's
     player (0 for a computer opponent, inferred); in a ladder game a slot without one makes the
-    report not valid for the ladder (0x5405ec). race is 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons
-    (inferred from the setup's race choices 0x48c2a3..0x48c2df and the per-race tables the game
-    indexes with it, 0x4dd2fc). unused is always 0 (0x54061d). slot is the slot number, 0 to 19;
+    report not valid for the ladder (0x5405ec). race is a Race: the race the game played, drawn by
+    the game when the setup said "Random" (flag RANDOM_RACE). unused is always 0 (0x54061d). slot is
+    the slot number, 0 to 19;
     team the slot's team as the game numbers it (the winning team uses the same numbers).
     """
 
