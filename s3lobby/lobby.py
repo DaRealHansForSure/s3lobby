@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Protocol
@@ -44,6 +44,7 @@ from s3lobby.constants import (
     GAME_ZONE_NAMES,
     HOME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
+    LADDER_NOT_SUPPORTED_TEXT,
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
     MAX_CHAT_COMMAND_LENGTH,
@@ -67,6 +68,7 @@ from s3lobby.groups import (
     GroupKind,
     check_client_group_texts,
     game_block_with_real_host,
+    is_ladder_game,
     kind_of_new_group,
     room_announcement,
     with_real_host_address,
@@ -363,6 +365,7 @@ class Lobby:
             # not count: a host still setting up its game may list it in further zones.
             self._take_player_out_of_games(player)
         self._add_player_to_group(player, group)
+        self._tell_about_ladder(group, [player])
 
     def _leave_group_on_request(self, client_address: Address, message: RawMessage) -> None:
         request = RemovePlayerFromGroup.decode(message)
@@ -435,6 +438,7 @@ class Lobby:
         # in once the server announces the group to it with parent 0, like after any other join.
         self._add_player_to_group(player, group)
         self._list_group_in(group, parent)
+        self._tell_about_ladder(group, [player])
 
     def _list_existing_game(self, player: Player, group: Group, zone: Group) -> None:
         if player.player_id not in group.member_ids or group.kind != GroupKind.GAME:
@@ -466,6 +470,7 @@ class Lobby:
         for viewer in self._viewers_of(group):
             self._outbox.send(viewer.address, public_update)
         self._send_counters_to_viewers(group)
+        self._tell_about_ladder(group, self._members_of(group))
 
     def _unlist_group_on_request(self, client_address: Address, message: RawMessage) -> None:
         """RemoveGroupFromGroup from a member: at the start of the match the host takes its game
@@ -529,8 +534,9 @@ class Lobby:
 
     def _store_game_status(self, client_address: Address, message: RawMessage) -> None:
         """A client reports on its match, once at the start and once when a single team is left
-        (0x540500). The report is kept as the client wrote it, and the client is told it was
-        stored; the game shows that answer only during a ladder game (0x540a18)."""
+        (0x540500). The report is kept as the client wrote it. The client is told it was stored,
+        or for a ladder game that it is not valid for the ladder; the game shows the answer only
+        during a ladder game (0x540a18)."""
         status = GameStatus.decode(message)
         player = self._find_logged_on_player(client_address)
         if player is None:
@@ -549,7 +555,12 @@ class Lobby:
             len(status.players),
             status.game_time,
         )
-        self._outbox.send(client_address, Result(ResultCode.GAME_STATUS_STORED))
+        result_code = ResultCode.GAME_STATUS_STORED
+        if status.is_ladder_game:
+            # Stored like any report, but the game must not take it for a ranked ladder result: it
+            # shows "Game not valid for ladder." during the match (0x540b89).
+            result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
+        self._outbox.send(client_address, Result(result_code))
 
     def _online_player_names(self) -> list[str]:
         return [player.name for player in self._players_by_id.values()]
@@ -583,6 +594,22 @@ class Lobby:
             self._send_home_page(player)
         if is_board_theme_group(group.group_id):
             self._send_board_message_ids(player, group.group_id - BOARD_THEME_GROUP_ID_BASE)
+
+    def _tell_about_ladder(self, group: Group, players: Iterable[Player]) -> None:
+        """Blue Byte's server ranked ladder games; this one keeps no ladder, so a ladder game
+        counts for nothing beyond the match itself. Each player of a ladder game hears so once, as
+        a server line: the host when opening it or when turning it into one during the setup, a
+        joiner when joining."""
+        is_ladder = group.kind == GroupKind.GAME and is_ladder_game(group.announcement)
+        if not is_ladder:
+            return
+        line = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([LADDER_NOT_SUPPORTED_TEXT]))
+        for player in players:
+            if player.player_id in group.ladder_notice_player_ids:
+                continue
+            group.ladder_notice_player_ids.add(player.player_id)
+            self._outbox.send(player.address, line)
+            log.info("player %d %r told that ladder game %d is not ranked", player.player_id, player.name, group.group_id)
 
     # The Home tab.
 

@@ -161,6 +161,10 @@ class ResultCode(IntEnum):
     # Answer to GameStatus: 0x90148 "Game status stored at the Lobby server." (0x540a3e). The game
     # shows answers to GameStatus only during a ladder game (0x540a18) and ignores them otherwise.
     GAME_STATUS_STORED = 0x6C
+    # Answer to GameStatus of a ladder game: 0x90149 "Game status inconsistencies. Game not valid for
+    # ladder." (Result handler 0x5d056c, shown in the match at 0x540b89). This server keeps no
+    # ladder, so it gives this answer to every ladder report.
+    GAME_NOT_VALID_FOR_LADDER = 0x6A
 
 
 class GameStatusFlag(IntFlag):
@@ -404,6 +408,10 @@ LIVE_STATE_STALE_SECONDS = 30.0
 # Group id of a server line sent to every player: the line shows in whatever room the player is
 # in; the id only names the group in the client's chat log file (0x5d2420).
 ANNOUNCEMENT_GROUP_ID = 0
+
+# Server line for the players of a ladder game: Blue Byte's server ranked ladder games, this one
+# keeps no ladder.
+LADDER_NOT_SUPPORTED_TEXT = "Ladder games are not supported on this server: you can play, but the result is not ranked."
 
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.

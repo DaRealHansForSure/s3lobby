@@ -239,6 +239,10 @@ In the game, players can type `/who`, `/clan` and `/help` into the chat; admins 
 TEXT`. Answers and announcements show as `[Server]` lines. Match reports the game sends after a
 game are stored in the database.
 
+Ladder games ("Liga", "Clanliga") can be opened and played, but they are not ranked: Blue Byte's
+server kept the ladder, this one does not. Their players get a server line saying so, and during
+the match the game shows "Game not valid for ladder." instead of a ranked result.
+
 Every command takes `--database` and works while the server runs. The web interface below does
 the same from a browser.
 

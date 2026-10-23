@@ -456,6 +456,14 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
   status stored at the Lobby server." (0x540a3e), 0x6a as "Game status inconsistencies. Game not
   valid for ladder." (0x540b89). For other games it ignores the answer.
 
+  s3lobby keeps no ladder. It stores every report as sent and answers 0x6c, except for a ladder
+  game (flag 1), which it answers with 0x6a, so the game tells the players during the match
+  that the result does not count. Before that, every player of a ladder game gets one server line
+  (ChatCommandAnswer to group 0) saying that ladder games are not ranked: the host when opening
+  the game or when an UpdateGroup with a new description turns it into a ladder game, a joiner
+  when joining. The description decides, as the host rewrites it on every change of the setup;
+  the game block keeps the choice made when the game was opened.
+
 ## Session sequence
 
 | Step | Client | Server |
