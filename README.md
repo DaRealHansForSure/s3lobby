@@ -107,13 +107,15 @@ from Windows 10 in the LAN where noted:
   ("Warp"), another player joining it, playing the match, the match reports, coming back to the
   lobby (two copies of the game on one machine)
 - clans shown in the member lists, and a clan's row coloured by the server
+- a chat group with a password: opening it and its creator getting in
+- the chat commands `/who` and `/net`
 - server lines, and the web interface with every page
 - from Windows 10: logon, a chat group, a game opened from it and listed in a zone, a match with
   its reports, coming back, and the MessageZone with a board message read
 
-Implemented from the game's code, not yet tried with the real game: full games, joining a chat
-group with a password, the Home tab's news and statistics, the banner, the chat
-commands, and kicks and bans of players who are online.
+Implemented from the game's code, not yet tried with the real game: full games, another player
+joining a chat group with its password, the Home tab's news and statistics, the banner, the other
+chat commands, and kicks and bans of players who are online.
 
 Not tested yet with players on two machines: the game's own DirectPlay connection between them.
 
