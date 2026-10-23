@@ -510,7 +510,8 @@ and compare with the server's `--verbose` log):
 
 - Two real players: chat between clients, joining another player's game, the game's own
   DirectPlay connection between two machines.
-- What the real server named the zone groups 30..38 and rooms 1..3.
 - How long one tick of GameStatus's game time is.
-- Which registry view the game reads when it runs without administrator rights (WOW6432Node or
-  VirtualStore).
+
+Not answerable from the game: what Blue Byte's server named the zone groups 30..38 and the rooms
+1..3. Only a recording of the original server would tell; s3lobby uses the names the client's own
+texts give them (0x441313).
