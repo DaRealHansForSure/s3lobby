@@ -15,7 +15,7 @@
       <h3>{{ entry.theme.name }}</h3>
       <span class="badge">{{ entry.theme.language }}</span>
       {% if entry.theme.is_server_written %}<span class="badge badge--accent" title="The ladder's texts; nobody can post here">written by the server</span>{% endif %}
-      {{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove theme", "btn--danger") }}
+      {{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove theme", "btn--outline") }}
     </div>
     {% if entry.theme.description %}<p>{{ entry.theme.description }}</p>{% endif %}
     {% if entry.messages %}
@@ -32,8 +32,8 @@
               </details>
             </td>
             <td>{{ message.author or "-" }}</td>
-            <td>{{ message.posted_at | moment }}</td>
-            <td class="cell-actions">{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--danger") }}</td>
+            <td>{{ message.posted_at | short_moment }}</td>
+            <td class="cell-actions">{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--outline") }}</td>
           </tr>
           {% endfor %}
         </tbody>

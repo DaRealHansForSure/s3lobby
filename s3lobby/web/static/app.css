@@ -130,7 +130,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--space-4);
-  align-items: end;
+  /* Fields line up on their labels: a field with a hint under it must not push its neighbour down. */
+  align-items: start;
   /* As wide as a wide field, so a form keeps one column edge, and a field's space under it. */
   max-width: 34rem;
   margin-bottom: var(--space-4);
@@ -237,8 +238,6 @@
 .row-details > summary::-webkit-details-marker { display: none; }
 .row-details[open] > form { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
 
-/* Fields with hints of different lengths: line the fields up on their labels. */
-.form-grid--top { align-items: start; }
 
 /* Tabs that are links to other views of a page: no underline, and the current one marked like a
    selected tab. */
@@ -262,3 +261,9 @@ a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--ac
 /* The admin row has more pages than fit one line on a laptop: it wraps instead of scrolling, so
    every group stays in sight. */
 .app-nav-bar--admin .app-nav { flex-wrap: wrap; column-gap: var(--space-4); row-gap: 0; }
+
+/* The settings page: one card per group of settings, their fields side by side. */
+.settings-group { margin-bottom: var(--space-5); }
+.settings-group h2 { font-size: var(--size-lg); margin-bottom: var(--space-4); }
+/* A form grid that may use the whole width of its card, for a section of many short fields. */
+.form-grid--wide { max-width: none; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }

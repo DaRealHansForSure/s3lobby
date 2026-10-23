@@ -18,7 +18,7 @@
         <tr>
           <td>{{ theme.name }}</td>
           <td>{{ theme.description or "-" }}</td>
-          <td class="cell-actions">{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--danger") }}</td>
+          <td class="cell-actions">{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--outline") }}</td>
         </tr>
         {% endfor %}
       </tbody>

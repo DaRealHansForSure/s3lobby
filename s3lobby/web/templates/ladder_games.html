@@ -49,7 +49,7 @@
       <tbody>
         {% for game in waiting_games %}
         <tr>
-          <td class="cell-time">{{ game.opened_at | moment }}</td>
+          <td class="cell-time">{{ game.opened_at | short_moment }}</td>
           <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
           <td>{{ state_badge("waiting") }} {% if game.closed_at %}closed {{ game.closed_at | relative_moment }}{% else %}open{% endif %}</td>
         </tr>
@@ -70,7 +70,7 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td class="cell-time">{{ row.played_at | moment }}</td>
+          <td class="cell-time">{{ row.played_at | short_moment }}</td>
           <td>
             <a href="{{ url_for('games.show_game', game_id=row.game_id) }}">{{ row.game_name }}</a> <span class="badge">{{ row.ladder | capitalize }}</span>
             <div class="muted">{% if row.winners %}{{ row.winners | join(", ") }} vs {{ row.losers | join(", ") }}{% else %}-{% endif %}</div>
@@ -139,7 +139,7 @@
       </details>
       <div class="row season-actions">
         {% if card.state == "running" %}{{ action_button(url_for('ladder_admin.end_season', season_id=card.season.season_id), "End now") }}{% endif %}
-        {{ action_button(url_for('ladder_admin.delete_season', season_id=card.season.season_id), "Delete", "btn--danger") }}
+        {{ action_button(url_for('ladder_admin.delete_season', season_id=card.season.season_id), "Delete", "btn--outline") }}
       </div>
     </div>
     {% endfor %}
@@ -150,7 +150,7 @@
   <div class="section-head"><h2>New custom season</h2></div>
   <form class="card" method="post" action="{{ url_for('ladder_admin.create_season') }}">
     {{ csrf_field() }}
-    <div class="form-grid form-grid--top">
+    <div class="form-grid">
       <label class="field"><span class="label">Name</span><input class="input" type="text" name="name" maxlength="64" required></label>
       <label class="field"><span class="label">Counts</span><select class="select" name="counts">{% for choice in counts_choices %}<option{% if choice == "both" %} selected{% endif %}>{{ choice }}</option>{% endfor %}</select></label>
       <label class="field"><span class="label">First day</span><input class="input" type="date" name="start" required></label>

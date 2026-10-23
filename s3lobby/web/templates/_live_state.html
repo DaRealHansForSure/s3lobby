@@ -72,7 +72,7 @@
             <div class="badges">
               {% if game.has_started %}<span class="badge badge--accent">playing</span>{% else %}<span class="badge badge--good">open</span>{% endif %}
               {% if game.is_full %}<span class="badge badge--warn">full</span>{% endif %}
-              {% if game.is_ladder_game %}<span class="badge" title="Ladder games are played but not ranked on this server">ladder, unranked</span>{% endif %}
+              {% if game.is_ladder_game %}<span class="badge" title="A ladder game: the result counts for the ladder once every player reported it">ladder</span>{% endif %}
             </div>
           </td>
         </tr>

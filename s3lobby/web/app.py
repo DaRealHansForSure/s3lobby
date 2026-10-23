@@ -22,7 +22,7 @@ from s3lobby.web import accounts, admin_home, auth, content, games, ladder_pages
 from s3lobby.web.auth import install_logon_failure_limiter
 from s3lobby.web.security import add_security_headers, check_csrf_token
 from s3lobby.web.storage import close_database
-from s3lobby.web.texts import format_moment, format_relative_moment
+from s3lobby.web.texts import format_moment, format_relative_moment, format_short_moment
 
 # Where the admin area lives; the public pages are outside it.
 ADMIN_PATH_PREFIX = "/admin"
@@ -89,6 +89,7 @@ def create_app(
         app.config["SESSION_COOKIE_NAME"] = SECURE_SESSION_COOKIE_NAME
     app.jinja_env.filters["moment"] = format_moment
     app.jinja_env.filters["relative_moment"] = format_relative_moment
+    app.jinja_env.filters["short_moment"] = format_short_moment
 
     # x_proto as well, so behind an HTTPS proxy Flask knows the request came over HTTPS and builds its
     # redirects with https.

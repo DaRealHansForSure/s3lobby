@@ -26,7 +26,7 @@
             {% else %}
             {{ action_button(url_for('accounts.highlight_clan', clan_id=clan.clan_id), "Green in the game", fields={"is_highlighted": "on"}) }}
             {% endif %}
-            {{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--danger") }}
+            {{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--outline") }}
           </td>
         </tr>
         {% endfor %}

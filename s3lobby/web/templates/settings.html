@@ -11,16 +11,24 @@
   </div>
   <form method="post" action="{{ url_for('server_settings.save_settings') }}">
     {{ csrf_field() }}
-    {% for row in rows %}
-      {% if row.field.is_checkbox %}
-      {{ checkbox_field(row.field.setting.key, row.field.label, row.field.hint, row.is_checked) }}
-      {% else %}
-      <label class="field">
-        <span class="label">{{ row.field.label }}</span>
-        <input class="input" type="text" name="{{ row.field.setting.key }}" value="{{ row.value }}">
-        <span class="hint">{{ row.field.hint }}</span>
-      </label>
+    {% for section in sections %}
+    <section class="card settings-group">
+      <h2>{{ section.name }}</h2>
+      {% if section.text_rows %}
+      <div class="form-grid form-grid--wide">
+        {% for row in section.text_rows %}
+        <label class="field">
+          <span class="label">{{ row.field.label }}</span>
+          <input class="input" type="text" name="{{ row.field.setting.key }}" value="{{ row.value }}">
+          <span class="hint">{{ row.field.hint }}</span>
+        </label>
+        {% endfor %}
+      </div>
       {% endif %}
+      {% for row in section.checkbox_rows %}
+      {{ checkbox_field(row.field.setting.key, row.field.label, row.field.hint, row.is_checked) }}
+      {% endfor %}
+    </section>
     {% endfor %}
     <div class="form-actions"><button class="btn btn--primary" type="submit">Save settings</button></div>
   </form>

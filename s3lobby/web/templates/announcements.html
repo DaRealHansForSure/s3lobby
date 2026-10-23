@@ -35,8 +35,8 @@
         {% for announcement in announcements %}
         <tr>
           <td>{{ announcement.text }}</td>
-          <td>{{ announcement.created_at | moment }}</td>
-          <td>{% if announcement.sent_at %}{{ announcement.sent_at | moment }}{% else %}<span class="badge badge--warn">waiting</span>{% endif %}</td>
+          <td>{{ announcement.created_at | short_moment }}</td>
+          <td>{% if announcement.sent_at %}{{ announcement.sent_at | short_moment }}{% else %}<span class="badge badge--warn">waiting</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

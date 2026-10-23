@@ -39,8 +39,8 @@
           {% for code in access_codes %}
           <tr>
             <td>{{ code.label or "-" }}</td>
-            <td>{{ code.created_at | moment }}</td>
-            <td>{{ code.last_used_at | moment }}</td>
+            <td>{{ code.created_at | short_moment }}</td>
+            <td>{{ code.last_used_at | short_moment }}</td>
             <td>{% if code.is_active %}<span class="badge badge--good">active</span>{% else %}<span class="badge">revoked {{ code.revoked_at | moment }}</span>{% endif %}</td>
             <td class="cell-actions">{% if code.is_active %}{{ action_button(url_for('accounts.revoke_access_code', account_id=account.account_id, code_id=code.code_id), "Revoke") }}{% endif %}</td>
           </tr>
@@ -82,7 +82,7 @@
         <tr>
           <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
           <td>{{ game.host_name or "-" }}</td>
-          <td class="cell-time">{{ game.opened_at | moment }}</td>
+          <td class="cell-time">{{ game.opened_at | short_moment }}</td>
           <td class="num">{% if game.team is not none %}{{ game.team }}{% else %}<span class="muted">-</span>{% endif %}</td>
           <td>{{ game.race or "-" }}</td>
           <td>

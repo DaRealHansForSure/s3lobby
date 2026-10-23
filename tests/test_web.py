@@ -128,13 +128,12 @@ class LiveLobbyTest(WebInterfaceTestCase):
         self.assertIn("League 1 vs 1", page)
         self.assertNotIn("192.0.2.7", page)
 
-    def test_games_show_their_map_teams_and_that_a_ladder_game_is_unranked(self) -> None:
-        """A game shows its map, with a random map named so, and a ladder game is marked unranked, since this
-        server keeps no ladder."""
+    def test_games_show_their_map_teams_and_that_a_ladder_game_is_a_ladder_game(self) -> None:
+        """A game shows its map, with a random map named so, and a ladder game is marked as one."""
         self.database.write_live_state(LIVE_STATE)
         page = self.client.get("/live/state").get_data(as_text=True)
-        self.assertIn("Random (random map)", page)
-        self.assertIn("ladder, unranked", page)
+        self.assertIn("Random map", page)
+        self.assertIn(">ladder</span>", page)
 
     def test_admins_see_addresses_in_the_admin_area_only(self) -> None:
         """Admins see each player's address and whether the reachability probe found them blocked, to help
@@ -563,8 +562,8 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
 
         page = self.client.get("/admin/games").get_data(as_text=True)
         for expected in (
-            "Ladder with clans (Clanliga)",
-            "<td>\\Random</td>",
+            "<td>Clanliga</td>",
+            "<td>Random map</td>",
             f"<td>{PLAYER_NAME}, {ADMIN_NAME}</td>",
             "Team 0 won",
             f'href="/admin/games/{game_id}"',
