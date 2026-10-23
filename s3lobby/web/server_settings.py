@@ -67,6 +67,21 @@ SETTING_FIELDS = (
         "replacing the picture.",
     ),
     SettingField(Setting.BANNER_SUB_ID, "Banner sub id", "Second half of the banner's version."),
+    SettingField(
+        Setting.MARK_ADMINS,
+        "Mark admins in the member lists",
+        "Draw admins' rows in the room member lists in another colour. Not yet tried with the real "
+        "game: turn it off again if players lose their connection when an admin enters a room.",
+        is_checkbox=True,
+    ),
+    SettingField(
+        Setting.CHECK_REACHABILITY,
+        "Check whether players can be reached",
+        "After each logon from the internet, test from a second port whether other players can write "
+        "to the player first. The lobby page shows the result to admins, /net to the player. Not yet "
+        "tried with the real game.",
+        is_checkbox=True,
+    ),
 )
 
 

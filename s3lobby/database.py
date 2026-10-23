@@ -67,6 +67,7 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "settings",
     "pending_announcements",
     "live_state",
+    "pending_kicks",
 )
 
 # The game's own rule for player names (refusal text 0x9009e): letters A to Z in either case, and
@@ -111,6 +112,12 @@ class Setting(Enum):
     BANNER_URL = "banner_url"
     BANNER_ID = "banner_id"
     BANNER_SUB_ID = "banner_sub_id"
+    # Admins' rows in the room member lists are drawn in another colour (AddPlayerToGroup 0x26).
+    # Off by default: no run with the real game has shown this message yet.
+    MARK_ADMINS = "mark_admins"
+    # After each logon from the internet, probe whether other players can reach the player
+    # directly (reachability.py). Off by default: no run with the real game has seen the probe.
+    CHECK_REACHABILITY = "check_reachability"
 
     @property
     def key(self) -> str:
@@ -128,7 +135,12 @@ SETTING_DEFAULTS = {
     Setting.BANNER_URL: "",
     Setting.BANNER_ID: "0",
     Setting.BANNER_SUB_ID: "0",
+    Setting.MARK_ADMINS: "false",
+    Setting.CHECK_REACHABILITY: "false",
 }
+
+# What a player is told when their account is deleted while they are online.
+ACCOUNT_REMOVED_KICK_REASON = "Your account was removed."
 
 # live_state holds one row, the running server's lobby.
 LIVE_STATE_ROW_ID = 1
@@ -137,6 +149,7 @@ TRUE_SETTING_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
 # The numeric settings travel to the game as u32 fields.
 INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BANNER_SUB_ID})
+BOOLEAN_SETTINGS = frozenset({Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS, Setting.CHECK_REACHABILITY})
 MAX_INTEGER_SETTING = 0xFFFFFFFF
 
 LINE_BREAK = "\n"
@@ -234,6 +247,14 @@ class GameReportRecord:
 
 
 @dataclass(frozen=True)
+class PendingKick:
+    """A player the running server is to remove from the lobby, with the reason it tells them."""
+
+    account_id: int
+    reason: str
+
+
+@dataclass(frozen=True)
 class AnnouncementRecord:
     text: str
     created_at: datetime
@@ -291,7 +312,7 @@ def check_setting_value(setting: Setting, value: str) -> None:
         if not value.isdigit() or int(value) > MAX_INTEGER_SETTING:
             raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_INTEGER_SETTING}")
         return
-    if setting == Setting.UNIQUE_SERIAL_NUMBERS:
+    if setting in BOOLEAN_SETTINGS:
         if value.strip().lower() not in TRUE_SETTING_VALUES | FALSE_SETTING_VALUES:
             raise DatabaseError(f"{setting.key} must be true or false")
         return
@@ -304,6 +325,14 @@ def check_setting_value(setting: Setting, value: str) -> None:
         check_game_text(setting.key, value, MAX_ANNOUNCEMENT_LENGTH)
         return
     raise AssertionError(f"no check for setting {setting.key}")
+
+
+def ban_kick_reason(until: datetime, reason: str) -> str:
+    """What a banned player who is online is told as they are removed."""
+    text = f"You are banned until {until.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC"
+    if reason:
+        return f"{text}: {reason}"
+    return f"{text}."
 
 
 def utc_now() -> datetime:
@@ -492,19 +521,47 @@ class LobbyDatabase:
         return [account_from_row(row) for row in rows]
 
     def delete_account(self, account_id: int) -> None:
+        """Delete the account; a running server also removes the player from the lobby."""
         with self._backend.transaction():
             self._backend.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+            self._queue_kick(account_id, ACCOUNT_REMOVED_KICK_REASON)
 
     def set_admin(self, account_id: int, is_admin: bool) -> None:
         with self._backend.transaction():
             self._backend.execute("UPDATE accounts SET is_admin = ? WHERE id = ?", (int(is_admin), account_id))
 
     def ban_account(self, account_id: int, until: datetime, reason: str) -> None:
+        """Bar the account from logging on until the given moment. A player who is online is also
+        removed from the running lobby; one who is offline is refused at the next logon."""
         with self._backend.transaction():
             self._backend.execute(
                 "UPDATE accounts SET banned_until = ?, ban_reason = ? WHERE id = ?",
                 (to_stored_time(until), reason, account_id),
             )
+            self._queue_kick(account_id, ban_kick_reason(until, reason))
+
+    def queue_kick(self, account_id: int, reason: str) -> None:
+        """Ask the running server to remove the player from the lobby, if online. The player may
+        log on again; a ban keeps them out."""
+        with self._backend.transaction():
+            self._queue_kick(account_id, reason)
+
+    def _queue_kick(self, account_id: int, reason: str) -> None:
+        self._backend.execute(
+            "INSERT INTO pending_kicks (account_id, reason, created_at) VALUES (?, ?, ?)",
+            (account_id, reason, to_stored_time(self._clock())),
+        )
+
+    def take_pending_kicks(self) -> list[PendingKick]:
+        """The kicks not carried out yet, oldest first, marked as taken in the same step."""
+        with self._backend.transaction():
+            rows = self._backend.fetch_all(
+                "SELECT id, account_id, reason FROM pending_kicks WHERE taken_at IS NULL ORDER BY id"
+            )
+            taken_at = to_stored_time(self._clock())
+            for row in rows:
+                self._backend.execute("UPDATE pending_kicks SET taken_at = ? WHERE id = ?", (taken_at, row["id"]))
+        return [PendingKick(account_id=row["account_id"], reason=row["reason"]) for row in rows]
 
     def unban_account(self, account_id: int) -> None:
         with self._backend.transaction():

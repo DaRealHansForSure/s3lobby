@@ -65,6 +65,7 @@ def run_server(options: argparse.Namespace) -> int:
         server_name=options.name,
         public_host=options.public_host,
         database_location=options.database,
+        use_upnp=options.upnp,
     )
     try:
         asyncio.run(serve_forever(settings))
@@ -165,6 +166,11 @@ def add_serve_command(commands: argparse._SubParsersAction, database_option: arg
         default="",
         help="host name or IP that players from the internet log on to, e.g. your router's public address",
     )
+    serve.add_argument(
+        "--upnp",
+        action="store_true",
+        help="let the router forward the server's port and one port per player in this network (UPnP)",
+    )
     serve.add_argument("--verbose", action="store_true", help="log every datagram (secrets removed)")
     serve.add_argument("--log-file", help="also write the log to this file")
 
@@ -200,11 +206,20 @@ def add_account_commands(commands: argparse._SubParsersAction, database_option: 
     make_admin.add_argument("--remove", action="store_true", help="take the admin rights away")
     make_admin.set_defaults(admin_function=admin.set_admin)
 
-    ban = actions.add_parser("ban", parents=[database_option], help="bar an account from the lobby for a while")
+    ban = actions.add_parser(
+        "ban", parents=[database_option], help="bar an account from the lobby for a while, online or not"
+    )
     ban.add_argument("name")
     ban.add_argument("--hours", type=float, default=DEFAULT_BAN_HOURS, help="length of the ban (default: %(default)s)")
-    ban.add_argument("--reason", default="", help="note for other admins")
+    ban.add_argument("--reason", default="", help="shown to the player if online, and noted for other admins")
     ban.set_defaults(admin_function=admin.ban_account)
+
+    kick = actions.add_parser(
+        "kick", parents=[database_option], help="remove a player from the running lobby; they may log on again"
+    )
+    kick.add_argument("name")
+    kick.add_argument("--reason", default="", help="shown to the player")
+    kick.set_defaults(admin_function=admin.kick_account)
 
     unban = actions.add_parser("unban", parents=[database_option], help="lift a ban")
     unban.add_argument("name")

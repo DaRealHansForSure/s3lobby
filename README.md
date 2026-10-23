@@ -136,6 +136,7 @@ s3lobby serve --name "Our LAN" --verbose --log-file lobby.log
 | `--port` | 3344 | UDP port |
 | `--name` | `LAN Lobby` | server name shown in the game |
 | `--public-host` | none | host name or IP that players from the internet log on to |
+| `--upnp` | off | let the router forward the server's port and one port per LAN player (UPnP) |
 | `--verbose` | off | log every datagram with its bytes, secrets removed |
 | `--log-file` | none | also write the log to this file |
 
@@ -192,7 +193,8 @@ password field:
 s3lobby account add Alice
 s3lobby account code Alice --label "laptop"     # another code, e.g. for a second PC
 s3lobby account revoke-codes Alice
-s3lobby account ban Alice --hours 24 --reason "spam"
+s3lobby account ban Alice --hours 24 --reason "spam"   # online or not; an online player is removed
+s3lobby account kick Alice --reason "spam"             # remove from the running lobby; may log on again
 s3lobby account admin Alice                      # may use the admin chat commands
 ```
 
@@ -233,11 +235,18 @@ A line for every player in the running lobby, and a welcome line after each logo
 ```sh
 s3lobby announce "Server restart at 22:00"
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
+s3lobby setting set mark_admins true    # admins' rows in another colour; not yet tried with the game
 ```
 
-In the game, players can type `/who`, `/clan` and `/help` into the chat; admins also `/announce
-TEXT`. Answers and announcements show as `[Server]` lines. Match reports the game sends after a
-game are stored in the database.
+In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
+`/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces).
+Answers and announcements show as `[Server]` lines. Match reports the game sends after a game are
+stored in the database.
+
+A removed player (a kick, a ban, a deleted account) gets the reason as a server line and is
+disconnected within a second; the game then says the connection to the lobby server dropped. A
+kicked player may log on again, a banned one is refused until the ban ends. When the server stops,
+every player is told at once instead of waiting a minute for a timeout.
 
 Ladder games ("Liga", "Clanliga") can be opened and played, but they are not ranked: Blue Byte's
 server kept the ladder, this one does not. Their players get a server line saying so, and during
@@ -250,7 +259,8 @@ the same from a browser.
 
 A small web application on the same database: a live view of the lobby for everyone, and pages for
 admins to manage accounts and access codes, clans, news, chat themes, the message board, settings
-and announcements, and to look through past games and match reports.
+and announcements, to remove players from the running lobby, and to look through past games and
+match reports.
 
 ```sh
 .venv/bin/pip install '.[web]'
@@ -306,12 +316,45 @@ access code.
 
 ## Playing over the internet
 
-- Forward UDP port 3344 on the server's router to the server.
-- Start the server with `--public-host` set to the router's public address or host name, so the
-  game logs on to that address instead of the server's LAN address.
-- The lobby only brings players together. The match itself runs over DirectPlay directly between
-  the players, so whoever hosts a game needs DirectPlay's ports open as well: TCP 47624 and
-  TCP and UDP 2300 to 2400.
+The lobby connects the players; chat and the match itself then run directly between their games.
+So both the server and the players need to be reachable.
+
+**The server.** Forward UDP port 3344 on the server's router to the server, and start it with
+`--public-host` set to the router's public address or a (dynamic) DNS name. Or let the router do it:
+
+```sh
+s3lobby serve --upnp
+```
+
+With `--upnp` the server asks the router by UPnP to forward its port, takes the router's external
+address as the public one (unless `--public-host` names another), and gives every player in its
+own network an outside UDP port of their own (33430 and up). Internet players then reach every LAN
+player, not just one. The forwardings are renewed while the server runs and removed when it stops.
+UPnP must be switched on in the router.
+
+**The players.** Chat goes directly between the games, to the addresses the server hands out. The
+server makes those reachable: a player on the server's own machine is shown at the machine's LAN
+address, and LAN players are shown to internet players at the public address (and their own
+outside port with `--upnp`). Most home routers still drop chat from someone the player has not
+written to yet; the game retries for a minute, so a conversation usually gets going once both
+sides have written. A player who wants to receive chat from the first line on forwards the game's
+port on their own router.
+
+| Who | Forward to their PC |
+|---|---|
+| the server | UDP 3344 (or `--upnp`) |
+| a player on the internet | UDP 3343, for chat from players they have not written to |
+| whoever hosts a game | TCP 47624 and TCP and UDP 2300 to 2400 (DirectPlay, for the match) |
+
+In the game, `/net` shows a player the address the server sees them at and whether their router
+changed the game's port. With the setting `check_reachability` on, the server also tests after
+each logon whether other players can write to the player first; the lobby page shows the result to
+admins and `/net` to the player. That test is not yet tried with the real game, so it is off by
+default.
+
+Two players behind the same home router, playing on a server elsewhere, reach each other only if
+that router can send traffic back into its own network ("hairpinning"); the game never tells the
+server its local address, so the server cannot help there.
 
 ## Running the game on Linux with Wine
 
@@ -377,6 +420,9 @@ The code follows the same layers:
 | `s3lobby/guards.py` | rate limits and a throttled log against flooding senders |
 | `s3lobby/lobby.py` | players, rooms, zones and games, and the answer to every request |
 | `s3lobby/server.py` | the UDP socket and one connection per client |
+| `s3lobby/addresses.py` | the address each player is shown to another, so chat and joins can reach it |
+| `s3lobby/upnp.py`, `s3lobby/forwarding.py` | port forwarding on the router by UPnP (`--upnp`) |
+| `s3lobby/reachability.py` | the optional test whether other players can reach a player directly |
 | `s3lobby/database.py` | everything stored: accounts, clans, lobby content, statistics, settings |
 | `s3lobby/backends.py` | SQLite and MySQL behind one interface, chosen by the database location |
 | `s3lobby/migrations.py`, `s3lobby/schema/` | the schema as numbered migration files per database |

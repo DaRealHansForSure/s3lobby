@@ -59,10 +59,11 @@ from s3lobby.constants import (
     WARNING_INTERVAL_SECONDS,
     GroupFlag,
     MessageType,
+    PlayerFlag,
     ResultCode,
 )
 from s3lobby.commands import ChatCommands, fit_answer
-from s3lobby.database import Clan, LobbyDatabase, Setting, to_stored_time, utc_now
+from s3lobby.database import FIRST_PRINTABLE_CHARACTER, Clan, LobbyDatabase, Setting, to_stored_time, utc_now
 from s3lobby.groups import (
     Group,
     GroupKind,
@@ -80,6 +81,7 @@ from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogo
 from s3lobby.messages import (
     AddPlayerToGroup,
     AddPlayerToGroupWithClan,
+    AddPlayerToGroupWithFlags,
     ChatCommand,
     ChatCommandAnswer,
     ChatMessage,
@@ -104,6 +106,7 @@ from s3lobby.messages import (
     TextIdList,
     TextMessage,
 )
+from s3lobby.reachability import Reachability
 from s3lobby.wire import Address, ProtocolError, RawMessage
 
 log = logging.getLogger(__name__)
@@ -119,6 +122,12 @@ class LobbyOutbox(Protocol):
     def send(self, client_address: Address, message: EncodableMessage) -> None: ...
 
     def server_address_text_for(self, client_address: Address) -> str: ...
+
+    def close_connection(self, client_address: Address) -> None: ...
+
+    def player_logged_on(self, client_address: Address) -> None: ...
+
+    def reachability_of(self, client_address: Address) -> Reachability: ...
 
 
 @dataclass
@@ -151,7 +160,9 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database)
-        self._chat_commands = ChatCommands(database, self._online_player_names, self.announce)
+        self._chat_commands = ChatCommands(
+            database, self._online_player_names, self.announce, self.kick_player, outbox.reachability_of
+        )
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
@@ -224,9 +235,34 @@ class Lobby:
         for text in self._database.take_pending_announcements():
             self.announce(text)
 
+    def carry_out_pending_kicks(self) -> None:
+        """Remove the players that another process, a ban or an account deletion asked to remove
+        (LobbyDatabase.queue_kick). A kick for a player who is not online is simply dropped."""
+        for kick in self._database.take_pending_kicks():
+            self.kick_player(kick.account_id, kick.reason)
+
+    def kick_player(self, player_id: int, reason: str) -> bool:
+        """Tell the player why, take them out of every group and close their connection. The game
+        then shows "The connection to the lobby server dropped." (0x900a7; during a match "Lobby
+        connection lost!", 0x90146): its ConnectionClosed handler logs out and posts status 6
+        (0x5cc840, 0x5cc972). False when the player is not online."""
+        player = self._players_by_id.get(player_id)
+        if player is None:
+            return False
+        line = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([printable_text(reason)]))
+        self._outbox.send(player.address, line)
+        log.info("player %d %r removed from the lobby: %s", player.player_id, player.name, reason)
+        address = player.address
+        self.forget_client(address)
+        self._outbox.close_connection(address)
+        return True
+
     def live_state(self) -> LiveLobbyState:
         """Who is online and which groups exist, for the web interface (see live.py)."""
-        players = [live_player(player) for player in sorted(self._players_by_id.values(), key=lambda player: player.name)]
+        players = [
+            live_player(player, self._outbox.reachability_of(player.address))
+            for player in sorted(self._players_by_id.values(), key=lambda player: player.name)
+        ]
         groups = [self._live_group(self._groups[group_id]) for group_id in sorted(self._groups)]
         return LiveLobbyState(server_name=self._server_name, players=players, groups=groups)
 
@@ -317,6 +353,7 @@ class Lobby:
         welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
         if welcome_message:
             self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
+        self._outbox.player_logged_on(client_address)
 
     def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
         account = decision.account
@@ -589,10 +626,11 @@ class Lobby:
         if is_board_language_group(group.group_id):
             self._sync_board_themes(language_of_board_group(group.group_id))
         self._outbox.send(player.address, group.announcement.under_parent(JOINED_GROUP_PARENT_ID))
+        marks_admins = self._database.get_boolean_setting(Setting.MARK_ADMINS)
         for member in self._members_of(group):
-            self._outbox.send(player.address, member_entry(group.group_id, member))
-            self._outbox.send(member.address, member_entry(group.group_id, player))
-        self._outbox.send(player.address, member_entry(group.group_id, player))
+            self._outbox.send(player.address, member_entry(group.group_id, member, marks_admins))
+            self._outbox.send(member.address, member_entry(group.group_id, player, marks_admins))
+        self._outbox.send(player.address, member_entry(group.group_id, player, marks_admins))
         group.member_ids.append(player.player_id)
         player.group_ids.add(group.group_id)
         for child in self._groups_listed_in(group.group_id):
@@ -857,6 +895,12 @@ class Lobby:
         self._warnings.warning(client_address, time.monotonic(), message, *arguments)
 
 
+def printable_text(text: str) -> str:
+    """The text without control characters, which a chat line cannot carry (a NUL would even end
+    the string early); reasons for kicks and bans are typed freely and never checked before."""
+    return "".join(character for character in text if character >= FIRST_PRINTABLE_CHARACTER)
+
+
 def own_player_message(player: Player) -> EncodableMessage:
     """OwnPlayer, or its clan variant when the player logged on as clan member. Either one, once."""
     if player.shown_clan is None:
@@ -864,7 +908,7 @@ def own_player_message(player: Player) -> EncodableMessage:
     return OwnPlayerWithClan(player.player_id, player.shown_clan.clan_id, player.shown_clan.name)
 
 
-def live_player(player: Player) -> LivePlayer:
+def live_player(player: Player, reachability: Reachability) -> LivePlayer:
     host, port = player.address
     clan_name = player.shown_clan.name if player.shown_clan is not None else ""
     return LivePlayer(
@@ -875,12 +919,30 @@ def live_player(player: Player) -> LivePlayer:
         address=f"{host}:{port}",
         logged_on_at=to_stored_time(player.logged_on_at),
         group_ids=sorted(player.group_ids),
+        reachability=reachability.value,
     )
 
 
-def member_entry(group_id: int, player: Player) -> EncodableMessage:
+def member_entry(group_id: int, player: Player, marks_admins: bool = False) -> EncodableMessage:
     """A group member as other clients need it: with the address the server sees the player at,
-    because they send chat straight to that address, and with the clan when the player shows one."""
+    because they send chat straight to that address, and with the clan when the player shows one.
+    With marks_admins an admin comes as 0x26 with the HIGHLIGHTED flag, so the member list colours
+    their row; the clan travels in it as well, with clan id 0 and no name for a player without one."""
+    if marks_admins and player.is_admin:
+        clan_id = 0
+        clan_name = ""
+        if player.shown_clan is not None:
+            clan_id = player.shown_clan.clan_id
+            clan_name = player.shown_clan.name
+        return AddPlayerToGroupWithFlags(
+            group_id=group_id,
+            player_id=player.player_id,
+            player_address=player.address,
+            player_name=player.name,
+            clan_id=clan_id,
+            clan_name=clan_name,
+            player_flags=PlayerFlag.HIGHLIGHTED,
+        )
     if player.shown_clan is None:
         return AddPlayerToGroup(
             group_id=group_id,

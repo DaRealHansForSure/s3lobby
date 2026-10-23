@@ -27,6 +27,12 @@ describe that layout.
   edited. Old SQLite files that only had PRAGMA user_version are adopted.
 - `s3lobby/server.py`, `s3lobby/cli.py`, `s3lobby/admin.py`: asyncio UDP server, command line,
   administration subcommands.
+- `s3lobby/addresses.py`: the address each client is shown for another (loopback and LAN players
+  rewritten per receiver), applied to every message in `LobbyServer.send`.
+- `s3lobby/upnp.py`, `s3lobby/forwarding.py`: UPnP port forwarding on the router (`--upnp`): the
+  server's port and one outside port per LAN player, on a worker thread.
+- `s3lobby/reachability.py`: the optional probe (setting `check_reachability`) whether others can
+  reach a player directly, from a second UDP port.
 - `s3lobby/live.py`: the running lobby as JSON; the server writes it to the database once a second
   when it changed, the web interface reads it. The two processes share nothing but the database.
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,

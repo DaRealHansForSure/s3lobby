@@ -14,10 +14,14 @@ from s3lobby.constants import (
     LOGON_PROTOCOL_VERSION,
     LogonFlag,
     MessageType,
+    PlayerFlag,
     ResultCode,
 )
+from s3lobby.database import Setting
 from s3lobby.messages import (
+    AddPlayerToGroup,
     AddPlayerToGroupWithClan,
+    AddPlayerToGroupWithFlags,
     CheckFileVersion,
     GetLobbyServerList,
     GroupAnnouncement,
@@ -120,6 +124,30 @@ class LobbySessionTest(LobbyTestCase):
 
         entry = AddPlayerToGroupWithClan.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN))
         self.assertEqual((entry.player_name, entry.clan_name), ("Bob", "Romans"))
+
+    def test_admins_are_marked_in_the_member_list_only_when_set(self) -> None:
+        """With mark_admins, an admin arrives as 0x26 with the HIGHLIGHTED flag and the member
+        list colours the row (0x449e09); without it, admins look like everyone else, as in every
+        run with the real game so far. Other players are never marked."""
+        bob_account = self.database.find_account("Bob")
+        self.database.set_admin(bob_account.account_id, True)
+        alice = self.new_client("Alice", nonce=17)
+        alice_id = log_on(alice)
+        join_group(alice, LOBBY_ROOM_ID, alice_id)
+        bob = self.new_client("Bob", nonce=42)
+        join_group(bob, LOBBY_ROOM_ID, log_on(bob))
+        unmarked = AddPlayerToGroup.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP))
+        self.assertEqual(unmarked.player_name, "Alice")
+        unmarked_admin = AddPlayerToGroup.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP))
+        self.assertEqual(unmarked_admin.player_name, "Bob")
+
+        self.database.set_setting(Setting.MARK_ADMINS, "true")
+        carol = self.new_client("Carol", nonce=77)
+        join_group(carol, LOBBY_ROOM_ID, log_on(carol))
+        marked = AddPlayerToGroupWithFlags.decode(carol.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS))
+        self.assertEqual((marked.player_name, marked.player_flags), ("Bob", PlayerFlag.HIGHLIGHTED))
+        self.assertEqual((marked.clan_id, marked.clan_name), (0, ""))
+        carol.assert_nothing_arrives(MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS)
 
     def test_member_list_carries_the_address_the_server_saw(self) -> None:
         """Clients chat straight to each other's addresses and only know themselves as 0.0.0.0."""

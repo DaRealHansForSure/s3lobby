@@ -1,5 +1,5 @@
 {# The live part of the lobby page. Rendered on its own for app.js to swap in every few seconds. #}
-{% from "_macros.html" import names with context %}
+{% from "_macros.html" import names, reachability_badge with context %}
 <section>
   <div class="section-head">
     <h1>{{ page.server_name or "Lobby" }}</h1>
@@ -28,7 +28,7 @@
       <thead>
         <tr>
           <th>Name</th><th>Clan</th><th>Tab</th><th>In game or chat</th><th>Online since</th>
-          {% if admin %}<th>Address</th>{% endif %}
+          {% if admin %}<th>Address</th><th title="Whether other players can write to this player first">Reachable</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -39,7 +39,10 @@
           <td>{{ names(player.tab_names) }}</td>
           <td>{{ names(player.group_names) }}</td>
           <td>{{ player.logged_on_at | relative_moment }}</td>
-          {% if admin %}<td class="num">{{ player.address }}</td>{% endif %}
+          {% if admin %}
+          <td class="num">{{ player.address }}</td>
+          <td>{{ reachability_badge(player.reachability) }}</td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>

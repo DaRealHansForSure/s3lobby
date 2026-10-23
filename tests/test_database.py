@@ -249,6 +249,18 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual(statistics.games_last_hour, 1)
         self.assertEqual(statistics.games_last_day, 2)
 
+    def test_ban_and_deletion_queue_the_removal_from_the_running_lobby(self) -> None:
+        """Another process cannot reach the server: it leaves the kick in the database."""
+        alice = self.database.create_account("Alice")
+        bob = self.database.create_account("Bob")
+        self.database.ban_account(alice.account_id, START + timedelta(hours=2), "spam")
+        self.database.delete_account(bob.account_id)
+        self.database.queue_kick(alice.account_id, "by hand")
+        kicks = self.database.take_pending_kicks()
+        self.assertEqual([kick.account_id for kick in kicks], [alice.account_id, bob.account_id, alice.account_id])
+        self.assertIn("spam", kicks[0].reason)
+        self.assertEqual(self.database.take_pending_kicks(), [], "each kick is taken once")
+
     def test_restart_closes_what_the_previous_run_left_open(self) -> None:
         alice = self.database.create_account("Alice")
         self.database.record_logon(alice.account_id)

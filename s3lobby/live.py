@@ -27,6 +27,8 @@ class LivePlayer:
     address: str
     logged_on_at: str
     group_ids: list[int] = field(default_factory=list)
+    # A Reachability value (reachability.py); the default keeps older states readable.
+    reachability: str = "not checked"
 
 
 @dataclass(frozen=True)
