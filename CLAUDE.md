@@ -2,9 +2,9 @@
 
 Lobby server for the online lobby of the original The Settlers III (Blue Byte, 1998). It replaces
 Blue Byte's long dead `siedler3svr.bluebyte.de:3344` so unmodified copies of the game can use their
-built-in lobby again. Open source project; for now it lives in `tools/s3lobby/` of another
-repository and is meant to move into a repository of its own, so nothing here may depend on files
-outside this folder.
+built-in lobby again. Open source project in a repository of its own. It began in `tools/s3lobby/`
+of another repository; its history was carried over from there, so the early commits
+describe that layout.
 
 ## Layout
 
