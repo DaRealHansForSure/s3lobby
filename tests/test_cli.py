@@ -147,7 +147,6 @@ class CommandLineTest(unittest.TestCase):
         self.assertIn("Cup", listing)
 
 
-
 class LoggingLevelTest(unittest.TestCase):
     """The console stays at INFO while a log file takes the datagrams of --verbose."""
 

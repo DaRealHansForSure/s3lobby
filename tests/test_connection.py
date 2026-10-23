@@ -179,7 +179,6 @@ class ReliableConnectionTest(unittest.TestCase):
         self.assertFalse(self.connection.is_finished(START_MS + DEFAULT_SILENCE_TIMEOUT_MS + 1))
         self.assertTrue(self.connection.is_finished(START_MS + TEN_MINUTES_MS + 1))
 
-
     def test_timeout_a_client_asks_for_is_capped_at_what_the_game_sends(self) -> None:
         """A forged sender asking for 49 days would hold a connection slot that long."""
         self.open_connection()

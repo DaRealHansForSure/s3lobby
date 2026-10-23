@@ -266,7 +266,6 @@ class LobbySessionTest(LobbyTestCase):
         self.assertEqual(bob.unread_messages_of_type(MessageType.REMOVE_PLAYER_FROM_GROUP), [])
 
 
-
 class ForgedDatagramTest(LobbyTestCase):
     """Someone who sends UDP datagrams with a logged on player's address, without seeing the
     answers. The server must not take those as the player's."""

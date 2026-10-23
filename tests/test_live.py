@@ -44,6 +44,10 @@ EXAMPLE_STATE = LiveLobbyState(
 )
 
 
+def has_alices_game(state: LiveLobbyState) -> bool:
+    """Whether the state lists the game Alice opened."""
+    return any(group.group_id == FIRST_GAME_GROUP_ID for group in state.groups)
+
 class LiveLobbyStateTest(unittest.TestCase):
     """The live lobby as JSON and its row in the database, without a server."""
 
@@ -114,10 +118,6 @@ class ServerWritesLiveStateTest(LobbyTestCase):
         open_game(alice, GAME_ZONE_ID)
         alice.receive_next(MessageType.ADD_GROUP_TO_GROUP_2)
 
-        def has_alices_game(state: LiveLobbyState) -> bool:
-            """Whether the state lists the game Alice opened."""
-            return any(group.group_id == FIRST_GAME_GROUP_ID for group in state.groups)
-
         state = self.wait_for_live_state(has_alices_game).state
         self.assertEqual([player.name for player in state.players], ["Alice"])
         self.assertIn(FIRST_GAME_GROUP_ID, state.players[0].group_ids)
@@ -133,10 +133,6 @@ class ServerWritesLiveStateTest(LobbyTestCase):
         description = GameDescription(team_count=2, computer_opponent_count=1, is_ladder_game=True, map_name="\\Random")
         open_game(alice, GAME_ZONE_ID, description=description)
         alice.receive_next(MessageType.ADD_GROUP_TO_GROUP_2)
-
-        def has_alices_game(state: LiveLobbyState) -> bool:
-            """Whether the state lists the game Alice opened."""
-            return any(group.group_id == FIRST_GAME_GROUP_ID for group in state.groups)
 
         [game] = self.wait_for_live_state(has_alices_game).state.groups_of_kind(GroupKind.GAME.value)
         self.assertEqual((game.map_name, game.team_count, game.is_ladder_game), ("\\Random", 2, True))

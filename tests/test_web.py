@@ -422,7 +422,6 @@ class AccountPagesTest(WebInterfaceTestCase):
         self.post(f"{player_path}/delete", confirm_name=PLAYER_NAME)
         self.assertIsNone(self.database.find_account(PLAYER_NAME))
 
-
     def test_player_is_removed_from_the_running_lobby_but_not_the_admin(self) -> None:
         """The web interface shares only the database with the server: it queues the kick."""
         self.post(f"/accounts/{self.admin.account_id}/kick")

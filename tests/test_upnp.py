@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import unittest
+from collections.abc import Set as AbstractSet
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.etree import ElementTree
 
@@ -107,7 +108,6 @@ class FakeRouter:
 
             def log_message(self, *arguments: object) -> None:
                 """Keep the test output free of the request log."""
-                pass
 
         self._server = ThreadingHTTPServer((LOOPBACK, ANY_FREE_PORT), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -202,7 +202,7 @@ class UpnpClientTest(unittest.TestCase):
 class FakeMapper:
     """A PortMapper stand-in that keeps the mappings in memory."""
 
-    def __init__(self, taken_ports: set[int] = frozenset()) -> None:
+    def __init__(self, taken_ports: AbstractSet[int] = frozenset()) -> None:
         """A gateway for the server's LAN address, no mappings, and outside ports another forwarding already
         holds."""
         self.gateway = Gateway(control_url="http://192.168.1.1/ctl", service_type=SERVICE_TYPE, local_ip=SERVER_LAN_IP)
