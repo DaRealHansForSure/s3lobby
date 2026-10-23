@@ -21,6 +21,7 @@ import logging
 import random
 from collections.abc import Callable
 from enum import Enum
+from typing import cast
 
 from s3lobby.constants import (
     CONNECTION_NONCE_MAX,
@@ -55,7 +56,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
         self._pending: dict[Address, asyncio.TimerHandle] = {}
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        self._transport = transport
+        # A datagram endpoint always hands over a DatagramTransport.
+        self._transport = cast(asyncio.DatagramTransport, transport)
 
     def probe(self, address: Address) -> None:
         """Send the probe, and retry it a few times: a single datagram may simply get lost."""
@@ -97,6 +99,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             log.info("%s: not reachable from other ports", address)
             self._on_result(address, Reachability.BLOCKED)
             return
+        if self._transport is None:
+            return
         self._transport.sendto(probe_block, address)
         loop = asyncio.get_running_loop()
         self._pending[address] = loop.call_later(
@@ -111,7 +115,7 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             messages = decode_block(data)
         except ProtocolError:
             return
-        if not messages:
+        if not messages or self._transport is None:
             return
         try:
             answer_block_id = MessageId.decode(messages[0]).block_id

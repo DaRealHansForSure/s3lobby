@@ -154,6 +154,11 @@ export S3LOBBY_DATABASE_PASSWORD='...'
 s3lobby serve --database mysql://s3lobby@db.example.org:3306/s3lobby
 ```
 
+For a database on another machine, add `?tls=verify` to the location to encrypt the connection
+and check the server's certificate and host name, or `?tls=verify-ca&ca=/path/ca.pem` to check it
+against your own authority only (for example the `ca.pem` MySQL creates for itself). Without the
+option the driver may still encrypt, but never checks whom it talks to.
+
 The password may also be part of the location (`mysql://user:password@host/name`, special
 characters percent-encoded), but then it shows in process lists and shell history; the
 environment variable keeps it out. Logs and error messages never show it. The database must exist
@@ -240,7 +245,8 @@ s3lobby setting set mark_admins true    # admins' rows in another colour; not ye
 ```
 
 In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
-`/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces).
+`/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces);
+each waits for `/confirm CODE` with a code the server shows only to the admin.
 Answers and announcements show as `[Server]` lines. Match reports the game sends after a game are
 stored in the database.
 
@@ -430,7 +436,7 @@ The code follows the same layers:
 | `s3lobby/upnp.py`, `s3lobby/forwarding.py` | port forwarding on the router by UPnP (`--upnp`) |
 | `s3lobby/reachability.py` | the optional test whether other players can reach a player directly |
 | `s3lobby/database.py` | everything stored: accounts, clans, lobby content, statistics, settings |
-| `s3lobby/backends.py` | SQLite and MySQL behind one interface, chosen by the database location |
+| `s3lobby/backends/` | SQLite and MySQL behind one interface, chosen by the database location: `base.py`, `location.py`, `sqlite.py`, `mysql.py` |
 | `s3lobby/migrations.py`, `s3lobby/schema/` | the schema as numbered migration files per database |
 | `s3lobby/live.py` | the running lobby as the server writes it for the web interface |
 | `s3lobby/cli.py`, `s3lobby/admin.py` | the command line |

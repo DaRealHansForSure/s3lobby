@@ -17,9 +17,11 @@ another project; its history was carried over, so the early commits describe tha
 - `s3lobby/database.py`: LobbyDatabase, everything the lobby stores: accounts with access codes,
   clans, news, chat themes, board, sessions, games, game reports, settings. Its SQL is written once
   with `?` placeholders in the part of SQL that SQLite and MySQL share.
-- `s3lobby/backends.py`: where the data lives. `SqliteBackend` (a file, the default) and
-  `MysqlBackend` (MySQL 8.0.19+ or MariaDB 10.5+ through PyMySQL), chosen by the database location:
-  a path, or `mysql://user@host/name`. Placeholders, transactions, dict rows, upserts, key errors.
+- `s3lobby/backends/`: where the data lives, chosen by the database location (a path, or
+  `mysql://user@host/name?tls=verify`). `base.py`: the `DatabaseBackend` interface, `DatabaseError`
+  and its subclasses; `location.py`: parsing and describing locations; `sqlite.py`: `SqliteBackend`
+  (a file, the default); `mysql.py`: `MysqlBackend` (MySQL 8.0.19+ or MariaDB 10.5+ through
+  PyMySQL). Placeholders, transactions, dict rows, upserts and driver errors are handled there.
 - `s3lobby/migrations.py` and `s3lobby/schema/<dialect>/NNNN_name.sql`: the schema as numbered
   migration files, recorded with checksums in the table `schema_migrations`. A schema change adds
   the next number to every dialect folder (same number, same meaning); released files are never
@@ -59,7 +61,8 @@ Python 3.10 or newer. The server and the command line use the standard library o
 dependencies. Two optional extras are the exceptions. Flask for `s3lobby/web/` (`web`): nothing
 outside `s3lobby/web/` imports it, `s3lobby/web/__init__.py` imports nothing (so test discovery
 works without Flask), and `cli.py` imports the web app only inside the `web` command. PyMySQL for
-MySQL (`mysql`): imported only inside `MysqlBackend.__init__`, so SQLite needs nothing extra.
+MySQL (`mysql`): imported only inside `MysqlBackend.__init__` (`s3lobby/backends/mysql.py`), so
+SQLite needs nothing extra.
 
 ## Rules
 
@@ -110,6 +113,25 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 
 - No `Co-Authored-By` or other generated-by lines in commit messages.
 - Merges always with `--no-ff`.
+- Commit messages follow Conventional Commits: `type(scope): subject` in the imperative, lower
+  case after the colon, no full stop, at most about 72 characters, then a blank line and a body
+  that says why. Types: `feat` (new behaviour), `fix` (wrong behaviour corrected, security fixes
+  included), `docs`, `refactor` (no change in behaviour), `test`, `build` (packaging), `ci`,
+  `chore` (repository upkeep, releases), `perf`. Scopes are the area: `server`, `lobby`, `logon`,
+  `commands`, `protocol`, `database`, `web`, `cli`, `upnp`, `live`, `readme`, `security`. A change
+  that breaks a promise to admins or to the game gets `!` after the type and a `BREAKING CHANGE:`
+  line in the body.
+- Git flow: `main` holds releases only, `develop` the work in progress. Every change goes on a
+  branch from `develop` (`feature/...`, `fix/...`, `docs/...`, `refactor/...`) and is merged back
+  with `git merge --no-ff BRANCH -m "Merge branch 'BRANCH' into develop"`.
+- Releases follow SemVer (before 1.0.0, minor for features or anything that changes behaviour,
+  patch for fixes only; 1.0.0 once the real game is confirmed on two machines). A release is a
+  branch `release/X.Y.Z` from `develop` with one commit `chore(release): X.Y.Z` that sets
+  `__version__` in `s3lobby/__init__.py` and moves the `Unreleased` part of `CHANGELOG.md` into a
+  section for the version (Keep a Changelog: Added, Changed, Fixed, Security, with links at the
+  end). It is merged into `main` (`Merge branch 'release/X.Y.Z'`), tagged there with an annotated
+  `vX.Y.Z`, and merged back into `develop`. Every change worth telling admins adds a line under
+  `Unreleased` in `CHANGELOG.md` in the same commit.
 - Identity of this repository (stored in its local git config, the whole history was rewritten
   to it): DaRealHansForSure <stuff+s3@kognetwork.ch>. The project is MIT licensed under that name.
 - Work on a feature branch, merge it into `main` with `--no-ff`, push to `origin` (gitea at
@@ -142,37 +164,15 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 
 ## Open review findings
 
-Fixed so far: web hardening (open redirect, server-side web sessions, lockout, headers), the
-housekeeping guard, block budget, acknowledgement and timeout caps, no Home answers before a logon,
-logon deadline, readable text, the log budget, game logon limits and check budget, wrong group
-password and group update limits, admin rights read at the command, update passwords hidden in
-the log. Still to do, most important first:
+The Python, network and web reviews of 2026-10-23 are worked through; SECURITY.md lists the known
+limits. Still open, as each touches behaviour the real game relies on and needs a recorded session
+first:
 
-- UPnP: control URL only on the answering device and plain http, no proxies or redirects, a
-  global external address only, an overall discovery deadline; forward only private addresses
-  from the game's ports; one lock around mapping changes (forward and release race today).
-- `decode_block` should stop at the message limit instead of parsing a whole datagram first.
-- The reachability probe only for confirmed connections.
-- SIGTERM handler for a clean stop; cancel background router tasks before stopping forwarding;
-  close what `start_server` opened when it fails halfway.
-- Database: indexes on `lobby_sessions(ended_at)` and `games(closed_at)`, statistics cached for a
-  few seconds, a short SQLite busy timeout, ROLLBACK when COMMIT fails, driver errors wrapped as
-  `DatabaseError`, `is_matching_access_code` returning False for a malformed hash, settings saved
-  in one transaction, `forget_client` updating memory and clients before the database.
-- Input: `isdigit()` accepts characters `int()` refuses (use `isascii() and isdigit()`); the web
-  settings checkbox must accept every true value (`1`, `yes`, `on`); access code labels limited and
-  ban reasons checked with `check_game_text`; `/games` also catching `ValueError` from a report.
-- Announcements queued while the server is down are marked sent at its start without reaching
-  anyone: skip them or fix the text in the web interface.
-- Typing and tidiness: optional return types (`create_account`, `from_stored_time`), transport
-  typing, `RouterForwarding._run` with a TypeVar, duplicated constants (`FIRST_PRINTABLE_CHARACTER`,
-  `MAX_BAN_HOURS`, `DEFAULT_BAN_HOURS`, true values, `HTTP_NOT_FOUND`), frozen dataclasses holding
-  lists.
-- Needs a recorded session before any change (it touches confirmed behaviour): dropping unnumbered
-  lobby messages from logged on players and narrowing the block window (a forged datagram from an
-  admin's address can run /ban today), ignoring a nonce reset from a logged on address, and a
-  confirmation code for admin chat commands. MySQL over TLS (`ssl=` for remote hosts) is a choice
-  for the owner.
+- Dropping unnumbered lobby messages from logged on players and narrowing the client block id
+  window: a forged datagram from a player's address is still taken as theirs (admin commands are
+  safe through /confirm, ordinary actions are not).
+- Ignoring a nonce reset (a new OpenConnection) from an address that has a logged on player:
+  a forged one ends that player's session today.
 
 ## Future work
 

@@ -13,7 +13,7 @@ from flask import Blueprint, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.constants import BOARD_LANGUAGES, NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER, NEWS_AUDIENCES
-from s3lobby.database import BoardMessage, BoardTheme, News
+from s3lobby.database import BoardMessage, BoardTheme, News, is_whole_number_text
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.storage import apply_change, get_database
 from s3lobby.web.texts import form_multiline_text, form_text
@@ -131,7 +131,7 @@ def post_board_message() -> Response:
     title = form_text("title")
     body = form_multiline_text("body")
     author = form_text("author")
-    if not theme_id_text.isdigit():
+    if not is_whole_number_text(theme_id_text):
         flash("Choose the theme the message belongs to.", "bad")
         return redirect(url_for("content.show_board"))
     apply_change(
