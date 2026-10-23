@@ -12,6 +12,7 @@
       {% if is_banned %}<span class="badge badge--bad">banned until {{ account.banned_until | moment }}</span>{% endif %}
       <span class="badge">created {{ account.created_at | moment }}</span>
       <span class="badge">last logon {{ account.last_logon_at | moment }}</span>
+      <a class="btn btn--quiet btn--sm" href="{{ url_for('players.show_player', name=account.name) }}">Public page</a>
     </p>
   </div>
   {% if is_online %}

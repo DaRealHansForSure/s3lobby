@@ -92,7 +92,8 @@ class LadderPagesTest(WebInterfaceTestCase):
         self.post("/admin/ladder/seasons", name="Autumn Cup", start="2026-10-01", end="2026-10-31", counts="liga")
         season = self.database.find_ladder_season("Autumn Cup")
         self.assertEqual(season.ends_at, datetime(2026, 11, 1, tzinfo=timezone.utc))
-        self.post(f"/admin/ladder/seasons/{season.season_id}", name="Herbst Cup", start="2026-10-01", end="", counts="both")
+        season_path = f"/admin/ladder/seasons/{season.season_id}"
+        self.post(season_path, name="Herbst Cup", start="2026-10-01", end="", counts="both")
         changed = self.database.find_ladder_season("Herbst Cup")
         self.assertEqual((changed.ends_at, changed.counts), (None, SeasonCounts.BOTH))
         self.post(f"/admin/ladder/seasons/{season.season_id}/end")
@@ -114,6 +115,29 @@ class LadderPagesTest(WebInterfaceTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.database.list_ladder_seasons(), [])
 
+
+    def test_a_player_page_shows_place_record_and_games(self) -> None:
+        """Players see their own and others' ladder place and games without an admin's logon."""
+        page = self.client.get(f"/players/{PLAYER_NAME.lower()}").get_data(as_text=True)
+        self.assertIn(f"<h1>{PLAYER_NAME}</h1>", page)
+        self.assertIn("Place 2 of 2", page)
+        self.assertIn("0 won, 1 lost", page)
+
+    def test_a_player_page_shows_no_admin_content(self) -> None:
+        """Public: no access codes, no bans, no addresses."""
+        page = self.client.get(f"/players/{PLAYER_NAME}").get_data(as_text=True)
+        for hidden in ("Access codes", "Ban", "Revoke"):
+            with self.subTest(hidden=hidden):
+                self.assertNotIn(hidden, page)
+
+    def test_an_unknown_player_is_not_found(self) -> None:
+        """A name without an account gets a 404."""
+        self.assertEqual(self.client.get("/players/Nobody").status_code, 404)
+
+    def test_the_standings_link_to_the_player_pages(self) -> None:
+        """Every name in the Liga standings leads to that player's page."""
+        page = self.client.get("/ladder").get_data(as_text=True)
+        self.assertIn(f'href="/players/{PLAYER_NAME}"', page)
 
 if __name__ == "__main__":
     unittest.main()

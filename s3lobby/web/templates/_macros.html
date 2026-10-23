@@ -38,3 +38,38 @@
 {% macro names(list) -%}
 {% if list %}{{ list | join(", ") }}{% else %}<span class="muted">-</span>{% endif %}
 {%- endmacro %}
+
+{# The ladder's pieces, shared by the ladder page and the player pages. #}
+{% macro rating_change(points) -%}
+{% if points > 0 %}<span class="badge badge--good">+{{ points }}</span>{% elif points < 0 %}<span class="badge badge--bad">{{ points }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro form_strip(marks) -%}
+<span class="form-strip" role="img" aria-label="Last {{ marks | length }} results">
+  {%- for mark in marks %}<span class="result result--{{ mark.css_class }}" title="{{ mark.title }}"></span>{% endfor -%}
+</span>
+{%- endmacro %}
+
+{% macro share_bar(percent, wide=false) -%}
+<svg class="bar{% if wide %} bar--wide{% endif %}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="{{ percent }}" height="8"></rect></svg>
+{%- endmacro %}
+
+{# A rating chart (web.ladder_pages.RatingChart): lines over time, grid lines with their ratings,
+   dates below and a legend. #}
+{% macro rating_chart(chart, label) -%}
+  <div class="chart-box">
+    <div class="scroll-x">
+      <svg class="chart" viewBox="0 0 700 200" role="img" aria-label="{{ label }}">
+        {% for label in chart.grid %}
+        <line class="{% if label.is_start_line %}start-line{% else %}grid-line{% endif %}" x1="56" y1="{{ '%.1f' | format(label.y) }}" x2="676" y2="{{ '%.1f' | format(label.y) }}"></line>
+        <text class="axis-label" x="{{ label.x }}" y="{{ '%.1f' | format(label.y + 4) }}">{{ label.text }}</text>
+        {% endfor %}
+        {% for label in chart.dates %}<text x="{{ '%.1f' | format(label.x) }}" y="{{ label.y }}">{{ label.text }}</text>{% endfor %}
+        {% for line in chart.lines %}<polyline class="series series-{{ line.series }}" points="{{ line.points }}"><title>{{ line.name }}: {{ line.rating }}</title></polyline>{% endfor %}
+      </svg>
+    </div>
+    <ul class="legend legend--inline">
+      {% for line in chart.lines %}<li><span class="key seg-{{ line.series }}"></span>{{ line.name }} {{ line.rating }}</li>{% endfor %}
+    </ul>
+  </div>
+{%- endmacro %}

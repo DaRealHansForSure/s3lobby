@@ -1,21 +1,7 @@
 {% extends "base.html" %}
-{% from "_macros.html" import in_game_colour %}
+{% from "_macros.html" import in_game_colour, rating_change, form_strip, share_bar, rating_chart %}
 {% set active_nav = "ladder" %}
 {% block title %}Ladder{% endblock %}
-
-{% macro rating_change(points) -%}
-{% if points > 0 %}<span class="badge badge--good">+{{ points }}</span>{% elif points < 0 %}<span class="badge badge--bad">{{ points }}</span>{% endif %}
-{%- endmacro %}
-
-{% macro form_strip(marks) -%}
-<span class="form-strip" role="img" aria-label="Last {{ marks | length }} results">
-  {%- for mark in marks %}<span class="result result--{{ mark.css_class }}" title="{{ mark.title }}"></span>{% endfor -%}
-</span>
-{%- endmacro %}
-
-{% macro share_bar(percent, wide=false) -%}
-<svg class="bar{% if wide %} bar--wide{% endif %}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="{{ percent }}" height="8"></rect></svg>
-{%- endmacro %}
 
 {% block content %}
 <section>
@@ -91,7 +77,7 @@
     {% for standing in podium %}
     <div class="card">
       <div class="podium-place">{{ standing.row.place }}</div>
-      <h3>{{ in_game_colour(standing.row.name, standing.colour) }}{% if standing.row.clan_name %} <span class="muted">of {{ standing.row.clan_name }}</span>{% endif %}</h3>
+      <h3>{% if view == "liga" %}<a href="{{ url_for('players.show_player', name=standing.row.name) }}">{{ in_game_colour(standing.row.name, standing.colour) }}</a>{% else %}{{ in_game_colour(standing.row.name, standing.colour) }}{% endif %}{% if standing.row.clan_name %} <span class="muted">of {{ standing.row.clan_name }}</span>{% endif %}</h3>
       <div><span class="podium-rating">{{ standing.row.rating }}</span> {{ rating_change(standing.row.last_change) }}</div>
       <div class="cell-bar">{{ share_bar(standing.win_rate, wide=true) }}<span class="num">{{ standing.win_rate }} %</span></div>
       <div class="muted">{{ standing.row.won }} won, {{ standing.row.lost }} lost {{ form_strip(standing.form) }}</div>
@@ -105,21 +91,7 @@
 <section>
   <div class="section-head"><h2>Rating over time</h2>
   <p>The top {{ chart.lines | length }} since their first result. The dashed line is the start rating.</p></div>
-  <div class="chart-box">
-    <div class="scroll-x">
-      <svg class="chart" viewBox="0 0 700 200" role="img" aria-label="Ratings of the top players over time">
-        {% for label in chart.grid %}
-        <line class="{% if label.is_start_line %}start-line{% else %}grid-line{% endif %}" x1="56" y1="{{ '%.1f' | format(label.y) }}" x2="676" y2="{{ '%.1f' | format(label.y) }}"></line>
-        <text class="axis-label" x="{{ label.x }}" y="{{ '%.1f' | format(label.y + 4) }}">{{ label.text }}</text>
-        {% endfor %}
-        {% for label in chart.dates %}<text x="{{ '%.1f' | format(label.x) }}" y="{{ label.y }}">{{ label.text }}</text>{% endfor %}
-        {% for line in chart.lines %}<polyline class="series series-{{ line.series }}" points="{{ line.points }}"><title>{{ line.name }}: {{ line.rating }}</title></polyline>{% endfor %}
-      </svg>
-    </div>
-    <ul class="legend legend--inline">
-      {% for line in chart.lines %}<li><span class="key seg-{{ line.series }}"></span>{{ line.name }} {{ line.rating }}</li>{% endfor %}
-    </ul>
-  </div>
+  {{ rating_chart(chart, "Ratings of the top players over time") }}
 </section>
 {% endif %}
 
@@ -140,7 +112,7 @@
         {% for standing in standings %}
         <tr>
           <td class="num">{{ standing.row.place }}</td>
-          <td>{{ in_game_colour(standing.row.name, standing.colour) }}{% if standing.row.is_provisional %} <span class="badge" title="Few results: the rating still moves fast">provisional</span>{% endif %}</td>
+          <td>{% if view == "liga" %}<a href="{{ url_for('players.show_player', name=standing.row.name) }}">{{ in_game_colour(standing.row.name, standing.colour) }}</a>{% else %}{{ in_game_colour(standing.row.name, standing.colour) }}{% endif %}{% if standing.row.is_provisional %} <span class="badge" title="Few results: the rating still moves fast">provisional</span>{% endif %}</td>
           {% if view == "liga" %}<td>{{ standing.row.clan_name or "-" }}</td>{% endif %}
           <td class="num"><strong>{{ standing.row.rating }}</strong> {{ rating_change(standing.row.last_change) }}</td>
           <td>{{ form_strip(standing.form) }}</td>
