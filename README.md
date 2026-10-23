@@ -436,7 +436,7 @@ The code follows the same layers:
 | `s3lobby/upnp.py`, `s3lobby/forwarding.py` | port forwarding on the router by UPnP (`--upnp`) |
 | `s3lobby/reachability.py` | the optional test whether other players can reach a player directly |
 | `s3lobby/database.py` | everything stored: accounts, clans, lobby content, statistics, settings |
-| `s3lobby/backends.py` | SQLite and MySQL behind one interface, chosen by the database location |
+| `s3lobby/backends/` | SQLite and MySQL behind one interface, chosen by the database location: `base.py`, `location.py`, `sqlite.py`, `mysql.py` |
 | `s3lobby/migrations.py`, `s3lobby/schema/` | the schema as numbered migration files per database |
 | `s3lobby/live.py` | the running lobby as the server writes it for the web interface |
 | `s3lobby/cli.py`, `s3lobby/admin.py` | the command line |

@@ -17,9 +17,11 @@ another project; its history was carried over, so the early commits describe tha
 - `s3lobby/database.py`: LobbyDatabase, everything the lobby stores: accounts with access codes,
   clans, news, chat themes, board, sessions, games, game reports, settings. Its SQL is written once
   with `?` placeholders in the part of SQL that SQLite and MySQL share.
-- `s3lobby/backends.py`: where the data lives. `SqliteBackend` (a file, the default) and
-  `MysqlBackend` (MySQL 8.0.19+ or MariaDB 10.5+ through PyMySQL), chosen by the database location:
-  a path, or `mysql://user@host/name`. Placeholders, transactions, dict rows, upserts, key errors.
+- `s3lobby/backends/`: where the data lives, chosen by the database location (a path, or
+  `mysql://user@host/name?tls=verify`). `base.py`: the `DatabaseBackend` interface, `DatabaseError`
+  and its subclasses; `location.py`: parsing and describing locations; `sqlite.py`: `SqliteBackend`
+  (a file, the default); `mysql.py`: `MysqlBackend` (MySQL 8.0.19+ or MariaDB 10.5+ through
+  PyMySQL). Placeholders, transactions, dict rows, upserts and driver errors are handled there.
 - `s3lobby/migrations.py` and `s3lobby/schema/<dialect>/NNNN_name.sql`: the schema as numbered
   migration files, recorded with checksums in the table `schema_migrations`. A schema change adds
   the next number to every dialect folder (same number, same meaning); released files are never
@@ -59,7 +61,8 @@ Python 3.10 or newer. The server and the command line use the standard library o
 dependencies. Two optional extras are the exceptions. Flask for `s3lobby/web/` (`web`): nothing
 outside `s3lobby/web/` imports it, `s3lobby/web/__init__.py` imports nothing (so test discovery
 works without Flask), and `cli.py` imports the web app only inside the `web` command. PyMySQL for
-MySQL (`mysql`): imported only inside `MysqlBackend.__init__`, so SQLite needs nothing extra.
+MySQL (`mysql`): imported only inside `MysqlBackend.__init__` (`s3lobby/backends/mysql.py`), so
+SQLite needs nothing extra.
 
 ## Rules
 
