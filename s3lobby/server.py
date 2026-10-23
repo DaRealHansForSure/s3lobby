@@ -19,7 +19,7 @@ import logging
 import math
 import socket
 import time
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 
 from s3lobby.addresses import ViewerAddresses
@@ -36,6 +36,7 @@ from s3lobby.constants import (
     MAX_CONNECTIONS,
     MAX_CONNECTIONS_PER_IP,
     MAX_MESSAGES_PER_BLOCK,
+    LOGON_DEADLINE_MS,
     PUBLIC_HOST_REFRESH_SECONDS,
     UPNP_RENEW_SECONDS,
     WARNING_INTERVAL_SECONDS,
@@ -268,6 +269,11 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._database.close()
 
     async def _run_housekeeping(self) -> None:
+        """Retries, timeouts and the periodic work, every HOUSEKEEPING_INTERVAL_SECONDS.
+
+        Every step is guarded on its own: an error in one (a locked database, a failing router) is
+        logged and the others still run. Unguarded, a single exception would end this task, and
+        with it every retry, timeout, kick and announcement for every player."""
         last_announcement_poll_seconds = time.monotonic()
         last_live_state_check_seconds = time.monotonic()
         last_public_host_lookup_seconds = time.monotonic()
@@ -279,24 +285,55 @@ class LobbyServer(asyncio.DatagramProtocol):
                 self._run_in_background(self._renew_forwarding())
             if time.monotonic() - last_public_host_lookup_seconds >= PUBLIC_HOST_REFRESH_SECONDS:
                 last_public_host_lookup_seconds = time.monotonic()
-                await self.look_up_public_host()
+                self._run_in_background(self.look_up_public_host())
             if time.monotonic() - last_announcement_poll_seconds >= ANNOUNCEMENT_POLL_INTERVAL_SECONDS:
                 last_announcement_poll_seconds = time.monotonic()
-                self._lobby.send_pending_announcements()
-                self._lobby.carry_out_pending_kicks()
+                self._run_guarded("sending announcements", self._lobby.send_pending_announcements)
+                self._run_guarded("carrying out kicks", self._lobby.carry_out_pending_kicks)
             if time.monotonic() - last_live_state_check_seconds >= LIVE_STATE_WRITE_INTERVAL_SECONDS:
                 last_live_state_check_seconds = time.monotonic()
-                self.write_live_state_when_due(last_live_state_check_seconds)
-            now_ms = monotonic_ms()
-            for client_address, connection in list(self._connections.items()):
+                self._run_guarded(
+                    "writing the live lobby", lambda: self.write_live_state_when_due(last_live_state_check_seconds)
+                )
+            self._run_guarded("serving connections", self._serve_connections)
+            self._run_guarded("pruning limits", self._forget_quiet_keys)
+
+    def _run_guarded(self, step: str, action: Callable[[], None]) -> None:
+        try:
+            action()
+        except Exception:
+            self._warnings.error_with_traceback(step, time.monotonic(), "housekeeping: %s failed", step)
+
+    def _serve_connections(self) -> None:
+        """End the connections that are over and send what is due on the others. A connection
+        whose work fails is ended on its own, so one broken client cannot stall the rest."""
+        now_ms = monotonic_ms()
+        for client_address, connection in list(self._connections.items()):
+            try:
                 if connection.is_finished(now_ms):
                     self._end_connection(client_address, "it went quiet or was closed")
                     continue
+                is_past_logon_deadline = (
+                    connection.age_ms(now_ms) > LOGON_DEADLINE_MS
+                    and not connection.is_closing
+                    and not self._lobby.is_logged_on(client_address)
+                )
+                if is_past_logon_deadline:
+                    self._end_connection(client_address, "it never logged on")
+                    continue
                 self._send_due_datagrams(connection)
-            now_seconds = time.monotonic()
-            self._datagram_rate.forget_quiet_keys(now_seconds)
-            self._warnings.forget_quiet_keys(now_seconds)
-            self._lobby.forget_quiet_keys(now_seconds)
+            except Exception:
+                self._warnings.error_with_traceback(
+                    client_address, time.monotonic(), "%s: internal error while serving the connection", client_address
+                )
+                if client_address in self._connections:
+                    self._end_connection(client_address, "serving it failed")
+
+    def _forget_quiet_keys(self) -> None:
+        now_seconds = time.monotonic()
+        self._datagram_rate.forget_quiet_keys(now_seconds)
+        self._warnings.forget_quiet_keys(now_seconds)
+        self._lobby.forget_quiet_keys(now_seconds)
 
     def write_live_state_when_due(self, now_seconds: float) -> None:
         """Write the lobby for the web interface when it changed, or as a sign of life when the

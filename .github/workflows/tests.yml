@@ -15,8 +15,8 @@ jobs:
       matrix:
         python: ["3.10", "3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - name: Install the web extra's Flask, so the web tests run too
@@ -49,8 +49,8 @@ jobs:
     env:
       S3LOBBY_TEST_DATABASE: mysql://s3lobby:s3lobby@127.0.0.1:3306/s3lobby_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install Flask and PyMySQL

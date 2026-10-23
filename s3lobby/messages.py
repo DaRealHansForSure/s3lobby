@@ -1200,6 +1200,9 @@ def describe_for_log(message: RawMessage) -> str:
             return describe_decoded(message, AddPlayerToGroup, secret_field="extra_text")
         case MessageType.ADD_GROUP_TO_GROUP | MessageType.ADD_GROUP_TO_GROUP_2:
             return describe_decoded(message, GroupAnnouncement, secret_field="third_text")
+        case MessageType.UPDATE_GROUP | MessageType.UPDATE_GROUP_2:
+            # An update may set a chat group's password through the third text as well.
+            return describe_decoded(message, GroupUpdate, secret_field="third_text")
         case _:
             if not message.body:
                 return message.type_name

@@ -7,8 +7,10 @@ forged sender addresses cannot make these tables grow without end either.
 from __future__ import annotations
 
 import logging
+from collections.abc import Hashable
 from dataclasses import dataclass
-from typing import Hashable
+
+from s3lobby.constants import LOG_LINE_BURST, MAX_LOG_LINES_PER_SECOND
 
 
 @dataclass
@@ -79,14 +81,23 @@ class RateLimiter:
         return len(self._buckets)
 
 
+TOTAL_BUDGET_KEY = "all"
+
+
 class ThrottledLogger:
-    """Logs a warning about a key at most once per interval, and says how many it held back."""
+    """Logs a message about a key at most once per interval, and says how many it held back.
+
+    Warnings and errors about one key are throttled apart, so a bug's traceback is never held back
+    behind a warning. On top, all keys share a budget of lines per second: every forged sender
+    address is a key of its own, and without the budget a flood of them would fill the disk."""
 
     def __init__(self, logger: logging.Logger, interval_seconds: float) -> None:
         self._logger = logger
         self._interval_seconds = interval_seconds
         self._last_logged_seconds: dict[Hashable, float] = {}
         self._suppressed_counts: dict[Hashable, int] = {}
+        self._total_lines = RateLimiter(MAX_LOG_LINES_PER_SECOND, LOG_LINE_BURST)
+        self._lines_over_budget = 0
 
     def warning(self, key: Hashable, now_seconds: float, message: str, *arguments: object) -> None:
         self._log(logging.WARNING, key, now_seconds, message, arguments, include_traceback=False)
@@ -104,16 +115,20 @@ class ThrottledLogger:
         arguments: tuple[object, ...],
         include_traceback: bool,
     ) -> None:
-        last_logged = self._last_logged_seconds.get(key)
+        throttle_key = (level, key)
+        last_logged = self._last_logged_seconds.get(throttle_key)
         is_within_interval = last_logged is not None and now_seconds - last_logged < self._interval_seconds
         if is_within_interval:
-            self._suppressed_counts[key] = self._suppressed_counts.get(key, 0) + 1
+            self._suppressed_counts[throttle_key] = self._suppressed_counts.get(throttle_key, 0) + 1
             return
-        suppressed_count = self._suppressed_counts.pop(key, 0)
+        if not self._total_lines.allows(TOTAL_BUDGET_KEY, now_seconds):
+            self._lines_over_budget += 1
+            return
+        suppressed_count = self._suppressed_counts.pop(throttle_key, 0)
         if suppressed_count:
             message += f" ({suppressed_count} similar messages held back)"
         self._logger.log(level, message, *arguments, exc_info=include_traceback)
-        self._last_logged_seconds[key] = now_seconds
+        self._last_logged_seconds[throttle_key] = now_seconds
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         """Drop keys whose interval has passed, after reporting warnings still held back for them."""
@@ -122,8 +137,13 @@ class ThrottledLogger:
             for key, last_logged in self._last_logged_seconds.items()
             if now_seconds - last_logged >= self._interval_seconds
         ]
-        for key in quiet_keys:
-            suppressed_count = self._suppressed_counts.pop(key, 0)
+        for throttle_key in quiet_keys:
+            suppressed_count = self._suppressed_counts.pop(throttle_key, 0)
             if suppressed_count:
+                _, key = throttle_key
                 self._logger.warning("%s: %d more similar messages held back", key, suppressed_count)
-            del self._last_logged_seconds[key]
+            del self._last_logged_seconds[throttle_key]
+        if self._lines_over_budget:
+            self._logger.warning("%d log messages held back: more than the log takes per second", self._lines_over_budget)
+            self._lines_over_budget = 0
+        self._total_lines.forget_quiet_keys(now_seconds)

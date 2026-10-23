@@ -52,6 +52,7 @@ files: point the game at your server and log on.
 - [Running the game on Linux with Wine](#running-the-game-on-linux-with-wine)
 - [Security](#security)
 - [How it works](#how-it-works)
+- [Roadmap](#roadmap)
 - [Development](#development)
 - [Legal](#legal)
 
@@ -375,6 +376,11 @@ has overwritten that value with something it cannot read back: restore the value
 
 ## Security
 
+**The game sends its password and all chat in plain text.** s3lobby therefore issues random
+access codes instead of letting players pick passwords; never reuse a real password with it. See
+[SECURITY.md](SECURITY.md) for what that means for players, server owners and projects built on
+this one, and for how to report a problem.
+
 The server is reachable by anyone who can send it a UDP datagram, with any sender address, and the
 original game clients it talks to were written in 1998. So:
 
@@ -430,6 +436,22 @@ The code follows the same layers:
 | `s3lobby/cli.py`, `s3lobby/admin.py` | the command line |
 | `s3lobby/web/` | the web interface (Flask) |
 
+## Roadmap
+
+Planned or wished for, roughly in order:
+
+- **Tests with the real game** for everything marked as untried above, and with two players on
+  two machines.
+- **Ladder games ("Liga", "Clanliga") with a real ranking.** The game already reports each ladder
+  match to the server with its players, teams, races and the winning team. s3lobby stores those
+  reports but ranks nothing yet and answers "Game not valid for ladder." The plan: count the
+  results per player and per clan, show the standings on the web interface and the Home tab, and
+  confirm valid ladder results to the game (Result 0x6c) once the reports are trusted enough,
+  for example only when every player of a match sent a matching report.
+- Hardening that needs a recorded game session first: refusing forged datagrams from a logged on
+  player's address, and a confirmation code for admin chat commands.
+- MySQL over TLS for databases on another machine.
+
 ## Development
 
 Run the tests from the checkout:
@@ -479,5 +501,6 @@ the behaviour of a legally owned copy, for interoperability.
 s3lobby is released under the [MIT License](LICENSE). Copyright (c) 2026 DaRealHansForSure.
 
 The protocol was reverse engineered from the original game and the code written from scratch by
-DaRealHansForSure. You may use, change and share it, also in your own projects, as long as you
-keep the copyright notice and name the author. A link back to this repository is appreciated.
+DaRealHansForSure, together with Claude, an AI assistant made by Anthropic. You may use, change
+and share it, also in your own projects, as long as you keep the copyright notice and name the
+author. A link back to this repository is appreciated.

@@ -31,9 +31,9 @@ from s3lobby.constants import (
     ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
     BOARD_FALLBACK_LANGUAGE,
+    BOARD_LANGUAGES,
     BOARD_LANGUAGE_GROUP_ID_BASE,
     BOARD_LANGUAGE_GROUP_PREFIX,
-    BOARD_LANGUAGES,
     BOARD_MESSAGE_TEXT_ID_BASE,
     BOARD_THEME_GROUP_ID_BASE,
     CHAT_THEME_GROUP_ID_BASE,
@@ -42,6 +42,8 @@ from s3lobby.constants import (
     DEFAULT_CHAT_THEME_NAME,
     FIRST_GAME_GROUP_ID,
     GAME_ZONE_NAMES,
+    GROUP_UPDATES_PER_SECOND,
+    GROUP_UPDATE_BURST,
     HOME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LADDER_NOT_SUPPORTED_TEXT,
@@ -57,6 +59,8 @@ from s3lobby.constants import (
     TEXT_ENCODING,
     UNKNOWN_TEXT_TITLE,
     WARNING_INTERVAL_SECONDS,
+    WRONG_GROUP_PASSWORDS_PER_SECOND,
+    WRONG_GROUP_PASSWORD_BURST,
     GroupFlag,
     MessageType,
     PlayerFlag,
@@ -75,7 +79,7 @@ from s3lobby.groups import (
     room_announcement,
     with_real_host_address,
 )
-from s3lobby.guards import ThrottledLogger
+from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
@@ -107,7 +111,7 @@ from s3lobby.messages import (
     TextMessage,
 )
 from s3lobby.reachability import Reachability
-from s3lobby.wire import Address, ProtocolError, RawMessage
+from s3lobby.wire import Address, ProtocolError, RawMessage, readable_text
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +171,8 @@ class Lobby:
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
         self._next_player_group_id = FIRST_GAME_GROUP_ID
+        self._wrong_group_passwords = RateLimiter(WRONG_GROUP_PASSWORDS_PER_SECOND, WRONG_GROUP_PASSWORD_BURST)
+        self._group_updates = RateLimiter(GROUP_UPDATES_PER_SECOND, GROUP_UPDATE_BURST)
         # Warnings about a client's messages are throttled per client, so a client that sends a
         # stream of bad messages within its rate limit cannot flood the log.
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
@@ -235,6 +241,9 @@ class Lobby:
         for text in self._database.take_pending_announcements():
             self.announce(text)
 
+    def is_logged_on(self, client_address: Address) -> bool:
+        return client_address in self._players_by_address
+
     def carry_out_pending_kicks(self) -> None:
         """Remove the players that another process, a ban or an account deletion asked to remove
         (LobbyDatabase.queue_kick). A kick for a player who is not online is simply dropped."""
@@ -270,7 +279,7 @@ class Lobby:
         live_group = LiveGroup(
             group_id=group.group_id,
             kind=group.kind.value,
-            name=group.announcement.name,
+            name=readable_text(group.announcement.name),
             max_players=group.announcement.max_players,
             is_full=group.is_full,
             has_password=bool(group.password),
@@ -283,12 +292,14 @@ class Lobby:
         description = game_description_of(group.announcement)
         if description is None:
             return live_group
-        return replace(live_group, map_name=description.map_name, team_count=description.team_count)
+        return replace(live_group, map_name=readable_text(description.map_name), team_count=description.team_count)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
-        """Let the per client warning and logon limits forget clients that went quiet."""
+        """Let the per client warning, logon, password and update limits forget clients that went quiet."""
         self._warnings.forget_quiet_keys(now_seconds)
         self._logon_check.forget_quiet_keys(now_seconds)
+        self._wrong_group_passwords.forget_quiet_keys(now_seconds)
+        self._group_updates.forget_quiet_keys(now_seconds)
 
     # Index server role.
 
@@ -398,9 +409,17 @@ class Lobby:
             return
         if player.player_id in group.member_ids:
             return
-        if group.password and request.extra_text != group.password:
-            self._refuse_join(player, group.group_id, ResultCode.WRONG_GROUP_PASSWORD, "wrong password")
-            return
+        if group.password:
+            # Every join carries one guess, and a datagram can hold hundreds: wrong guesses are
+            # limited per player, and once over the limit even the right password waits.
+            now_seconds = time.monotonic()
+            if self._wrong_group_passwords.is_exhausted(player.player_id, now_seconds):
+                self._refuse_join(player, group.group_id, ResultCode.WRONG_GROUP_PASSWORD, "too many wrong passwords")
+                return
+            if request.extra_text != group.password:
+                self._wrong_group_passwords.record_event(player.player_id, now_seconds)
+                self._refuse_join(player, group.group_id, ResultCode.WRONG_GROUP_PASSWORD, "wrong password")
+                return
         if group.is_full:
             self._refuse_join(player, group.group_id, ResultCode.GROUP_CHANGE_FAILED, "group is full")
             return
@@ -467,7 +486,7 @@ class Lobby:
             creator_player_id=player.player_id,
         )
         if group.kind == GroupKind.GAME:
-            group.game_record_id = self._database.record_game_opened(announcement.name, player.player_id)
+            group.game_record_id = self._database.record_game_opened(readable_text(announcement.name), player.player_id)
             self._send_statistics_to_home()
         self._groups[group_id] = group
         log.info(
@@ -505,6 +524,10 @@ class Lobby:
         group = self._groups.get(update.group_id)
         if player is None or group is None or player.player_id not in group.member_ids:
             raise ProtocolError(f"update of group {update.group_id} by a player not in it")
+        # Each update goes on to every viewer: a budget per player keeps one client from
+        # multiplying its traffic onto everyone in a zone. A host sends a few while setting up.
+        if not self._group_updates.allows(player.player_id, time.monotonic()):
+            raise ProtocolError("more group updates than the budget allows")
         check_client_group_texts(update)
         update = replace(update, game_block=game_block_with_real_host(update.game_block, player.address))
         updated = update.applied_to(group.announcement)
@@ -546,12 +569,18 @@ class Lobby:
         player = self._find_logged_on_player(client_address)
         if player is None:
             return
-        log.info("player %d %r: %r", player.player_id, player.name, command.command)
-        lines = self._chat_commands.answer(player, command.command)
+        # Read as stored text: a ban reason typed here goes into the database.
+        command_text = readable_text(command.command)
+        log.info("player %d %r: %r", player.player_id, player.name, command_text)
+        lines = self._chat_commands.answer(player, command_text)
         self._outbox.send(client_address, ChatCommandAnswer(group_id=command.group_id, lines=lines))
 
     def _answer_image_list(self, client_address: Address, message: RawMessage) -> None:
-        # Only the Home tab shows an image: the banner, when one is configured.
+        # Only the Home tab shows an image: the banner, when one is configured. The game asks only
+        # for groups it joined, so only after its logon; answering anyone else would let a forged
+        # sender address turn a small request into a large answer to someone else.
+        if self._find_logged_on_player(client_address) is None:
+            return
         request = GetImageList.decode(message)
         images = ()
         banner = self._configured_banner()
@@ -560,6 +589,9 @@ class Lobby:
         self._outbox.send(client_address, ImageList(group_id=request.group_id, images=images))
 
     def _answer_text_message(self, client_address: Address, message: RawMessage) -> None:
+        # Asked for from the Home tab and the board, so only after the logon (see _answer_image_list).
+        if self._find_logged_on_player(client_address) is None:
+            return
         request = GetTextMessage.decode(message)
         self._outbox.send(client_address, self._text_message_for(request.text_id))
 

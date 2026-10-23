@@ -13,7 +13,7 @@ import threading
 import time
 from collections.abc import Hashable
 
-from flask import Response, abort, request, session
+from flask import Response, abort, current_app, request, session
 
 from s3lobby.constants import LOGON_FAILURE_BURST, LOGON_FAILURES_PER_SECOND
 from s3lobby.guards import RateLimiter
@@ -44,7 +44,15 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 }
+# Pages show player addresses and, once, new access codes: no browser or proxy may keep a copy.
+NO_STORE = "no-store"
+STATIC_PATH_PREFIX = "/static/"
+# With HTTPS, browsers keep to it for a year, also when someone types http://.
+STRICT_TRANSPORT_SECURITY = "max-age=31536000"
 
 
 def csrf_token() -> str:
@@ -62,32 +70,43 @@ def check_csrf_token() -> None:
         return
     expected_token = session.get(CSRF_SESSION_KEY)
     offered_token = request.form.get(CSRF_FORM_FIELD, "")
-    if expected_token is None or not hmac.compare_digest(offered_token, expected_token):
+    # Compared as bytes: compare_digest refuses str with characters beyond ASCII, which a forged
+    # form could send to turn a refusal into a server error.
+    is_token_right = expected_token is not None and hmac.compare_digest(
+        offered_token.encode("utf-8"), expected_token.encode("utf-8")
+    )
+    if not is_token_right:
         abort(HTTP_BAD_REQUEST, description="The form has expired. Load the page again and resend it.")
 
 
 def add_security_headers(response: Response) -> Response:
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
+    if not request.path.startswith(STATIC_PATH_PREFIX):
+        response.headers["Cache-Control"] = NO_STORE
+    if current_app.config.get("S3LOBBY_HTTPS_ONLY"):
+        response.headers.setdefault("Strict-Transport-Security", STRICT_TRANSPORT_SECURITY)
     return response
 
 
 class LogonFailureLimiter:
     """Allows as many failed web logons per address and per name as the lobby allows in the game:
     LOGON_FAILURE_BURST at once, refilled slowly. Only failures count, so admins who type their
-    code right are never held up. Flask may answer on several threads, hence the lock."""
+    code right are never held up, not even when others failed with their name. Flask may answer on
+    several threads, hence the lock."""
 
     def __init__(self) -> None:
         self._failures_by_address = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._failures_by_name = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._lock = threading.Lock()
 
-    def is_blocked(self, address: Hashable, name: str) -> bool:
-        now_seconds = time.monotonic()
+    def is_address_blocked(self, address: Hashable) -> bool:
         with self._lock:
-            is_address_blocked = self._failures_by_address.is_exhausted(address, now_seconds)
-            is_name_blocked = self._failures_by_name.is_exhausted(name.casefold(), now_seconds)
-        return is_address_blocked or is_name_blocked
+            return self._failures_by_address.is_exhausted(address, time.monotonic())
+
+    def is_name_blocked(self, name: str) -> bool:
+        with self._lock:
+            return self._failures_by_name.is_exhausted(name.casefold(), time.monotonic())
 
     def record_failure(self, address: Hashable, name: str) -> None:
         now_seconds = time.monotonic()

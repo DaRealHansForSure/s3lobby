@@ -17,11 +17,13 @@ from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
     GAME_BLOCK_SIZE_BY_MESSAGE_TYPE,
     GROUP_COUNTERS_FULL,
+    GROUP_UPDATE_BURST,
     JOINED_GROUP_PARENT_ID,
     LADDER_NOT_SUPPORTED_TEXT,
     MAX_GROUP_TEXT_LENGTH,
     SERVER_ASSIGNS_GROUP_ID,
     UNLIMITED_PLAYERS,
+    WRONG_GROUP_PASSWORD_BURST,
     GroupFlag,
     GroupUpdateMask,
     LadderType,
@@ -252,6 +254,35 @@ class GroupRulesTest(LobbyTestCase):
         self.assertEqual((refusal.code, refusal.value), (ResultCode.WRONG_GROUP_PASSWORD, shown_to_bob.group_id))
         bob.send(AddPlayerToGroup(shown_to_bob.group_id, bob_id, ("0.0.0.0", 0), "", extra_text="hunter"))
         self.assertEqual(receive_announcement(bob).parent_id, JOINED_GROUP_PARENT_ID)
+
+    def test_wrong_group_passwords_are_limited_per_player(self) -> None:
+        """Each join carries one guess and a datagram holds hundreds: without a limit a password
+        falls to trying."""
+        alice, _ = self.player_in_chat_theme("Alice", 17)
+        bob, bob_id = self.player_in_chat_theme("Bob", 42)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "Romans only", password="hunter")
+        group_id = receive_announcement(bob).group_id
+        guesses = [
+            AddPlayerToGroup(group_id, bob_id, ("0.0.0.0", 0), "", extra_text=f"guess{number}")
+            for number in range(WRONG_GROUP_PASSWORD_BURST)
+        ]
+        bob.send(*guesses, AddPlayerToGroup(group_id, bob_id, ("0.0.0.0", 0), "", extra_text="hunter"))
+        for _ in range(WRONG_GROUP_PASSWORD_BURST + 1):
+            refusal = Result.decode(bob.receive_next(MessageType.RESULT))
+            self.assertEqual(refusal.code, ResultCode.WRONG_GROUP_PASSWORD)
+
+    def test_group_updates_are_limited_per_player(self) -> None:
+        """Each update goes to every viewer; a flood of them would be multiplied onto them all."""
+        alice, _ = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        bob, _ = self.player_in_room("Bob", 42, GAME_ZONE_ID)
+        open_game(bob, GAME_ZONE_ID)
+        receive_announcement(alice)
+        update = game_update(FIRST_GAME_GROUP_ID, GroupUpdateMask.MAX_PLAYERS, max_players=2)
+        updates = [update] * (GROUP_UPDATE_BURST + 10)
+        bob.send(*updates)
+        for _ in range(GROUP_UPDATE_BURST):
+            alice.receive_next(MessageType.UPDATE_GROUP_2)
+        alice.assert_nothing_arrives(MessageType.UPDATE_GROUP_2)
 
     def test_unknown_group_cannot_be_joined_or_conjured(self) -> None:
         alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)

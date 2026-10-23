@@ -1,0 +1,55 @@
+# Security
+
+## Reporting a problem
+
+Please report security problems privately, through GitHub's "Report a vulnerability" button on
+the repository's Security tab, not in a public issue. Say what an attacker can do, how to
+reproduce it, and which version or commit you tried.
+
+## The game sends its password in plain text
+
+**Read this before you run a server, and before you build anything on this project.**
+
+The Settlers III (1998) talks to its lobby over plain UDP, without any encryption. Its logon
+message (`0x07 Logon`, see [docs/protocol.md](docs/protocol.md)) carries the player name and the
+password as readable text, and every chat line travels the same way. Anyone who can see the
+traffic between a player and the server can read them: someone on the same Wi-Fi, the network
+of a LAN party, a provider, any machine along the route on the internet. Sender addresses on UDP
+can also be forged. None of this can be fixed on the server side: the game is unmodified and
+always sends this way.
+
+s3lobby is built around that weakness:
+
+- **Players never choose a password.** The server issues random access codes (12 characters),
+  and the game's "create player" button is refused. A code that leaks gives access to this lobby
+  and nothing else.
+- **Codes are stored only as salted scrypt hashes** and can be revoked one by one. Give every PC
+  its own code (`s3lobby account code NAME --label ...`) and revoke the one that leaked.
+- **Failed logons are limited** per address and per name, so codes cannot be guessed.
+- **The web interface uses the same access codes.** Run it on a LAN only, or behind a reverse
+  proxy with HTTPS (see the README), so codes do not cross the internet in plain text there too.
+
+## For projects based on this one
+
+If you build your own lobby, launcher or service on this code or on its protocol notes:
+
+- **Never use a real password anywhere in this mechanism.** Do not let players type, choose or
+  reuse a password they also use elsewhere (an e-mail, a forum, a game account, a Windows logon).
+  Whatever the game sends as password is public to anyone on the path.
+- **Never ask for or accept an existing account's password** through the game's logon dialog,
+  and never forward the game's password to another service to "check" it.
+- **Generate the codes yourself**, random and long enough, store only a slow salted hash, make
+  them revocable, and limit failed attempts.
+- **Treat everything the game sends as untrusted**: lengths, counts, texts and sender addresses.
+  The game clients are from 1998 and break on unexpected answers; the server must never send more
+  bytes to an address than it received before a logon, or it becomes a tool to flood others.
+
+## Known limits
+
+- Access codes and chat cross the network in plain text (above).
+- On networks that allow forged sender addresses, a forged datagram from a logged on player's
+  address is taken as theirs, including an admin's chat commands. Closing this needs evidence
+  from a recorded game session first, as it touches behaviour the real game relies on; until
+  then, prefer giving admin rights only to players you trust on a network you know.
+- A connection to a MySQL server is not encrypted yet; keep the database on the same machine or
+  a trusted network.

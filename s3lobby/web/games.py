@@ -18,7 +18,7 @@ from s3lobby.database import GameReportRecord
 from s3lobby.messages import GameStatus, MatchReportPlayer
 from s3lobby.web.auth import redirect_visitors_to_logon
 from s3lobby.web.storage import get_database
-from s3lobby.wire import ProtocolError, RawMessage
+from s3lobby.wire import ProtocolError, RawMessage, readable_text
 
 blueprint = Blueprint("games", __name__)
 blueprint.before_request(redirect_visitors_to_logon)
@@ -108,7 +108,7 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str]) -> 
         group_id=row.group_id,
         size=row.size,
         is_readable=True,
-        map_name=status.map_name,
+        map_name=readable_text(status.map_name),
         is_ladder_game=status.is_ladder_game,
         outcome_text=outcome_text(status),
         players=players,

@@ -2,9 +2,8 @@
 
 Lobby server for the online lobby of the original The Settlers III (Blue Byte, 1998). It replaces
 Blue Byte's long dead `siedler3svr.bluebyte.de:3344` so unmodified copies of the game can use their
-built-in lobby again. Open source project in a repository of its own. It began in `tools/s3lobby/`
-of another repository; its history was carried over from there, so the early commits
-describe that layout.
+built-in lobby again. Open source project in a repository of its own. It began as a subfolder of
+another project; its history was carried over, so the early commits describe that layout.
 
 ## Layout
 
@@ -83,6 +82,15 @@ MySQL (`mysql`): imported only inside `MysqlBackend.__init__`, so SQLite needs n
   compressed one-liners, four spaces. Never write an em dash or en dash anywhere (code, comments,
   docs, commit messages); use a plain hyphen.
 - Never commit game files, the game's executable, or recordings that contain them.
+- Network safety, learned from the security review (`a05c8b9`, `e91a88f`):
+  - Anything answered before a logon is no bigger than the request: sender addresses can be
+    forged, and a large answer would hit someone else.
+  - Every value a client sends is bounded (sizes, counts, timeouts, rates); housekeeping steps
+    are guarded so one failure cannot stop retries and timeouts for everyone.
+  - Text from clients is relayed byte for byte, but passes `wire.readable_text` before it is
+    stored or shown: undefined Windows-1252 bytes arrive as surrogates, which UTF-8 cannot encode.
+  - A setting that makes the server send something no run with the real game has seen yet
+    (`mark_admins`, `check_reachability`) is off by default until a run confirms it.
 - Web interface: every POST form carries `csrf_field()`; every admin blueprint registers
   `redirect_visitors_to_logon` as its before_request hook. Pages run no inline script or style (the
   Content-Security-Policy forbids them); colours, sizes and spaces come from the UI kit's tokens in
@@ -102,3 +110,78 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 
 - No `Co-Authored-By` or other generated-by lines in commit messages.
 - Merges always with `--no-ff`.
+- Identity of this repository (stored in its local git config, the whole history was rewritten
+  to it): DaRealHansForSure <stuff+s3@kognetwork.ch>. The project is MIT licensed under that name.
+- Work on a feature branch, merge it into `main` with `--no-ff`, push to `origin` (gitea at
+  192.168.1.8) when the owner asks. The `github` remote (DaRealHansForSure/s3lobby) signs in with
+  its own key through `.git/ssh_config` (core.sshCommand); GitHub refused that key until the
+  owner adds it to the account, and the key needs `ssh-add` for its passphrase.
+- Run commands from the repository folder without a `cd` prefix, and stay inside this folder
+  unless the owner says otherwise (the game's own installation folder, which `build/lobby/re.py`
+  reads, is read only and only for looking up addresses).
+
+## Continuing in a new session
+
+- Local, ignored files: `HANDOVER.md` (state and next steps for the next agent), `build/lobby/`
+  (reverse engineering helpers: `python3 -P build/lobby/re.py fnq ADDR`, `xref VALUE`, `str ADDR`;
+  names in `names.json`), `build/wine/` (the game under Wine), `build/skills-ref/` (review
+  references, see below).
+- Skills applied to all code: the owner's global `senior-code-style` (naming, early returns, braces
+  where the language has them, why-comments, no magic numbers, no compressed one-liners) and
+  `no-em-dash`. `find-skills` was used to pick review references from skills.sh.
+- Review references, read but not installed (third-party, untrusted; fetch again with curl from
+  raw.githubusercontent.com into `build/skills-ref/`):
+  - Python quality: `trailofbits/skills` plugins/modern-python, `affaan-m/ecc` .kiro/skills/python-patterns
+  - Network security: `trailofbits/skills` plugins/sharp-edges, `openai/skills` skills/.curated/security-threat-model
+  - Web security: `openai/skills` skills/.curated/security-best-practices with references/python-flask-web-server-security.md
+- Checks before a commit: `.venv/bin/python -m pyflakes s3lobby tests`, `.venv/bin/python -m
+  unittest`, the suite against MySQL 8.4 and MariaDB 11.4 (podman, see Commands) when the database
+  changed, and `grep` for em and en dashes in what changed.
+- UPnP can be tried against the owner's router (192.168.1.1): a mapping added in a test must be
+  deleted again, and `GetSpecificPortMappingEntry` (error 714) confirms it is gone.
+
+## Open review findings
+
+Fixed so far: web hardening (open redirect, server-side web sessions, lockout, headers), the
+housekeeping guard, block budget, acknowledgement and timeout caps, no Home answers before a logon,
+logon deadline, readable text, the log budget, game logon limits and check budget, wrong group
+password and group update limits, admin rights read at the command, update passwords hidden in
+the log. Still to do, most important first:
+
+- UPnP: control URL only on the answering device and plain http, no proxies or redirects, a
+  global external address only, an overall discovery deadline; forward only private addresses
+  from the game's ports; one lock around mapping changes (forward and release race today).
+- `decode_block` should stop at the message limit instead of parsing a whole datagram first.
+- The reachability probe only for confirmed connections.
+- SIGTERM handler for a clean stop; cancel background router tasks before stopping forwarding;
+  close what `start_server` opened when it fails halfway.
+- Database: indexes on `lobby_sessions(ended_at)` and `games(closed_at)`, statistics cached for a
+  few seconds, a short SQLite busy timeout, ROLLBACK when COMMIT fails, driver errors wrapped as
+  `DatabaseError`, `is_matching_access_code` returning False for a malformed hash, settings saved
+  in one transaction, `forget_client` updating memory and clients before the database.
+- Input: `isdigit()` accepts characters `int()` refuses (use `isascii() and isdigit()`); the web
+  settings checkbox must accept every true value (`1`, `yes`, `on`); access code labels limited and
+  ban reasons checked with `check_game_text`; `/games` also catching `ValueError` from a report.
+- Announcements queued while the server is down are marked sent at its start without reaching
+  anyone: skip them or fix the text in the web interface.
+- Typing and tidiness: optional return types (`create_account`, `from_stored_time`), transport
+  typing, `RouterForwarding._run` with a TypeVar, duplicated constants (`FIRST_PRINTABLE_CHARACTER`,
+  `MAX_BAN_HOURS`, `DEFAULT_BAN_HOURS`, true values, `HTTP_NOT_FOUND`), frozen dataclasses holding
+  lists.
+- Needs a recorded session before any change (it touches confirmed behaviour): dropping unnumbered
+  lobby messages from logged on players and narrowing the block window (a forged datagram from an
+  admin's address can run /ban today), ignoring a nonce reset from a logged on address, and a
+  confirmation code for admin chat commands. MySQL over TLS (`ssl=` for remote hosts) is a choice
+  for the owner.
+
+## Future work
+
+- Ladder games with a real ranking (owner's wish, see the README's Roadmap). Today ladder games are
+  played but unranked: players get a server line, and a ladder GameStatus is stored and answered
+  with 0x6A. Building blocks that exist: `GameStatus` decodes flags, winning team and every slot
+  (player id = account id, team, race, computer flag); reports are stored in `game_reports`;
+  `/games` already decodes them. Still to decide: when a result counts (every player's report
+  agreeing, both teams human, the match long enough), how to rank (wins, an Elo-like rating),
+  clan ladder for LadderType.CLANS, where to show it (web page, Home news text, a chat command),
+  and only then answering ladder reports with 0x6C instead of 0x6A, which the game shows as "Game
+  status stored at the Lobby server." (0x540a3e).

@@ -34,7 +34,7 @@
       <tbody>
         {% for player in page.players %}
         <tr>
-          <td>{{ player.name }}{% if player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
+          <td>{{ player.name }}{% if admin and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
           <td>{{ player.clan or "-" }}</td>
           <td>{{ names(player.tab_names) }}</td>
           <td>{{ names(player.group_names) }}</td>

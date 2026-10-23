@@ -52,6 +52,9 @@ SOCKET_ADDRESS_PADDING_OFFSET = 8
 # five byte values undefined; "surrogateescape" carries them through as placeholder characters
 # instead of replacing them, so a game name relayed to other players stays byte for byte the same.
 TEXT_ERROR_HANDLING = "surrogateescape"
+# Where such text leaves the wire (the database, the live lobby, web pages), a placeholder would
+# break: UTF-8 cannot encode it. readable_text puts the replacement character there instead.
+READABLE_TEXT_ERROR_HANDLING = "replace"
 
 
 class ProtocolError(Exception):
@@ -117,6 +120,13 @@ def encode_block(messages: Iterable[RawMessage]) -> bytes:
     if len(datagram) > MAX_DATAGRAM_SIZE:
         raise ProtocolError(f"block of {len(datagram)} bytes does not fit one datagram")
     return datagram
+
+
+def readable_text(text: str) -> str:
+    """Text from a client as it may be stored or shown: bytes Windows-1252 leaves undefined become
+    the replacement character instead of the placeholders that carry them over the wire."""
+    raw = text.encode(TEXT_ENCODING, errors=TEXT_ERROR_HANDLING)
+    return raw.decode(TEXT_ENCODING, errors=READABLE_TEXT_ERROR_HANDLING)
 
 
 class FieldWriter:

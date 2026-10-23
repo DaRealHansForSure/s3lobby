@@ -7,6 +7,9 @@ banned, or whose code is revoked is logged out at the next click, not when the c
 
 from __future__ import annotations
 
+import threading
+import urllib.parse
+
 from flask import Blueprint, Flask, current_app, flash, g, redirect, render_template, request, session, url_for
 from werkzeug.wrappers import Response
 
@@ -18,10 +21,14 @@ from s3lobby.web.texts import form_text
 
 blueprint = Blueprint("auth", __name__)
 
-SESSION_ACCOUNT_KEY = "account_id"
-SESSION_ACCESS_CODE_KEY = "access_code_id"
+# The cookie holds only the token of a web session row (LobbyDatabase.start_web_session).
+SESSION_TOKEN_KEY = "web_session"
+# Each logon check costs scrypt hashes of about 16 MB each; more than this many at once are turned
+# away, so a flood of logon requests cannot exhaust memory on threads Flask starts without limit.
+MAX_CONCURRENT_LOGON_CHECKS = 2
 ADMIN_ATTRIBUTE = "admin_account"
 LIMITER_EXTENSION = "s3lobby_logon_failures"
+LOGON_CHECKS_EXTENSION = "s3lobby_logon_checks"
 # Longer than any name or code the game's dialog takes; longer input is cut before it is hashed.
 MAX_LOGON_FIELD_LENGTH = MAX_GROUP_TEXT_LENGTH
 HTTP_TOO_MANY_REQUESTS = 429
@@ -31,6 +38,8 @@ PROTOCOL_RELATIVE_PREFIX = "//"
 # Browsers read a backslash in a URL as a slash, so a path starting with a slash and a backslash is
 # protocol relative too.
 BACKSLASH = "\\"
+FIRST_PRINTABLE = " "
+DELETE = "\x7f"
 REFUSED_LOGON_TEXT = "Unknown name or access code, or the account has no admin rights."
 
 
@@ -44,17 +53,22 @@ def current_admin() -> Account | None:
 
 
 def load_admin_from_session() -> Account | None:
-    account_id = session.get(SESSION_ACCOUNT_KEY)
-    access_code_id = session.get(SESSION_ACCESS_CODE_KEY)
-    if account_id is None or access_code_id is None:
+    """The admin of the session's live web session. The session ends as soon as it runs out, is
+    logged out, or its account loses admin rights, is banned, or its access code is revoked."""
+    token = session.get(SESSION_TOKEN_KEY)
+    if not isinstance(token, str):
         return None
     database = get_database()
-    account = database.find_account_by_id(account_id)
+    web_session = database.find_web_session(token)
+    if web_session is None:
+        session.clear()
+        return None
+    account = database.find_account_by_id(web_session.account_id)
     is_still_allowed = (
         account is not None
         and account.is_admin
         and not account.is_banned_at(utc_now())
-        and database.is_access_code_active(account_id, access_code_id)
+        and database.is_access_code_active(web_session.account_id, web_session.access_code_id)
     )
     if not is_still_allowed:
         session.clear()
@@ -85,13 +99,24 @@ def log_on() -> str | Response | tuple[str, int]:
     access_code = form_text("access_code")[:MAX_LOGON_FIELD_LENGTH]
     client_address = request.remote_addr or ""
     limiter = logon_failure_limiter()
-    if limiter.is_blocked(client_address, name):
+    if limiter.is_address_blocked(client_address):
         flash("Too many failed attempts. Try again in a few minutes.", "bad")
         return render_template("logon.html", next_path=next_path, name=name), HTTP_TOO_MANY_REQUESTS
-
-    account, access_code_id = check_logon(name, access_code)
+    if not logon_checks().acquire(blocking=False):
+        flash("The server is busy. Try again in a moment.", "bad")
+        return render_template("logon.html", next_path=next_path, name=name), HTTP_TOO_MANY_REQUESTS
+    try:
+        account, access_code_id = check_logon(name, access_code)
+    finally:
+        logon_checks().release()
     if access_code_id is None:
         limiter.record_failure(client_address, name)
+        # Failures for a name count from every address, against guessing spread over many
+        # addresses; the name's own correct code still gets through, so nobody can lock an admin
+        # out by failing on purpose with their (public) name.
+        if limiter.is_name_blocked(name):
+            flash("Too many failed attempts. Try again in a few minutes.", "bad")
+            return render_template("logon.html", next_path=next_path, name=name), HTTP_TOO_MANY_REQUESTS
     is_admitted = (
         account is not None
         and access_code_id is not None
@@ -105,14 +130,17 @@ def log_on() -> str | Response | tuple[str, int]:
     # A fresh session, so nothing from before the logon (such as a planted session) carries over.
     session.clear()
     session.permanent = True
-    session[SESSION_ACCOUNT_KEY] = account.account_id
-    session[SESSION_ACCESS_CODE_KEY] = access_code_id
+    session[SESSION_TOKEN_KEY] = get_database().start_web_session(account.account_id, access_code_id)
     flash(f"Logged on as {account.name}.", "good")
     return redirect(next_path or url_for("lobby_view.live_lobby"))
 
 
 @blueprint.post("/logout")
 def log_out() -> Response:
+    """End the web session in the database too: a copy of the cookie stops working with it."""
+    token = session.get(SESSION_TOKEN_KEY)
+    if isinstance(token, str):
+        get_database().end_web_session(token)
     session.clear()
     flash("Logged out.", "good")
     return redirect(url_for("lobby_view.live_lobby"))
@@ -138,6 +166,11 @@ def install_logon_failure_limiter(app: Flask) -> None:
     """One limiter per application, made before the first request so threads never race to make
     it, and so tests with their own application start with a clean slate."""
     app.extensions[LIMITER_EXTENSION] = LogonFailureLimiter()
+    app.extensions[LOGON_CHECKS_EXTENSION] = threading.BoundedSemaphore(MAX_CONCURRENT_LOGON_CHECKS)
+
+
+def logon_checks() -> threading.BoundedSemaphore:
+    return current_app.extensions[LOGON_CHECKS_EXTENSION]
 
 
 def logon_failure_limiter() -> LogonFailureLimiter:
@@ -145,8 +178,17 @@ def logon_failure_limiter() -> LogonFailureLimiter:
 
 
 def safe_next_path(path: str) -> str:
-    """Only a path on this site: "//evil.example" or "https://..." would send the admin elsewhere."""
+    """Only a path on this site: "//evil.example" or "https://..." would send the admin elsewhere.
+    Browsers drop tabs and line breaks from a URL and read a backslash as a slash, so "/<tab>/evil.example"
+    is "//evil.example" to them: any such character makes the path unsafe, and so does anything
+    that still parses with a scheme or a host."""
+    has_ignored_character = any(character < FIRST_PRINTABLE or character == DELETE for character in path)
+    if has_ignored_character or BACKSLASH in path:
+        return ""
     is_local_path = path.startswith(SAFE_REDIRECT_PREFIX) and not path.startswith(PROTOCOL_RELATIVE_PREFIX)
-    if not is_local_path or BACKSLASH in path:
+    if not is_local_path:
+        return ""
+    parts = urllib.parse.urlsplit(path)
+    if parts.scheme or parts.netloc:
         return ""
     return path
