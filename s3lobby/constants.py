@@ -399,10 +399,26 @@ MAX_TEXT_MESSAGE_BYTES = 1200
 # into host and path at the first slash (0x449938).
 BANNER_URL_PREFIX = "ftp://"
 
-# Logon attempts: a token bucket per IP and per account name, drawn on by failed attempts only, so
-# a LAN party behind one router can log on together while guessing access codes stays hopeless.
+# Logon attempts: a token bucket per IP and per account name from that IP, drawn on by failed
+# attempts only, so a LAN party behind one router can log on together while guessing access codes
+# stays hopeless.
 LOGON_FAILURE_BURST = 10
 LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
+
+# Wrong chat group passwords per player: a few typing mistakes at once, then one every few minutes.
+WRONG_GROUP_PASSWORD_BURST = 5
+WRONG_GROUP_PASSWORDS_PER_SECOND = 1 / 60
+
+# Group updates per player. A host sends one whenever the setup changes, a handful while setting
+# up a game; each goes on to every player who sees the game in a zone.
+GROUP_UPDATE_BURST = 20
+GROUP_UPDATES_PER_SECOND = 2
+
+# Access code checks for game logons, all clients together. Each costs a scrypt hash of tens of
+# milliseconds on the event loop; beyond this budget a logon is refused rather than stalling every
+# other player. A whole LAN party logging on at once fits the burst.
+ACCESS_CODE_CHECKS_PER_SECOND = 8
+ACCESS_CODE_CHECK_BURST = 30
 
 # Timing of the reliable layer, in milliseconds.
 
@@ -420,6 +436,11 @@ KEEPALIVE_INTERVAL_MS = 3_000
 # This server's choice: how long a connection closed by the client is kept for retransmissions of
 # the server's own CloseConnection before it is forgotten.
 CLOSING_LINGER_MS = 10_000
+
+# Throttled log messages, all senders together: at most this many lines per second, with this
+# burst. Each forged sender address would otherwise get its own lines and could fill the disk.
+MAX_LOG_LINES_PER_SECOND = 20
+LOG_LINE_BURST = 200
 
 # How often the server looks for announcements queued in the database by another process.
 ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
@@ -486,6 +507,19 @@ MAX_MESSAGES_PER_BLOCK = 256
 # one by one and waits for acknowledgements, so it is never more than a few ahead; the window keeps
 # the memory for duplicate detection bounded.
 CLIENT_BLOCK_ID_WINDOW = 256
+
+# The most a client may raise its silence timeout to: the game asks for 600000 ms around a match
+# and 60000 ms after it (0x454d6f, 0x452072), never more.
+MAX_CLIENT_SILENCE_TIMEOUT_MS = 600_000
+
+# A connection without a logged on player ends after this. The game's index connection closes by
+# itself right after the server list, and its lobby connection logs on in its first block; only a
+# forged sender would keep one open, holding a connection slot.
+LOGON_DEADLINE_MS = 120_000
+
+# Lobby messages per server block, in bytes. A datagram cannot exceed 65507 bytes of UDP payload,
+# and large ones are fragmented and easily lost; a queue beyond this goes out in several blocks.
+MAX_BLOCK_LOBBY_BYTES = 32_768
 
 # A client that leaves this many of the server's blocks unacknowledged is not reading them; the
 # connection ends instead of queueing more.

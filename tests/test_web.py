@@ -178,10 +178,56 @@ class AdminLogonTest(WebInterfaceTestCase):
         self.assertIsNone(self.database.find_clan("Romans"))
 
     def test_logon_returns_only_to_pages_of_this_site(self) -> None:
+        """Browsers drop tabs and line breaks from a URL, so "/<tab>/evil.example" leads there."""
         self.assertEqual(safe_next_path("/accounts/2"), "/accounts/2")
-        for unsafe_path in ("//evil.example/", "https://evil.example/", "/\\evil.example", "accounts"):
+        unsafe_paths = (
+            "//evil.example/",
+            "https://evil.example/",
+            "/\\evil.example",
+            "accounts",
+            "/\t/evil.example",
+            "/\r/evil.example",
+            "/\n/evil.example",
+            "/\x7f/evil.example",
+        )
+        for unsafe_path in unsafe_paths:
             with self.subTest(path=unsafe_path):
                 self.assertEqual(safe_next_path(unsafe_path), "")
+
+    def test_failures_from_strangers_do_not_lock_the_admin_out(self) -> None:
+        """Admins' names are no secret; failing with one on purpose must not keep them out."""
+        for attempt in range(LOGON_FAILURE_BURST + 1):
+            self.client.post(
+                "/logon",
+                data={"csrf_token": CSRF_TOKEN, "name": ADMIN_NAME, "access_code": "WRONGCODE234"},
+                environ_base={"REMOTE_ADDR": f"10.0.0.{attempt + 1}"},
+            )
+        self.assertEqual(self.log_on().status_code, HTTP_FOUND)
+
+    def test_logout_ends_the_session_also_for_a_copied_cookie(self) -> None:
+        self.log_on()
+        with self.client.session_transaction() as session:
+            copied_session = dict(session)
+        self.post("/logout")
+        with self.client.session_transaction() as session:
+            session.update(copied_session)
+        self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND, "back to the logon page")
+
+    def test_session_ends_after_its_lifetime_however_busy_it_was(self) -> None:
+        self.log_on()
+        self.assertEqual(self.client.get("/accounts").status_code, HTTP_OK)
+        self.database._backend.execute("UPDATE web_sessions SET created_at = '2000-01-01T00:00:00+00:00'")
+        self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND)
+
+    def test_forged_token_with_other_characters_is_refused_not_a_server_error(self) -> None:
+        response = self.client.post("/clans", data={"name": "Romans", "csrf_token": "\u00e9t\u00e9"})
+        self.assertEqual(response.status_code, HTTP_BAD_REQUEST)
+
+    def test_pages_are_not_cached_and_send_the_isolation_headers(self) -> None:
+        response = self.client.get("/")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["Cross-Origin-Opener-Policy"], "same-origin")
+        self.assertNotIn("Strict-Transport-Security", response.headers, "only with HTTPS")
 
 
 class AccountPagesTest(WebInterfaceTestCase):

@@ -20,6 +20,7 @@ from s3lobby.constants import (
     CLIENT_BLOCK_ID_WINDOW,
     MAX_UNACKNOWLEDGED_SERVER_BLOCKS,
     UNCONFIRMED_CONNECTION_TIMEOUT_MS,
+    GroupUpdateMask,
     MessageType,
 )
 from s3lobby.database import LobbyDatabase
@@ -27,7 +28,11 @@ from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.messages import (
     AddPlayerToGroup,
     CheckFileVersion,
+    GameBlock,
+    GetImageList,
     GetLobbyServerList,
+    GetTextMessage,
+    GroupUpdate,
     Logon,
     MessageId,
     OpenConnection,
@@ -104,6 +109,23 @@ class SecretsInLogTest(unittest.TestCase):
         join = AddPlayerToGroup(5, 1, ("0.0.0.0", 0), "", extra_text="hunter").encode()
         self.assertNotIn("hunter", describe_for_log(join))
 
+    def test_chat_group_password_set_by_an_update_is_removed(self) -> None:
+        update = GroupUpdate(
+            message_type=MessageType.UPDATE_GROUP_2,
+            group_id=0x8000,
+            update_mask=GroupUpdateMask.THIRD_TEXT,
+            flags=0,
+            max_players=0,
+            name="Romans only",
+            second_text="",
+            third_text="hunter",
+            game_block=GameBlock(("0.0.0.0", 3343), bytes(36)),
+            description=b"",
+        ).encode()
+        description = describe_for_log(update)
+        self.assertNotIn("hunter", description)
+        self.assertNotIn(b"hunter".hex(), description)
+
     def test_unreadable_secret_bearing_message_is_not_dumped(self) -> None:
         broken_logon = RawMessage(MessageType.LOGON, b"\x0e\x00\x00\x00Alice\x00hunter")
         self.assertNotIn(b"hunter".hex(), describe_for_log(broken_logon))
@@ -127,6 +149,27 @@ class ServerUnderAttackTest(unittest.TestCase):
         self.addCleanup(client.close_socket)
         client.send(CheckFileVersion(160, 4, 0))
         client.receive_next(MessageType.RESULT)
+
+    def test_home_texts_are_not_sent_before_a_logon(self) -> None:
+        """A request costs a few bytes, the answer a whole news text: sent before a logon, from a
+        forged sender address, it would multiply traffic onto someone else."""
+        client = FakeGameClient(self.server.address, "Alice", nonce=98)
+        self.addCleanup(client.close_socket)
+        client.send(GetTextMessage(0x92), GetImageList(1))
+        client.assert_nothing_arrives(MessageType.TEXT_MESSAGE)
+        client.assert_nothing_arrives(MessageType.IMAGE_LIST)
+
+    def test_connection_that_never_logs_on_ends(self) -> None:
+        """A forged sender could otherwise keep connection slots without ever logging on."""
+        with mock.patch("s3lobby.server.LOGON_DEADLINE_MS", 0):
+            client = FakeGameClient(self.server.address, "Alice", nonce=97)
+            self.addCleanup(client.close_socket)
+            client.send(CheckFileVersion(160, 4, 0))
+            client.receive_next(MessageType.RESULT)
+            # Waiting a moment gives the housekeeping time to end the connection.
+            client.assert_nothing_arrives(MessageType.LOBBY_SERVER_LIST)
+            client.send(GetLobbyServerList())
+            client.assert_nothing_arrives(MessageType.LOBBY_SERVER_LIST)
 
     def test_garbage_datagrams_do_not_stop_the_server(self) -> None:
         garbage = [

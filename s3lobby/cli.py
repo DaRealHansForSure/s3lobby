@@ -94,7 +94,8 @@ def run_web_interface(options: argparse.Namespace) -> int:
             secure_cookies=options.secure_cookies,
             is_behind_proxy=options.behind_proxy,
         )
-        app.run(host=options.host, port=options.port, threaded=True)
+        # Never the interactive debugger, even with FLASK_DEBUG set: it would run code for anyone.
+        app.run(host=options.host, port=options.port, threaded=True, debug=False, use_debugger=False, use_reloader=False)
     except OSError as error:
         log.error("cannot serve the web interface: %s", error)
         return EXIT_FAILURE

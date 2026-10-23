@@ -375,6 +375,11 @@ has overwritten that value with something it cannot read back: restore the value
 
 ## Security
 
+**The game sends its password and all chat in plain text.** s3lobby therefore issues random
+access codes instead of letting players pick passwords; never reuse a real password with it. See
+[SECURITY.md](SECURITY.md) for what that means for players, server owners and projects built on
+this one, and for how to report a problem.
+
 The server is reachable by anyone who can send it a UDP datagram, with any sender address, and the
 original game clients it talks to were written in 1998. So:
 
@@ -479,5 +484,6 @@ the behaviour of a legally owned copy, for interoperability.
 s3lobby is released under the [MIT License](LICENSE). Copyright (c) 2026 DaRealHansForSure.
 
 The protocol was reverse engineered from the original game and the code written from scratch by
-DaRealHansForSure. You may use, change and share it, also in your own projects, as long as you
-keep the copyright notice and name the author. A link back to this repository is appreciated.
+DaRealHansForSure, together with Claude, an AI assistant made by Anthropic. You may use, change
+and share it, also in your own projects, as long as you keep the copyright notice and name the
+author. A link back to this repository is appreciated.

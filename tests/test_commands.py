@@ -19,7 +19,6 @@ GAME_ZONE = 30
 class Sender:
     player_id: int
     name: str
-    is_admin: bool = False
     address: tuple[str, int] = ("192.168.1.20", 3343)
 
 
@@ -27,6 +26,7 @@ class ChatCommandsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.database = LobbyDatabase(":memory:")
         self.alice = self.database.create_account("Alice")
+        self.boss = self.database.create_account("Boss", is_admin=True)
         self.online = ["Alice", "Bob"]
         self.announced: list[str] = []
         self.kicked: list[tuple[int, str]] = []
@@ -63,7 +63,8 @@ class ChatCommandsTest(unittest.TestCase):
     def test_only_admins_announce(self) -> None:
         self.assertEqual(self.commands.answer(Sender(1, "Alice"), "/announce hello"), ("Only admins may announce.",))
         self.assertEqual(self.announced, [])
-        answer = self.commands.answer(Sender(1, "Alice", is_admin=True), "/announce hello")
+        self.database.set_admin(self.alice.account_id, True)
+        answer = self.commands.answer(Sender(self.alice.account_id, "Alice"), "/announce hello")
         self.assertEqual((answer, self.announced), (("Announced to 2 player(s).",), ["hello"]))
 
     def test_only_admins_kick_and_ban(self) -> None:
@@ -72,22 +73,28 @@ class ChatCommandsTest(unittest.TestCase):
         self.assertEqual(self.kicked, [])
         self.assertIsNone(self.database.find_account("Alice").banned_until)
 
+    def test_admin_rights_count_as_they_are_now_not_as_at_the_logon(self) -> None:
+        """An admin whose rights were taken away while online must lose /kick at once."""
+        self.database.set_admin(self.boss.account_id, False)
+        self.assertEqual(self.commands.answer(Sender(self.boss.account_id, "Boss"), "/kick Alice"), ("Only admins may kick.",))
+
     def test_kick_takes_a_name_with_spaces_and_a_reason(self) -> None:
         legion = self.database.create_account("Roman Legion")
         self.online.append("Roman Legion")
-        answer = self.commands.answer(Sender(99, "Boss", is_admin=True), "/kick roman legion spamming the chat")
+        answer = self.commands.answer(Sender(self.boss.account_id, "Boss"), "/kick roman legion spamming the chat")
         self.assertEqual(answer, ("Removed Roman Legion from the lobby.",))
         self.assertEqual(self.kicked, [(legion.account_id, "An admin removed you from the lobby: spamming the chat")])
 
     def test_kick_needs_a_player_who_is_online(self) -> None:
-        answer = self.commands.answer(Sender(99, "Boss", is_admin=True), "/kick Carol")
+        answer = self.commands.answer(Sender(self.boss.account_id, "Boss"), "/kick Carol")
         self.assertIn("Usage", answer[0])
-        own_answer = self.commands.answer(Sender(self.alice.account_id, "Alice", is_admin=True), "/kick Alice")
+        self.database.set_admin(self.alice.account_id, True)
+        own_answer = self.commands.answer(Sender(self.alice.account_id, "Alice"), "/kick Alice")
         self.assertEqual(own_answer, ("You cannot kick yourself.",))
 
     def test_ban_bars_an_account_online_or_not_and_queues_its_removal(self) -> None:
         carol = self.database.create_account("Carol")
-        answer = self.commands.answer(Sender(99, "Boss", is_admin=True), "/ban Carol 48 cheating")
+        answer = self.commands.answer(Sender(self.boss.account_id, "Boss"), "/ban Carol 48 cheating")
         self.assertEqual(answer, ("Carol is banned for 48 hour(s).",))
         banned = self.database.find_account("Carol")
         self.assertEqual(banned.ban_reason, "cheating")
@@ -98,7 +105,7 @@ class ChatCommandsTest(unittest.TestCase):
     def test_ban_needs_hours_in_range(self) -> None:
         for command in ("/ban Alice", "/ban Alice soon", "/ban Alice 0", "/ban Nobody 5"):
             with self.subTest(command=command):
-                self.assertIn("Usage", self.commands.answer(Sender(99, "Boss", is_admin=True), command)[0])
+                self.assertIn("Usage", self.commands.answer(Sender(self.boss.account_id, "Boss"), command)[0])
         self.assertIsNone(self.database.find_account("Alice").banned_until)
 
     def test_net_tells_an_internet_player_whether_the_router_changed_the_port(self) -> None:

@@ -68,6 +68,7 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "pending_announcements",
     "live_state",
     "pending_kicks",
+    "web_sessions",
 )
 
 # The game's own rule for player names (refusal text 0x9009e): letters A to Z in either case, and
@@ -89,6 +90,16 @@ HASH_FIELD_SEPARATOR = "$"
 # field. The alphabet leaves out characters that are easy to mix up (0/O, 1/I/L). It has capitals
 # only, so comparing codes without regard to case (normalize_access_code) costs no strength.
 ACCESS_CODE_LENGTH = 12
+
+# Web interface sessions: a logon lasts at most WEB_SESSION_LIFETIME however busy it is, and ends
+# earlier after WEB_SESSION_IDLE_TIMEOUT without a request. The live lobby page polls every few
+# seconds, so last_seen_at is written at most every WEB_SESSION_TOUCH_INTERVAL. Rows are deleted
+# once they are a few lifetimes old.
+WEB_SESSION_TOKEN_BYTES = 32
+WEB_SESSION_LIFETIME = timedelta(hours=12)
+WEB_SESSION_IDLE_TIMEOUT = timedelta(hours=2)
+WEB_SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
+WEB_SESSIONS_KEPT_LIFETIMES = 2
 ACCESS_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 
@@ -247,6 +258,14 @@ class GameReportRecord:
 
 
 @dataclass(frozen=True)
+class WebSession:
+    """A live logon to the web interface: whose, and with which access code."""
+
+    account_id: int
+    access_code_id: int
+
+
+@dataclass(frozen=True)
 class PendingKick:
     """A player the running server is to remove from the lobby, with the reason it tells them."""
 
@@ -387,6 +406,11 @@ def scrypt_digest(access_code: str, salt: bytes, cost: int, block_size: int, par
         p=parallelism,
         dklen=SCRYPT_DIGEST_BYTES,
     )
+
+
+def hash_session_token(token: str) -> str:
+    """Session tokens are long and random, so a plain SHA-256 suffices: there is nothing to guess."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def generate_access_code() -> str:
@@ -629,6 +653,11 @@ class LobbyDatabase:
             "SELECT id, code_hash FROM access_codes WHERE account_id = ? AND revoked_at IS NULL",
             (account_id,),
         )
+        if not rows:
+            # Costs one hash like a wrong code, so the time of the answer does not tell an account
+            # without active codes from one with a code.
+            hash_access_code(access_code)
+            return None
         for row in rows:
             if is_matching_access_code(access_code, row["code_hash"]):
                 with self._backend.transaction():
@@ -647,6 +676,56 @@ class LobbyDatabase:
             (code_id, account_id),
         )
         return row is not None
+
+    # Web interface sessions.
+
+    def start_web_session(self, account_id: int, access_code_id: int) -> str:
+        """Record a logon to the web interface and return its token for the browser's cookie. Only
+        the token's hash is stored. Sessions long over are cleared out on the way."""
+        token = secrets.token_urlsafe(WEB_SESSION_TOKEN_BYTES)
+        now = self._clock()
+        with self._backend.transaction():
+            self._backend.execute(
+                "DELETE FROM web_sessions WHERE created_at < ?",
+                (to_stored_time(now - WEB_SESSION_LIFETIME * WEB_SESSIONS_KEPT_LIFETIMES),),
+            )
+            self._backend.execute(
+                "INSERT INTO web_sessions (token_hash, account_id, access_code_id, created_at, last_seen_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (hash_session_token(token), account_id, access_code_id, to_stored_time(now), to_stored_time(now)),
+            )
+        return token
+
+    def find_web_session(self, token: str) -> WebSession | None:
+        """The live session with this token, or None when it is unknown, ended, older than
+        WEB_SESSION_LIFETIME (however busy it was) or idle longer than WEB_SESSION_IDLE_TIMEOUT.
+        Marks it as seen, at most once a minute so a page that polls does not write each time."""
+        now = self._clock()
+        row = self._backend.fetch_one(
+            "SELECT id, account_id, access_code_id, last_seen_at FROM web_sessions "
+            "WHERE token_hash = ? AND ended_at IS NULL AND created_at >= ? AND last_seen_at >= ?",
+            (
+                hash_session_token(token),
+                to_stored_time(now - WEB_SESSION_LIFETIME),
+                to_stored_time(now - WEB_SESSION_IDLE_TIMEOUT),
+            ),
+        )
+        if row is None:
+            return None
+        last_seen_at = from_stored_time(row["last_seen_at"])
+        if now - last_seen_at >= WEB_SESSION_TOUCH_INTERVAL:
+            with self._backend.transaction():
+                self._backend.execute(
+                    "UPDATE web_sessions SET last_seen_at = ? WHERE id = ?", (to_stored_time(now), row["id"])
+                )
+        return WebSession(account_id=row["account_id"], access_code_id=row["access_code_id"])
+
+    def end_web_session(self, token: str) -> None:
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE web_sessions SET ended_at = ? WHERE token_hash = ? AND ended_at IS NULL",
+                (to_stored_time(self._clock()), hash_session_token(token)),
+            )
 
     def record_logon(self, account_id: int) -> int:
         """Note a logon for the statistics; returns the session id to close on logout."""

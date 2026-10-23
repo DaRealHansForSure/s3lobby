@@ -57,7 +57,6 @@ REACHABILITY_ANSWERS = {
 class CommandSender(Protocol):
     player_id: int
     name: str
-    is_admin: bool
     address: Address
 
 
@@ -109,11 +108,17 @@ class ChatCommands:
             "/clan: your clan and its members online",
             "/net: your address as the server sees it, and what to forward on your router",
         ]
-        if sender.is_admin:
+        if self._is_admin_now(sender):
             lines.append("/announce TEXT: a line for every player in the lobby")
             lines.append("/kick NAME [REASON]: remove a player from the lobby")
             lines.append("/ban NAME HOURS [REASON]: bar an account, online or not")
         return lines
+
+    def _is_admin_now(self, sender: CommandSender) -> bool:
+        """Admin rights as the database has them now: an admin whose rights were taken away while
+        online must not keep using /kick, /ban and /announce until the next logon."""
+        account = self._database.find_account_by_id(sender.player_id)
+        return account is not None and account.is_admin
 
     def _who(self) -> list[str]:
         names = sorted(self._online_player_names(), key=str.casefold)
@@ -129,7 +134,7 @@ class ChatCommands:
         return [f"Clan {clan.name}: {len(members)} member(s), online: {', '.join(online_members) or 'nobody'}"]
 
     def _announce_for(self, sender: CommandSender, text: str) -> list[str]:
-        if not sender.is_admin:
+        if not self._is_admin_now(sender):
             return ["Only admins may announce."]
         if not text:
             return [f"Usage: {COMMAND_PREFIX}announce TEXT"]
@@ -137,7 +142,7 @@ class ChatCommands:
         return [f"Announced to {reached_count} player(s)."]
 
     def _kick_for(self, sender: CommandSender, argument: str) -> list[str]:
-        if not sender.is_admin:
+        if not self._is_admin_now(sender):
             return ["Only admins may kick."]
         online = {name.casefold(): name for name in self._online_player_names()}
         name, reason = split_leading_name(argument, lambda candidate: candidate.casefold() in online)
@@ -155,7 +160,7 @@ class ChatCommands:
     def _ban_for(self, sender: CommandSender, argument: str) -> list[str]:
         """The ban is stored like one from the command line; the running server then removes the
         player within a second if they are online, through the kick queue the ban fills."""
-        if not sender.is_admin:
+        if not self._is_admin_now(sender):
             return ["Only admins may ban."]
         usage = [f"Usage: {COMMAND_PREFIX}ban NAME HOURS [REASON], HOURS from {MIN_BAN_HOURS} to {MAX_BAN_HOURS}"]
         name, rest = split_leading_name(argument, lambda candidate: self._database.find_account(candidate) is not None)

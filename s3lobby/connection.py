@@ -35,7 +35,10 @@ from s3lobby.constants import (
     CONNECTION_NONCE_MIN,
     DEFAULT_SILENCE_TIMEOUT_MS,
     KEEPALIVE_INTERVAL_MS,
+    MAX_BLOCK_LOBBY_BYTES,
+    MAX_CLIENT_SILENCE_TIMEOUT_MS,
     MAX_UNACKNOWLEDGED_SERVER_BLOCKS,
+    MESSAGE_HEADER_SIZE,
     RETRY_INTERVALS_MS,
     UNCONFIRMED_CONNECTION_TIMEOUT_MS,
     MessageType,
@@ -110,11 +113,15 @@ class ReliableConnection:
         # The server's first block must open the connection from its side.
         self._queued_leading_messages: LeadingMessages = [OpenConnection(self.server_nonce).encode()]
         self._queued_lobby_messages: list[RawMessage] = []
+        self._is_rest_of_queue_held_back = False
 
         self._last_heard_from_client_ms = now_ms
         self._last_sent_to_client_ms = now_ms
         self._silence_timeout_ms = DEFAULT_SILENCE_TIMEOUT_MS
         self._closing_since_ms: int | None = None
+
+    def age_ms(self, now_ms: int) -> int:
+        return now_ms - self._opened_at_ms
 
     @property
     def is_closing(self) -> bool:
@@ -155,6 +162,7 @@ class ReliableConnection:
 
         is_new_block = self._accept_client_block_id(client_block_id)
         self._client_block_ids_to_acknowledge.add(client_block_id)
+        self._forget_acknowledgements_outside_the_window()
         self._is_acknowledgement_due = True
         if is_new_block:
             received.lobby_messages = lobby_messages
@@ -192,7 +200,7 @@ class ReliableConnection:
         keepalive when nothing else is going out."""
         datagrams = []
         has_queued_messages = bool(self._queued_leading_messages or self._queued_lobby_messages)
-        if has_queued_messages:
+        if has_queued_messages and self._may_send_new_block:
             datagrams.append(self._send_queued_messages_as_new_block(now_ms))
 
         for block in self._unacknowledged_blocks.values():
@@ -248,25 +256,63 @@ class ReliableConnection:
             case MessageType.ADJUST_CONNECTION_TIMEOUT:
                 # The client raises its own timeout to ten minutes around a running game, while it
                 # may not talk to the lobby at all; follow it, but never wait less than the default.
+                # The game only ever asks for 600000 or 60000 (0x454d6f, 0x452072); a larger value
+                # would let a forged sender hold a connection slot for weeks.
                 requested_timeout_ms = AdjustConnectionTimeout.decode(message).timeout_ms
-                self._silence_timeout_ms = max(DEFAULT_SILENCE_TIMEOUT_MS, requested_timeout_ms)
+                capped_timeout_ms = min(requested_timeout_ms, MAX_CLIENT_SILENCE_TIMEOUT_MS)
+                self._silence_timeout_ms = max(DEFAULT_SILENCE_TIMEOUT_MS, capped_timeout_ms)
             case _:
                 # MessageId further into a block means nothing (0x601d70); OpenConnection was
                 # already read by the server to pick this connection; lobby messages are not ours.
                 pass
 
+    def _forget_acknowledgements_outside_the_window(self) -> None:
+        """Keep acknowledging only ids the server would still accept. The game confirms what it
+        received with MinMissingAcknowledge, which empties the set; a sender that never does would
+        otherwise make every reply carry all ids it ever sent, growing without end."""
+        if len(self._client_block_ids_to_acknowledge) <= CLIENT_BLOCK_ID_WINDOW:
+            return
+        oldest_kept = self._highest_contiguous_client_block_id + 1 - CLIENT_BLOCK_ID_WINDOW
+        kept = {block_id for block_id in self._client_block_ids_to_acknowledge if block_id >= oldest_kept}
+        self._client_block_ids_to_acknowledge = kept
+
+    @property
+    def _may_send_new_block(self) -> bool:
+        """A block that took only part of the queue must be acknowledged before the rest goes:
+        the game hands blocks to its lobby layer as they arrive, so a later block overtaking an
+        earlier one could show a member before the group it belongs to."""
+        return not self._is_rest_of_queue_held_back or not self._unacknowledged_blocks
+
     def _send_queued_messages_as_new_block(self, now_ms: int) -> bytes:
+        lobby_messages = self._take_lobby_messages_within_budget()
         block = UnacknowledgedBlock(
             block_id=self._next_server_block_id,
             leading_messages=self._queued_leading_messages,
-            lobby_messages=self._queued_lobby_messages,
+            lobby_messages=lobby_messages,
             last_sent_ms=now_ms,
         )
+        # Encoded before it is stored: a block that cannot be encoded must not stay behind to fail
+        # again on every retry.
+        datagram = self._encode_numbered_block(block)
         self._next_server_block_id += 1
         self._queued_leading_messages = []
-        self._queued_lobby_messages = []
+        self._is_rest_of_queue_held_back = bool(self._queued_lobby_messages)
         self._unacknowledged_blocks[block.block_id] = block
-        return self._encode_numbered_block(block)
+        return datagram
+
+    def _take_lobby_messages_within_budget(self) -> list[RawMessage]:
+        """Queued lobby messages from the front, as many as fit MAX_BLOCK_LOBBY_BYTES; always at
+        least one, so a single large message still goes out."""
+        taken = []
+        used_bytes = 0
+        for message in self._queued_lobby_messages:
+            message_bytes = MESSAGE_HEADER_SIZE + len(message.body)
+            if taken and used_bytes + message_bytes > MAX_BLOCK_LOBBY_BYTES:
+                break
+            taken.append(message)
+            used_bytes += message_bytes
+        self._queued_lobby_messages = self._queued_lobby_messages[len(taken):]
+        return taken
 
     def _encode_numbered_block(self, block: UnacknowledgedBlock) -> bytes:
         messages = [MessageId(block.block_id).encode()]
