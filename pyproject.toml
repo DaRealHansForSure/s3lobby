@@ -30,7 +30,7 @@ mysql = ["pymysql[rsa]>=1.1"]
 s3lobby = "s3lobby.cli:main"
 
 [tool.setuptools]
-packages = ["s3lobby", "s3lobby.schema", "s3lobby.web"]
+packages = ["s3lobby", "s3lobby.backends", "s3lobby.schema", "s3lobby.web"]
 
 [tool.setuptools.package-data]
 "s3lobby.schema" = ["sqlite/*.sql", "mysql/*.sql"]
