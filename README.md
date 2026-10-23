@@ -43,6 +43,7 @@ files: point the game at your server and log on.
 
 - [Features](#features)
 - [Status](#status)
+- [Known issues](#known-issues)
 - [Quick start](#quick-start)
 - [Installation](#installation)
 - [Running the server](#running-the-server)
@@ -117,6 +118,20 @@ group with a password, the Home tab's news and statistics, the banner, the chat
 commands, and kicks and bans of players who are online.
 
 Not tested yet with players on two machines: the game's own DirectPlay connection between them.
+
+## Known issues
+
+- **A player who leaves too quickly stays listed for a minute.** Leaving the MessageZone or the
+  lobby while the game still waits for the server's answer can close the game's side without a
+  Logout (seen once in a run from Windows 10; *inferred*: a click during the answer). The server
+  then sees a quiet connection and removes the player after 60 seconds; until then the others
+  still see them. Logging on again from the same PC works once the old connection has been quiet
+  for 20 seconds, so the game's retries may take a few seconds longer. A server cannot tell a game
+  that left this way from one that is only slow, so it waits.
+- **Chat typed on the MessageZone screen reaches nobody.** This is a bug of the game itself
+  (`docs/protocol.md`, "The MessageZone tab"), which only a patched S3.EXE could fix. The board's
+  messages work. The setting `board_chat_hint` tells players so once per logon.
+- **Ladder games are played but not ranked.** See the [Roadmap](#roadmap).
 
 ## Quick start
 
