@@ -574,6 +574,13 @@ def from_stored_time(text: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
+def like_pattern(search: str) -> str:
+    """A LIKE pattern matching text that contains search, in lower case (compare with LOWER(column)).
+    The wildcards % and _ and the escape character ! in search match only themselves (ESCAPE '!')."""
+    escaped = search.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return f"%{escaped}%"
+
+
 def from_optional_stored_time(text: str | None) -> datetime | None:
     """A time from a column that may be empty: a code never used, a game still open."""
     if text is None:
@@ -808,6 +815,23 @@ class LobbyDatabase:
         """Every account, sorted by name."""
         rows = self._backend.fetch_all("SELECT * FROM accounts ORDER BY name")
         return [account_from_row(row) for row in rows]
+
+    def list_accounts_page(self, search: str, limit: int, offset: int) -> list[Account]:
+        """One page of the accounts whose name contains search (any case), sorted by name; every
+        account for an empty search."""
+        rows = self._backend.fetch_all(
+            "SELECT * FROM accounts WHERE LOWER(name) LIKE ? ESCAPE '!' ORDER BY name LIMIT ? OFFSET ?",
+            (like_pattern(search), limit, offset),
+        )
+        return [account_from_row(row) for row in rows]
+
+    def count_accounts(self, search: str = "") -> int:
+        """How many accounts have a name containing search (any case); all of them for an empty one."""
+        row = self._backend.fetch_one(
+            "SELECT COUNT(*) AS account_count FROM accounts WHERE LOWER(name) LIKE ? ESCAPE '!'",
+            (like_pattern(search),),
+        )
+        return row["account_count"]
 
     def delete_account(self, account_id: int) -> None:
         """Delete the account; a running server also removes the player from the lobby."""
@@ -1390,6 +1414,10 @@ class LobbyDatabase:
                 (account_id, group_id, report, to_stored_time(self._clock()), game_record_id),
             )
 
+    def count_games(self) -> int:
+        """How many games are stored, open and closed."""
+        return self._backend.fetch_one("SELECT COUNT(*) AS game_count FROM games")["game_count"]
+
     def count_game_reports(self) -> int:
         """How many match reports are stored."""
         return self._backend.fetch_one("SELECT COUNT(*) AS report_count FROM game_reports")["report_count"]
@@ -1408,9 +1436,11 @@ class LobbyDatabase:
         "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
     )
 
-    def list_recent_games(self, limit: int) -> list[GameRecord]:
-        """The newest games first, open and closed."""
-        rows = self._backend.fetch_all(self.GAME_COLUMNS + "ORDER BY games.id DESC LIMIT ?", (limit,))
+    def list_recent_games(self, limit: int, offset: int = 0) -> list[GameRecord]:
+        """The newest games first, open and closed; offset skips that many of the newest."""
+        rows = self._backend.fetch_all(
+            self.GAME_COLUMNS + "ORDER BY games.id DESC LIMIT ? OFFSET ?", (limit, offset)
+        )
         player_names = self._player_names_of_games([row["id"] for row in rows])
         return [game_record_from_row(row, player_names.get(row["id"], [])) for row in rows]
 

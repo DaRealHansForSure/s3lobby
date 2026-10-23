@@ -1,5 +1,5 @@
 {% extends "admin_base.html" %}
-{% from "_macros.html" import csrf_field, action_button with context %}
+{% from "_macros.html" import csrf_field, action_button, pager with context %}
 {% set active_nav = "ladder_games" %}
 {% block title %}Ladder games{% endblock %}
 
@@ -104,6 +104,7 @@
       </tbody>
     </table>
   </div>
+  {{ pager(pagination, 'ladder_admin.list_ladder_games', page_params) }}
   {% else %}
   <p class="empty-state">No results here.</p>
   {% endif %}

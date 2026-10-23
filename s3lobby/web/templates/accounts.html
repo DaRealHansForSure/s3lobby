@@ -1,5 +1,5 @@
 {% extends "admin_base.html" %}
-{% from "_macros.html" import csrf_field, checkbox_field, in_game_colour with context %}
+{% from "_macros.html" import csrf_field, checkbox_field, in_game_colour, pager with context %}
 {% set active_nav = "accounts" %}
 {% block title %}Accounts{% endblock %}
 {% block content %}
@@ -9,6 +9,13 @@
     <p>Players log on with their account name and an access code. The game's own "create player"
     button is refused, so every account starts here or on the command line.</p>
   </div>
+  <form class="grid-12 toolbar" method="get" action="{{ url_for('accounts.list_accounts') }}">
+    <label class="field col-6">
+      <span class="label">Find an account</span>
+      <input class="input" type="search" name="q" value="{{ search }}" placeholder="Name">
+    </label>
+    <div class="form-actions col-3"><button class="btn btn--outline" type="submit">Find</button>{% if search %} <a class="btn btn--quiet" href="{{ url_for('accounts.list_accounts') }}">Show all</a>{% endif %}</div>
+  </form>
   {% if rows %}
   <div class="scroll-x">
     <table class="table">
@@ -32,8 +39,9 @@
       </tbody>
     </table>
   </div>
+  {{ pager(pagination, 'accounts.list_accounts', {"q": search} if search else {}) }}
   {% else %}
-  <p class="empty-state">No accounts yet.</p>
+  <p class="empty-state">{% if search %}No account matches "{{ search }}".{% else %}No accounts yet.{% endif %}</p>
   {% endif %}
 </section>
 

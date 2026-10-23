@@ -78,3 +78,15 @@
     </ul>
   </div>
 {%- endmacro %}
+
+{# Links to the previous and the next page of a long list (web.paging.Pagination). params are the
+   list's other query parameters (a search, a filter), kept on every page. #}
+{% macro pager(pagination, endpoint, params={}) -%}
+{% if pagination.page_count > 1 %}
+<nav class="pager" aria-label="Pages">
+  {% if pagination.has_previous %}<a class="btn btn--outline btn--sm" href="{{ url_for(endpoint, page=pagination.number - 1, **params) }}">Previous</a>{% endif %}
+  <span class="muted">Page {{ pagination.number }} of {{ pagination.page_count }} ({{ pagination.total }} in all)</span>
+  {% if pagination.has_next %}<a class="btn btn--outline btn--sm" href="{{ url_for(endpoint, page=pagination.number + 1, **params) }}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}
