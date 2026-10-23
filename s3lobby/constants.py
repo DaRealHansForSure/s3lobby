@@ -84,6 +84,8 @@ class MessageType(IntEnum):
     OWN_PLAYER_WITH_CLAN = 0x24
     ADD_PLAYER_TO_GROUP_WITH_CLAN = 0x25
     GROUP_COUNTERS = 0x1A
+    TEXT_ID_LIST = 0x14
+    SERVER_STATISTICS = 0x1B
 
 
 # Messages the reliable layer consumes itself; everything else is handed to the lobby.
@@ -274,10 +276,24 @@ BOARD_LANGUAGES = ("German", "English", "Italian", "French", "Polish", "Spanish"
 BOARD_FALLBACK_LANGUAGE = "English"
 BOARD_LANGUAGE_GROUP_PREFIX = "MessageThemes"
 
-# The Home tab shows one of two news texts, picked by the language of the game (0x45351b..0x453606).
+# The Home tab shows one of two news texts, picked by the language of the game (0x45351b..0x453606):
+# it looks for text id 0x91 in a German game and 0x92 in any other, in the list of text ids the
+# server sends for the Home group, and falls back to the list's first entry.
 NEWS_AUDIENCE_GERMAN = "german"
 NEWS_AUDIENCE_OTHER = "other"
 NEWS_AUDIENCES = (NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER)
+NEWS_TEXT_ID_BY_AUDIENCE = {NEWS_AUDIENCE_GERMAN: 0x91, NEWS_AUDIENCE_OTHER: 0x92}
+
+# A text message (0x15) counts as delivered only with a non-empty title (0x5cb642); without one the
+# page stays at "Loading message" for good. This title answers ids the server does not know.
+UNKNOWN_TEXT_TITLE = "Not available"
+
+# Keeps a text message within one unfragmented datagram on any network; longer texts are cut.
+MAX_TEXT_MESSAGE_BYTES = 1200
+
+# The banner's url must start like this; the game skips the first six characters and splits the rest
+# into host and path at the first slash (0x449938).
+BANNER_URL_PREFIX = "ftp://"
 
 # Logon attempts: a token bucket per IP and per account name, drawn on by failed attempts only, so
 # a LAN party behind one router can log on together while guessing access codes stays hopeless.

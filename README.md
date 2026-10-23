@@ -87,6 +87,15 @@ s3lobby board post 1 --title "Saturday cup" --text "8 pm, 1 vs 1"
 s3lobby setting list
 ```
 
+The Home tab shows the news for the game's language (German, or the other text for every other
+language) and a statistics table of players and games. An advert banner can be shown too: the game
+downloads it by anonymous FTP whenever the banner id changes.
+
+```
+s3lobby setting set banner_url ftp://192.168.1.10/banner.png
+s3lobby setting set banner_id 2
+```
+
 Every command takes `--database` and works while the server runs.
 
 ## Pointing the game at the server
