@@ -478,8 +478,12 @@ async def start_server(settings: ServerSettings) -> LobbyServer:
     close() is awaited. The database is opened here, on the event loop's thread, because a
     database connection (SQLite or MySQL) must stay on the thread that opened it."""
     database = LobbyDatabase(settings.database_location)
-    # Nobody is connected at start: whatever a previous run left open has ended.
+    # Nobody is connected at start: whatever a previous run left open has ended, and lines queued
+    # while the server was stopped are stale and would reach nobody.
     database.close_open_sessions_and_games()
+    discarded_count = database.discard_pending_announcements()
+    if discarded_count:
+        log.info("%d announcement(s) queued while the server was stopped dropped", discarded_count)
     loop = asyncio.get_running_loop()
     try:
         _, server = await loop.create_datagram_endpoint(

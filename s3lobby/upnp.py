@@ -271,7 +271,9 @@ def upnp_error_from_fault(action: str, fault: bytes) -> UpnpError:
         return UpnpError(f"{action} failed")
     code_text = root.findtext(f".//{{{CONTROL_NAMESPACE}}}errorCode", "")
     description = root.findtext(f".//{{{CONTROL_NAMESPACE}}}errorDescription", "")
-    error_code = int(code_text) if code_text.isdigit() else None
+    error_code = None
+    if code_text.isascii() and code_text.isdigit():
+        error_code = int(code_text)
     return UpnpError(f"{action} failed: {error_code} {description}".rstrip(), error_code)
 
 

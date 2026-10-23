@@ -10,7 +10,7 @@
   </div>
   {% if not is_server_running %}
   <div class="note note--warn" role="note">
-    The lobby server is not running. An announcement waits until it starts.
+    The lobby server is not running: there is nobody to announce to.
   </div>
   {% endif %}
   <form method="post" action="{{ url_for('server_settings.queue_announcement') }}">

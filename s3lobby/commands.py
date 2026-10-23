@@ -31,7 +31,7 @@ from s3lobby.constants import (
     DIRECTPLAY_LAST_GAME_PORT,
     GAME_CLIENT_FIRST_PORT,
 )
-from s3lobby.database import LobbyDatabase, utc_now
+from s3lobby.database import LobbyDatabase, is_whole_number_text, utc_now
 from s3lobby.reachability import Reachability
 from s3lobby.wire import Address
 
@@ -165,7 +165,7 @@ class ChatCommands:
         usage = [f"Usage: {COMMAND_PREFIX}ban NAME HOURS [REASON], HOURS from {MIN_BAN_HOURS} to {MAX_BAN_HOURS}"]
         name, rest = split_leading_name(argument, lambda candidate: self._database.find_account(candidate) is not None)
         hours_text, _, reason = rest.partition(" ")
-        if not name or not hours_text.isdigit():
+        if not name or not is_whole_number_text(hours_text):
             return usage
         hours = int(hours_text)
         if hours < MIN_BAN_HOURS or hours > MAX_BAN_HOURS:

@@ -20,6 +20,7 @@ from s3lobby.database import (
     Setting,
     is_matching_access_code,
     is_valid_player_name,
+    is_whole_number_text,
 )
 from s3lobby.migrations import latest_version, load_migrations
 from tests.databases import database_location_for_test
@@ -281,6 +282,27 @@ class LobbyDatabaseTest(unittest.TestCase):
         with self.assertRaises(DatabaseError):
             self.database.list_accounts()
         self.database = LobbyDatabase(":memory:", clock=self.clock)
+
+    def test_only_plain_digits_count_as_a_number(self) -> None:
+        """str.isdigit() accepts "\u00b2", which int() refuses: the check must not let it through."""
+        self.assertTrue(is_whole_number_text("24"))
+        for text in ("\u00b2", "\u0663", "-1", "1.5", ""):
+            with self.subTest(text=text):
+                self.assertFalse(is_whole_number_text(text))
+        with self.assertRaises(DatabaseError):
+            self.database.set_setting(Setting.MAX_PLAYERS, "\u00b2")
+
+    def test_labels_and_ban_reasons_are_checked_like_game_texts(self) -> None:
+        alice = self.database.create_account("Alice")
+        with self.assertRaises(DatabaseError):
+            self.database.add_access_code(alice.account_id, "SAMECODE2345", label="x" * 65)
+        with self.assertRaises(DatabaseError):
+            self.database.ban_account(alice.account_id, START + timedelta(hours=1), "line\nbreak")
+
+    def test_announcements_queued_while_stopped_are_dropped_at_start(self) -> None:
+        self.database.queue_announcement("Server restart at 22:00")
+        self.assertEqual(self.database.discard_pending_announcements(), 1)
+        self.assertEqual(self.database.take_pending_announcements(), [])
 
     def test_restart_closes_what_the_previous_run_left_open(self) -> None:
         alice = self.database.create_account("Alice")

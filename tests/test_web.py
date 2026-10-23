@@ -321,9 +321,15 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.database.set_setting(Setting.MARK_ADMINS, "yes")
         self.assertIn('name="mark_admins" checked', self.client.get("/settings").get_data(as_text=True))
 
-    def test_announcement_is_queued_for_the_server(self) -> None:
+    def test_announcement_is_queued_for_the_running_server(self) -> None:
+        self.database.write_live_state(LIVE_STATE)
         self.post("/announcements", text="Server restart at 22:00")
         self.assertEqual(self.database.take_pending_announcements(), ["Server restart at 22:00"])
+
+    def test_announcement_without_a_running_server_is_not_queued(self) -> None:
+        """The server drops lines queued while it was stopped, so queueing one would only pretend."""
+        self.post("/announcements", text="Server restart at 22:00")
+        self.assertEqual(self.database.take_pending_announcements(), [])
 
     def test_match_report_downloads_as_stored(self) -> None:
         self.database.store_game_report(self.player.account_id, FIRST_GAME_GROUP_ID, b"\x01\x02\x03")

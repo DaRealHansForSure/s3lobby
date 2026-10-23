@@ -149,10 +149,12 @@ def show_announcements() -> str:
 
 @blueprint.post("/announcements")
 def queue_announcement() -> Response:
+    """Queue a line for the running server. Without one nobody would see it: the server drops lines
+    queued while it was stopped when it starts, as they are stale by then."""
+    if not read_live_lobby_page().is_running:
+        flash("The lobby server is not running, so nobody would see it. Nothing was sent.", "bad")
+        return redirect(url_for("server_settings.show_announcements"))
     text = form_text("text")
-    is_server_running = read_live_lobby_page().is_running
     success_text = "Queued. The server sends it to every player in the lobby within a second."
-    if not is_server_running:
-        success_text = "Queued. The server is not running; it sends the announcement when it starts."
     apply_change(lambda: get_database().queue_announcement(text), success_text)
     return redirect(url_for("server_settings.show_announcements"))

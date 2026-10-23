@@ -97,7 +97,9 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str]) -> 
     )
     try:
         status = GameStatus.decode(RawMessage(MessageType.GAME_STATUS, record.report))
-    except ProtocolError:
+    except (ProtocolError, ValueError):
+        # Reports are stored as players' games sent them; a malformed one must not take the page
+        # down for every admin.
         return row
     players = [describe_report_player(player, account_names) for player in status.players]
     players.sort(key=lambda player: player.team)

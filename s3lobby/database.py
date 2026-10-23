@@ -151,6 +151,11 @@ SETTING_DEFAULTS = {
     Setting.CHECK_REACHABILITY: "false",
 }
 
+# A label tells an account's access codes apart, such as "laptop"; the reason for a ban is shown to
+# a player who is online when banned, and kept as a note for admins.
+MAX_ACCESS_CODE_LABEL_LENGTH = 64
+MAX_BAN_REASON_LENGTH = 200
+
 # What a player is told when their account is deleted while they are online.
 ACCOUNT_REMOVED_KICK_REASON = "Your account was removed."
 
@@ -293,6 +298,12 @@ class LobbyStatistics:
     games_last_day: int
 
 
+def is_whole_number_text(text: str) -> bool:
+    """Digits 0 to 9 only. str.isdigit() also accepts characters such as "²", which int() refuses,
+    so a check with it alone would let such input through to a server error."""
+    return text.isascii() and text.isdigit()
+
+
 def is_valid_player_name(name: str) -> bool:
     return PLAYER_NAME_PATTERN.fullmatch(name) is not None
 
@@ -325,7 +336,7 @@ def check_title(label: str, title: str) -> None:
 def check_setting_value(setting: Setting, value: str) -> None:
     """Raise DatabaseError for a value the server could not use for this setting."""
     if setting in INTEGER_SETTINGS:
-        if not value.isdigit() or int(value) > MAX_INTEGER_SETTING:
+        if not is_whole_number_text(value) or int(value) > MAX_INTEGER_SETTING:
             raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_INTEGER_SETTING}")
         return
     if setting in BOOLEAN_SETTINGS:
@@ -565,7 +576,9 @@ class LobbyDatabase:
 
     def ban_account(self, account_id: int, until: datetime, reason: str) -> None:
         """Bar the account from logging on until the given moment. A player who is online is also
-        removed from the running lobby; one who is offline is refused at the next logon."""
+        removed from the running lobby; one who is offline is refused at the next logon. The reason
+        is checked like any text for the game: an online player is told it."""
+        check_game_text("ban reason", reason, MAX_BAN_REASON_LENGTH)
         with self._backend.transaction():
             self._backend.execute(
                 "UPDATE accounts SET banned_until = ?, ban_reason = ? WHERE id = ?",
@@ -604,6 +617,7 @@ class LobbyDatabase:
 
     def add_access_code(self, account_id: int, access_code: str, label: str = "") -> int:
         """Store an access code for an account and return its id. The code itself is not kept."""
+        check_game_text("access code label", label, MAX_ACCESS_CODE_LABEL_LENGTH)
         with self._backend.transaction():
             result = self._backend.execute(
                 "INSERT INTO access_codes (account_id, code_hash, label, created_at) VALUES (?, ?, ?, ?)",
@@ -995,6 +1009,16 @@ class LobbyDatabase:
                 "INSERT INTO pending_announcements (text, created_at) VALUES (?, ?)",
                 (text, to_stored_time(self._clock())),
             )
+
+    def discard_pending_announcements(self) -> int:
+        """Mark every queued announcement as done without sending it; returns how many. At server
+        start nobody is online, and a line queued while the server was stopped is stale by now."""
+        with self._backend.transaction():
+            result = self._backend.execute(
+                "UPDATE pending_announcements SET sent_at = ? WHERE sent_at IS NULL",
+                (to_stored_time(self._clock()),),
+            )
+        return result.row_count
 
     def take_pending_announcements(self) -> list[str]:
         """The announcements not sent yet, oldest first, marked as sent in the same step."""
