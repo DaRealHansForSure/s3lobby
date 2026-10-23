@@ -25,8 +25,8 @@
               {% if row.is_banned %}<span class="badge badge--bad">banned</span>{% endif %}
             </div>
           </td>
-          <td>{{ row.account.created_at | moment }}</td>
-          <td>{{ row.account.last_logon_at | moment }}</td>
+          <td>{{ row.account.created_at | short_moment }}</td>
+          <td>{{ row.account.last_logon_at | short_moment }}</td>
         </tr>
         {% endfor %}
       </tbody>

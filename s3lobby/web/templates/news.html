@@ -10,23 +10,25 @@
     German news, games in every other language the other one.</p>
   </div>
 </section>
-{% for form in forms %}
 <section>
-  <div class="section-head"><h2>{{ form.audience_title }}</h2></div>
-  <form method="post" action="{{ url_for('content.set_news', audience=form.audience) }}">
-    {{ csrf_field() }}
-    <label class="field field--wide">
-      <span class="label">Title</span>
-      <input class="input" type="text" name="title" maxlength="{{ max_name_length }}" value="{{ form.news.title if form.news else '' }}" required>
-    </label>
-    <label class="field field--wide">
-      <span class="label">Text</span>
-      <textarea class="textarea" name="body" rows="10" maxlength="{{ max_text_length }}">{{ form.news.body if form.news else '' }}</textarea>
-      <span class="hint">Up to {{ max_text_length }} characters. Only characters of the game's Western
-      European code page, so no emoji.</span>
-    </label>
-    <div class="form-actions"><button class="btn btn--primary" type="submit">Save</button></div>
-  </form>
+  <div class="grid-12">
+    {% for form in forms %}
+    <form class="card col-6 stack" method="post" action="{{ url_for('content.set_news', audience=form.audience) }}">
+      {{ csrf_field() }}
+      <h2>{{ form.audience_title }}</h2>
+      <label class="field">
+        <span class="label">Title</span>
+        <input class="input" type="text" name="title" maxlength="{{ max_name_length }}" value="{{ form.news.title if form.news else '' }}" required>
+      </label>
+      <label class="field">
+        <span class="label">Text</span>
+        <textarea class="textarea" name="body" rows="10" maxlength="{{ max_text_length }}">{{ form.news.body if form.news else '' }}</textarea>
+        <span class="hint">Up to {{ max_text_length }} characters. Only characters of the game's Western
+        European code page, so no emoji. While the ladder is on, the server adds the standings under it.</span>
+      </label>
+      <div class="form-actions"><button class="btn btn--primary" type="submit">Save</button></div>
+    </form>
+    {% endfor %}
+  </div>
 </section>
-{% endfor %}
 {% endblock %}

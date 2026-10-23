@@ -34,53 +34,78 @@ class SettingField:
     label: str
     hint: str
     is_checkbox: bool = False
+    # The section of the page the setting is shown in (SETTING_GROUPS).
+    group: str = ""
 
+
+# The sections of the settings page, in order.
+SETTING_GROUPS = (
+    "Logons",
+    "Chat and Home tab",
+    "Member lists and board",
+    "Network",
+    "Ladder",
+    "Ladder rating",
+    "Ladder texts",
+)
 
 SETTING_FIELDS = (
     SettingField(
         Setting.MAX_PLAYERS,
         "Player limit",
         "Logons beyond this many players get the game's \"server full\" message. 0 for no limit.",
+        group="Logons",
     ),
     SettingField(
         Setting.UNIQUE_SERIAL_NUMBERS,
         "One logon per serial number",
-        "Refuse a second player with the same serial number, as Blue Byte's server did. Copies in one "
-        "household often share a serial, so this is off by default.",
+        "Refuse a second player with the same serial number, as Blue Byte's server did. Copies in one"
+        " household often share a serial, so this is off by default.",
         is_checkbox=True,
+        group="Logons",
     ),
     SettingField(
         Setting.WELCOME_MESSAGE,
         "Welcome line",
         "Shown in the chat as a [Server] line right after each logon. Empty for none.",
+        group="Chat and Home tab",
     ),
     SettingField(
         Setting.BANNER_URL,
         "Banner URL",
         "ftp://HOST/PATH of the advert banner on the Home tab, no port or user: the game fetches it "
         "by anonymous active FTP on port 21. Empty for no banner.",
+        group="Chat and Home tab",
     ),
     SettingField(
         Setting.BANNER_ID,
         "Banner id",
-        "Must not be 0, which the game ignores. The game downloads the banner again only when this or "
-        "the sub id changes, never for a new address alone: raise it after replacing the picture.",
+        "Must not be 0, which the game ignores. The game downloads the banner again only when this or"
+        " the sub id changes, never for a new address alone: raise it after replacing the picture.",
+        group="Chat and Home tab",
     ),
-    SettingField(Setting.BANNER_SUB_ID, "Banner sub id", "Second half of the banner's version."),
+    SettingField(
+        Setting.BANNER_SUB_ID,
+        "Banner sub id",
+        "Second half of the banner's version.",
+        group="Chat and Home tab",
+    ),
     SettingField(
         Setting.MARK_ADMINS,
         "Mark admins in the member lists",
         "Draw admins' rows in the room member lists in green (blue for an admin who shows the clan "
         "BB). The message is the one highlighted clans use, which a run with the game confirmed.",
         is_checkbox=True,
+        group="Member lists and board",
     ),
     SettingField(
         Setting.BOARD_CHAT_HINT,
         "Tell players the message board has no chat",
-        "Chat typed in the MessageZone reaches nobody, a bug of the game itself. With this on, a player "
-        "who opens the MessageZone hears so once per logon as a server line. Not yet tried with the "
-        "real game.",
+        "Chat typed in the MessageZone reaches nobody, a bug of the game itself. With this on, a "
+        "player who opens the MessageZone hears so once per logon as a server line. Not yet tried "
+        "with the real game.",
         is_checkbox=True,
+        group="Member lists and board",
     ),
     SettingField(
         Setting.CHECK_REACHABILITY,
@@ -89,80 +114,106 @@ SETTING_FIELDS = (
         "to the player first. The lobby page shows the result to admins, /net to the player. Not yet "
         "tried with the real game.",
         is_checkbox=True,
+        group="Network",
     ),
     SettingField(
         Setting.LADDER_ENABLED,
-        "Ladder: tell the game a result was stored",
+        "Tell the game a result was stored",
         "Answer a valid ladder report with \"Game status stored at the Lobby server.\" instead of \"not "
-        "valid for ladder\", and stop telling players that ladder games are not ranked. The ladder ranks "
-        "games either way. Not yet tried with the real game.",
+        "valid for ladder\", and stop telling players that ladder games are not ranked. The ladder "
+        "ranks games either way. Not yet tried with the real game.",
         is_checkbox=True,
+        group="Ladder",
     ),
     SettingField(
         Setting.LADDER_MINIMUM_MINUTES,
-        "Ladder: minimum game time",
+        "Minimum game time",
         "Minutes on the game's clock. Shorter matches, and players leaving earlier, count for nobody.",
+        group="Ladder",
     ),
     SettingField(
         Setting.LADDER_REPORT_TIMEOUT_MINUTES,
-        "Ladder: report timeout",
+        "Report timeout",
         "Minutes after a game closed in which its players' end reports may still arrive.",
+        group="Ladder",
     ),
     SettingField(
         Setting.LADDER_PAIR_DAILY_LIMIT,
-        "Ladder: results per pair and day",
-        "Counted results between the same two players or clans in one day; more are void (win trading).",
+        "Results per pair and day",
+        "Counted results between the same two players or clans in one day; more are void (win "
+        "trading).",
+        group="Ladder",
     ),
-    SettingField(Setting.LADDER_START_RATING, "Ladder: start rating", "Everyone's rating before the first result."),
-    SettingField(Setting.LADDER_K, "Ladder: K", "How far one result moves an established rating."),
+    SettingField(
+        Setting.LADDER_START_RATING,
+        "Start rating",
+        "Everyone's rating before the first result.",
+        group="Ladder rating",
+    ),
+    SettingField(
+        Setting.LADDER_K,
+        "K",
+        "How far one result moves an established rating.",
+        group="Ladder rating",
+    ),
     SettingField(
         Setting.LADDER_K_PROVISIONAL,
-        "Ladder: K while provisional",
+        "K while provisional",
         "How far one result moves a new player's rating.",
+        group="Ladder rating",
     ),
     SettingField(
         Setting.LADDER_PROVISIONAL_GAMES,
-        "Ladder: provisional results",
+        "Provisional results",
         "A rating is provisional until it rests on this many results.",
+        group="Ladder rating",
     ),
     SettingField(
         Setting.LADDER_ACTIVE_DAYS,
-        "Ladder: active days for clan strength",
+        "Active days for clan strength",
         "A member counts for a clan's strength from Liga only with a Liga result this recent.",
+        group="Ladder rating",
     ),
     SettingField(
         Setting.LADDER_CLAN_MEMBER_DAYS,
-        "Ladder: days in a clan for Clanliga",
+        "Days in a clan for Clanliga",
         "A player counts for a clan in Clanliga only after this many days in it.",
+        group="Ladder",
     ),
     SettingField(
         Setting.LADDER_INACTIVE_DAYS,
-        "Ladder: inactive days",
-        "Players without a result for this long leave the infinite season's standings until they play.",
+        "Inactive days",
+        "Players without a result for this long leave the infinite season's standings until they "
+        "play.",
+        group="Ladder rating",
     ),
     SettingField(
         Setting.LADDER_MAX_CUSTOM_SEASONS,
-        "Ladder: most custom seasons",
+        "Most custom seasons",
         "How many custom seasons may exist at once.",
+        group="Ladder",
     ),
     SettingField(
         Setting.LADDER_BOARD_MESSAGES,
-        "Ladder: board messages kept",
-        "The server writes season news and a weekly summary on the board under its own theme "
-        "(\"Liga\", \"Ladder\"); older messages than this many are deleted.",
+        "Board messages kept",
+        "The server writes season news and a weekly summary on the board under its own theme (\"Liga\","
+        " \"Ladder\"); older messages than this many are deleted.",
+        group="Ladder texts",
     ),
     SettingField(
         Setting.LADDER_NEWS_STANDINGS,
-        "Ladder: standings under the news",
-        "Add the top five and the running seasons under the Home tab's news. The game fetches the news "
-        "once per logon.",
+        "Standings under the news",
+        "Add the top five and the running seasons under the Home tab's news. The game fetches the "
+        "news once per logon.",
         is_checkbox=True,
+        group="Ladder texts",
     ),
     SettingField(
         Setting.LADDER_LOGON_LINE,
-        "Ladder: a line at logon",
+        "A line at logon",
         "Tell players who have a ladder result their rating and place when they log on.",
         is_checkbox=True,
+        group="Ladder texts",
     ),
 )
 
@@ -182,6 +233,15 @@ class SettingRow:
         return self.value.strip().lower() in TRUE_SETTING_VALUES
 
 
+@dataclass(frozen=True)
+class SettingSection:
+    """One section of the settings page: its text fields side by side, its checkboxes below."""
+
+    name: str
+    text_rows: tuple[SettingRow, ...]
+    checkbox_rows: tuple[SettingRow, ...]
+
+
 # Settings.
 
 
@@ -190,7 +250,15 @@ def show_settings() -> str:
     """The settings page with every setting's current value."""
     database = get_database()
     rows = [SettingRow(field=field, value=database.get_setting(field.setting)) for field in SETTING_FIELDS]
-    return render_template("settings.html", rows=rows)
+    sections = [
+        SettingSection(
+            name=group,
+            text_rows=tuple(row for row in rows if row.field.group == group and not row.field.is_checkbox),
+            checkbox_rows=tuple(row for row in rows if row.field.group == group and row.field.is_checkbox),
+        )
+        for group in SETTING_GROUPS
+    ]
+    return render_template("settings.html", sections=sections)
 
 
 @blueprint.post("/settings")

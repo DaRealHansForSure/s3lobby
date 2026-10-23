@@ -26,11 +26,11 @@ from s3lobby.constants import (
     Race,
 )
 from s3lobby.database import GameRecord, GameReportRecord, LobbyDatabase
-from s3lobby.groups import game_description_of, game_settings_of
+from s3lobby.groups import game_description_of, game_settings_of, ladder_type_of
 from s3lobby.ladder_book import LadderBook, ResultRow
 from s3lobby.messages import GameStatus, GroupAnnouncement, MatchReportPlayer
 from s3lobby.web.auth import redirect_visitors_to_logon
-from s3lobby.web.lobby_view import NO_PLAYER_LIMITS
+from s3lobby.web.lobby_view import NO_PLAYER_LIMITS, map_text
 from s3lobby.web.storage import get_database
 from s3lobby.wire import ProtocolError, RawMessage, readable_text
 
@@ -49,6 +49,8 @@ RACE_NAMES = {
     Race.AMAZONS: "Amazons",
 }
 # The host's choice in the game setup, as the game list names it (0x44b843, 0x44b97a).
+# The game type in a table, where the long names would wrap every row.
+SHORT_LADDER_TYPE_NAMES = {LadderType.NONE: "Normal", LadderType.INDIVIDUAL: "Liga", LadderType.CLANS: "Clanliga"}
 LADDER_TYPE_NAMES = {
     LadderType.NONE: "Normal game",
     LadderType.INDIVIDUAL: "Ladder 1 on 1 (Liga)",
@@ -131,6 +133,10 @@ class GameRow:
     match_started_at: datetime | None = None
     outcome_text: str = ""
     reports: tuple[ReportRow, ...] = field(default=())
+    # Who won, by name ("Greta won"), for the list; empty while the match is undecided.
+    winner_text: str = ""
+    # The game type in one word for the list: Normal, Liga or Clanliga.
+    type_text: str = ""
 
 
 @blueprint.get("/games")
@@ -328,6 +334,10 @@ def describe_game(game: GameRecord, reports: list[ReportRow]) -> GameRow:
     for report in own_reports:
         if report.is_readable:
             outcome = report.outcome_text
+    readable_reports = [report for report in own_reports if report.is_readable]
+    winners = winner_names(readable_reports[-1]) if readable_reports else []
+    winner_text = f"{', '.join(winners)} won" if winners else ""
+    type_text = short_type_text(game)
     return GameRow(
         game_id=game.game_id,
         name=game.name,
@@ -341,7 +351,25 @@ def describe_game(game: GameRecord, reports: list[ReportRow]) -> GameRow:
         match_started_at=match_started_at,
         outcome_text=outcome,
         reports=tuple(own_reports),
+        winner_text=winner_text,
+        type_text=type_text,
     )
+
+
+def short_type_text(game: GameRecord) -> str:
+    """The game type in one word: the ladder kept with the game, or for a game stored before the
+    ladder type was kept, the one its stored setup names; empty without either."""
+    ladder_type = game.ladder_type
+    if ladder_type is None and game.announcement is not None:
+        try:
+            announcement = GroupAnnouncement.decode(RawMessage(MessageType.ADD_GROUP_TO_GROUP_2, game.announcement))
+        # The bytes come from a host's game; a malformed announcement just has no type.
+        except (ProtocolError, ValueError):
+            return ""
+        ladder_type = ladder_type_of(announcement) or LadderType.NONE
+    if ladder_type is None:
+        return ""
+    return SHORT_LADDER_TYPE_NAMES.get(ladder_type, f"type {ladder_type}")
 
 
 def decode_setup(announcement_body: bytes | None) -> GameSetup | None:
@@ -364,7 +392,7 @@ def decode_setup(announcement_body: bytes | None) -> GameSetup | None:
     computer_opponent_count = None
     game_type = ""
     if description is not None:
-        map_name = readable_text(description.map_name)
+        map_name = map_text(readable_text(description.map_name))
         team_count = description.team_count
         computer_opponent_count = description.computer_opponent_count
         if description.is_ladder_game:
@@ -429,8 +457,11 @@ def duration_text(duration: timedelta) -> str:
     minutes, seconds = divmod(rest, SECONDS_PER_MINUTE)
     if hours:
         return f"{hours} h {minutes} min"
-    if minutes:
+    # Whole minutes read "40 min", not "40 min 0 s".
+    if minutes and seconds:
         return f"{minutes} min {seconds} s"
+    if minutes:
+        return f"{minutes} min"
     return f"{seconds} s"
 
 

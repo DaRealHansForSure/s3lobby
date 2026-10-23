@@ -24,6 +24,8 @@ NO_PLAYER_LIMITS = frozenset({0, UNLIMITED_PLAYERS})
 # A game description names a random map with a backslash in front of the random map's name
 # (0x4616da..0x461796).
 RANDOM_MAP_PREFIX = "\\"
+# The name the game gives the random map most setups use (seen in runs: "\\Random").
+RANDOM_MAP_DEFAULT_NAME = "Random"
 
 
 @dataclass(frozen=True)
@@ -203,10 +205,14 @@ def listed_in_names(group: LiveGroup, names_by_id: dict[int, str]) -> tuple[str,
 
 
 def map_text(map_name: str) -> str:
-    """The map as the page shows it: "Random (random map)" for a random map."""
-    if map_name.startswith(RANDOM_MAP_PREFIX):
-        return f"{map_name[len(RANDOM_MAP_PREFIX):]} (random map)"
-    return map_name
+    """The map as the page shows it: "Random map" for the game's own random map, "Name (random
+    map)" for another random map, the name for a map file."""
+    if not map_name.startswith(RANDOM_MAP_PREFIX):
+        return map_name
+    random_name = map_name[len(RANDOM_MAP_PREFIX):]
+    if random_name == RANDOM_MAP_DEFAULT_NAME:
+        return "Random map"
+    return f"{random_name} (random map)"
 
 
 def player_count_text(group: LiveGroup) -> str:

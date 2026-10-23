@@ -173,7 +173,7 @@
       <tbody>
         {% for row in recent %}
         <tr>
-          <td class="cell-time">{{ row.played_at | moment }}</td>
+          <td class="cell-time">{{ row.played_at | short_moment }}</td>
           <td>{{ row.ladder | capitalize }}</td>
           <td><strong>{{ row.winners | join(", ") }}</strong></td>
           <td>{{ row.losers | join(", ") }}{% if row.left %} <span class="badge badge--warn">left</span>{% endif %}</td>
