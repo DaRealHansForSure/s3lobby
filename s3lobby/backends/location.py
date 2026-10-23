@@ -65,6 +65,8 @@ def describe_location(location: str) -> str:
     try:
         return parse_mysql_location(location).describe()
     except BackendError:
+        # A location that does not parse may still hold a password somewhere in it; showing only
+        # the scheme is the safe fallback for an error message.
         return MYSQL_LOCATION_PREFIX
 
 
@@ -74,6 +76,8 @@ def parse_mysql_location(location: str) -> MysqlLocation:
     it are percent-encoded. Without tls the connection is not encrypted (MysqlLocation explains the
     modes)."""
     parts = urlsplit(location)
+    # urlsplit parses the port lazily: reading parts.port is what raises for a port that is not a
+    # number or out of range.
     try:
         port = parts.port or DEFAULT_MYSQL_PORT
     except ValueError as error:
@@ -82,9 +86,12 @@ def parse_mysql_location(location: str) -> MysqlLocation:
     if not parts.hostname or not parts.username or not database_name:
         raise BackendError("a MySQL location needs a user, a host and a database: mysql://user@host/name")
     password = parts.password
+    # None means the location has no ":password" at all; an empty password written as "user:@host"
+    # is kept as given and does not fall back to the environment.
     if password is None:
         password = os.environ.get(MYSQL_PASSWORD_VARIABLE, "")
     options = parse_qs(parts.query)
+    # An option given twice counts with its last value, as a later argument overrides an earlier one.
     tls = options.get(TLS_OPTION, [""])[-1]
     ca_file = options.get(CA_FILE_OPTION, [""])[-1]
     if tls not in TLS_MODES:

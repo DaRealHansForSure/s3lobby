@@ -27,6 +27,8 @@ from s3lobby.database import LobbyDatabase
 from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.messages import (
     AddPlayerToGroup,
+    AddPlayerToGroupWithClan,
+    AddPlayerToGroupWithFlags,
     CheckFileVersion,
     GameBlock,
     GetImageList,
@@ -48,7 +50,11 @@ START_MS = 1_000_000
 
 
 class GuardsTest(unittest.TestCase):
+    """The rate limiter and the throttled logger the server uses against floods."""
+
     def test_rate_limiter_allows_a_burst_then_the_steady_rate(self) -> None:
+        """A sender may use the burst at once, is then refused, and earns one more event per 1/rate seconds.
+        """
         limiter = RateLimiter(events_per_second=10, burst=5)
         allowed = [limiter.allows("sender", now_seconds=0.0) for _ in range(8)]
         self.assertEqual(allowed, [True] * 5 + [False] * 3)
@@ -56,6 +62,8 @@ class GuardsTest(unittest.TestCase):
         self.assertFalse(limiter.allows("sender", now_seconds=0.1))
 
     def test_rate_limiter_forgets_senders_that_went_quiet(self) -> None:
+        """Senders that went quiet are forgotten, so a flood from many forged addresses cannot make the
+        limiter's memory grow without end."""
         limiter = RateLimiter(events_per_second=10, burst=5)
         for sender_number in range(100):
             limiter.allows(("forged", sender_number), now_seconds=0.0)
@@ -63,6 +71,8 @@ class GuardsTest(unittest.TestCase):
         self.assertEqual(limiter.tracked_key_count, 0)
 
     def test_throttled_logger_holds_back_repeats_and_reports_them(self) -> None:
+        """A sender repeating the same fault gets one warning per interval and later a count of the ones held
+        back, so a flood cannot fill the log or the disk."""
         logger = logging.getLogger("tests.throttled")
         throttled = ThrottledLogger(logger, interval_seconds=10)
         with self.assertLogs(logger, logging.WARNING) as captured:
@@ -74,7 +84,10 @@ class GuardsTest(unittest.TestCase):
 
 
 class ConnectionAbuseTest(unittest.TestCase):
+    """A ReliableConnection fed what a hostile or broken client sends, after a proper opening block."""
+
     def setUp(self) -> None:
+        """A connection whose client sent a proper block 1 with OpenConnection."""
         self.connection = ReliableConnection(CLIENT_ADDRESS, client_nonce=7, now_ms=START_MS)
         opening = [MessageId(1).encode(), OpenConnection(7).encode()]
         self.connection.receive_block(opening, START_MS)
@@ -93,6 +106,8 @@ class ConnectionAbuseTest(unittest.TestCase):
             self.connection.receive_block(unnumbered, START_MS)
 
     def test_connection_messages_without_a_block_id_still_count(self) -> None:
+        """The game sends its connection messages, such as acknowledgements, unnumbered; refusing those along
+        with unnumbered lobby messages would break every real client."""
         received = self.connection.receive_block([MinMissingAcknowledge(1).encode()], START_MS)
         self.assertEqual(received.lobby_messages, [])
 
@@ -111,17 +126,37 @@ class ConnectionAbuseTest(unittest.TestCase):
 
 
 class SecretsInLogTest(unittest.TestCase):
+    """The datagram descriptions --verbose writes to the log, which must never hold an access code or a chat
+    group password."""
+
     def test_access_code_never_appears_in_the_debug_description(self) -> None:
+        """The access code in a Logon is a password; neither as text nor as hex may it land in a log file that
+        admins share for debugging."""
         logon = Logon(14, "Alice", "K7QXM2PAR9TB", 0, "0497-2584-2194-4356-2336").encode()
         description = describe_for_log(logon)
         self.assertNotIn("K7QXM2PAR9TB", description)
         self.assertNotIn(b"K7QXM2PAR9TB".hex(), description)
 
     def test_chat_group_password_is_removed(self) -> None:
+        """The password a player gives to join a chat group is left out of the log."""
         join = AddPlayerToGroup(5, 1, ("0.0.0.0", 0), "", extra_text="hunter").encode()
         self.assertNotIn("hunter", describe_for_log(join))
 
+    def test_chat_group_password_is_removed_from_the_clan_variants(self) -> None:
+        """0x25 and 0x26 carry the same password field as 0x0c, so a clan member's password stays out of
+        the log as well."""
+        joins = (
+            AddPlayerToGroupWithClan(5, 1, ("0.0.0.0", 0), "", 7, "Romans", extra_text="hunter"),
+            AddPlayerToGroupWithFlags(5, 1, ("0.0.0.0", 0), "", 7, "Romans", 0, extra_text="hunter"),
+        )
+        for join in joins:
+            with self.subTest(message_type=join.MESSAGE_TYPE):
+                description = describe_for_log(join.encode())
+                self.assertNotIn("hunter", description)
+                self.assertNotIn(b"hunter".hex(), description)
+
     def test_chat_group_password_set_by_an_update_is_removed(self) -> None:
+        """A chat group's password changed by an update is left out of the log too, as text and as hex."""
         update = GroupUpdate(
             message_type=MessageType.UPDATE_GROUP_2,
             group_id=0x8000,
@@ -139,12 +174,17 @@ class SecretsInLogTest(unittest.TestCase):
         self.assertNotIn(b"hunter".hex(), description)
 
     def test_unreadable_secret_bearing_message_is_not_dumped(self) -> None:
+        """A malformed message of a type that carries a secret is not logged as a hex dump either, since the
+        secret could still be in its bytes."""
         broken_logon = RawMessage(MessageType.LOGON, b"\x0e\x00\x00\x00Alice\x00hunter")
         self.assertNotIn(b"hunter".hex(), describe_for_log(broken_logon))
 
 
 class ServerUnderAttackTest(unittest.TestCase):
+    """A running server receiving datagrams no real game sends."""
+
     def setUp(self) -> None:
+        """A server on a fresh database and a plain UDP socket to attack it from."""
         self.folder = tempfile.TemporaryDirectory()
         self.database_path = str(Path(self.folder.name) / "lobby.sqlite3")
         self.server = BackgroundServer(self.database_path)
@@ -152,11 +192,13 @@ class ServerUnderAttackTest(unittest.TestCase):
         self.attacker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def tearDown(self) -> None:
+        """Close the attacking socket, stop the server and remove the database."""
         self.attacker.close()
         self.server.__exit__(None, None, None)
         self.folder.cleanup()
 
     def assert_server_still_answers(self) -> None:
+        """Fail unless a new client still gets an answer to its version check."""
         client = FakeGameClient(self.server.address, "Alice", nonce=99)
         self.addCleanup(client.close_socket)
         client.send(CheckFileVersion(160, 4, 0))
@@ -184,6 +226,8 @@ class ServerUnderAttackTest(unittest.TestCase):
             client.assert_nothing_arrives(MessageType.LOBBY_SERVER_LIST)
 
     def test_garbage_datagrams_do_not_stop_the_server(self) -> None:
+        """Empty, truncated, random and malformed datagrams are dropped one by one; none may stop the server
+        for everyone else."""
         garbage = [
             b"",
             b"\x00",
@@ -211,12 +255,18 @@ class ServerUnderAttackTest(unittest.TestCase):
                 clients[connection_limit].receive_next(MessageType.LOBBY_SERVER_LIST)
 
     def test_database_file_is_private_to_its_owner(self) -> None:
+        """The database the server creates holds access code hashes and player data, so only its owner may
+        read it."""
         mode = stat.S_IMODE(Path(self.database_path).stat().st_mode)
         self.assertEqual(mode, 0o600)
 
 
 class DatabaseFileTest(unittest.TestCase):
+    """The permissions of a database file the lobby creates."""
+
     def test_new_database_file_is_created_owner_only(self) -> None:
+        """A new database file is created readable by its owner only, not tightened afterwards, so it never
+        exists with wider permissions."""
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "new.sqlite3"
             LobbyDatabase(path).close()

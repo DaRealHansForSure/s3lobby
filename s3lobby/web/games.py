@@ -19,7 +19,6 @@ from flask import Blueprint, Response, abort, render_template
 
 from s3lobby.constants import (
     GAME_TICK_MS,
-    UNLIMITED_PLAYERS,
     GameStatusFlag,
     LadderType,
     MatchPlayerFlag,
@@ -30,6 +29,7 @@ from s3lobby.database import GameRecord, GameReportRecord
 from s3lobby.groups import game_description_of, game_settings_of
 from s3lobby.messages import GameStatus, GroupAnnouncement, MatchReportPlayer
 from s3lobby.web.auth import redirect_visitors_to_logon
+from s3lobby.web.lobby_view import NO_PLAYER_LIMITS
 from s3lobby.web.storage import get_database
 from s3lobby.wire import ProtocolError, RawMessage, readable_text
 
@@ -91,6 +91,10 @@ class ReportPlayerRow:
 
 @dataclass(frozen=True)
 class ReportRow:
+    """One stored match report as the games pages show it. Only report_id, received_at,
+    sender_name, group_id, size and the game are set when the report does not decode (is_readable
+    False). game_time counts game ticks; winning_team is None while no winner is reported."""
+
     report_id: int
     received_at: datetime
     sender_name: str
@@ -111,6 +115,9 @@ class ReportRow:
 
 @dataclass(frozen=True)
 class GameRow:
+    """One stored game as the games pages show it: the setup decoded from its announcement (None
+    when that is missing or does not decode), who joined, and its reports, oldest first."""
+
     game_id: int
     name: str
     host_name: str
@@ -127,10 +134,12 @@ class GameRow:
 
 @blueprint.get("/games")
 def list_games() -> str:
+    """The games page: the recent games and the recent match reports, each decoded as far as it goes."""
     database = get_database()
     account_names = {account.account_id: account.name for account in database.list_accounts()}
     games = database.list_recent_games(RECENT_GAME_COUNT)
     game_names = {game.game_id: game.name for game in games}
+    # Newest first for the report list; describe_game sorts each game's own reports oldest first.
     reports = [
         describe_report(report, account_names, game_names)
         for report in database.list_recent_game_reports(RECENT_REPORT_COUNT)
@@ -182,14 +191,18 @@ def games_of_account(account_id: int) -> list[AccountGameRow]:
 
 
 def account_game_row(game: GameRecord, reports: list[ReportRow], account_id: int) -> AccountGameRow:
+    """The game as an account's page lists it, with the account's team, race and result from the
+    last readable report; without them when there is no report or the account had no slot in it."""
     row = AccountGameRow(game_id=game.game_id, name=game.name, host_name=game.host_name, opened_at=game.opened_at)
     if not reports:
         return row
+    # The database lists reports in the order they arrived, so the last one is the latest state.
     final_report = reports[-1]
     own_slot = None
     for player in final_report.players:
         if player.lobby_player_id == account_id:
             own_slot = player
+            break
     if own_slot is None:
         return row
     result = "no winner reported"
@@ -253,6 +266,7 @@ def first_report_with_winner(reports: list[ReportRow]) -> ReportRow | None:
 
 
 def teams_of(report: ReportRow | None) -> list[TeamRow]:
+    """The slots of a report grouped into teams, in team order, each marked when it won."""
     if report is None:
         return []
     players_by_team: dict[int, list[ReportPlayerRow]] = {}
@@ -265,6 +279,7 @@ def teams_of(report: ReportRow | None) -> list[TeamRow]:
 
 
 def winner_names(report: ReportRow | None) -> list[str]:
+    """The names in the winning team of a report; empty while it names no winner."""
     if report is None or report.winning_team is None:
         return []
     return [player.name for player in report.players if player.team == report.winning_team]
@@ -272,6 +287,7 @@ def winner_names(report: ReportRow | None) -> list[str]:
 
 @blueprint.get("/games/reports/<int:report_id>")
 def download_report(report_id: int) -> Response:
+    """The stored bytes of one match report as a file download, exactly as the game sent them."""
     report = get_database().find_game_report(report_id)
     if report is None:
         abort(HTTPStatus.NOT_FOUND)
@@ -325,6 +341,7 @@ def decode_setup(announcement_body: bytes | None) -> GameSetup | None:
         return None
     try:
         announcement = GroupAnnouncement.decode(RawMessage(MessageType.ADD_GROUP_TO_GROUP_2, announcement_body))
+    # The bytes come from a host's game; a malformed announcement must not take the page down.
     except (ProtocolError, ValueError):
         return None
     description = game_description_of(announcement)
@@ -356,6 +373,7 @@ def decode_setup(announcement_body: bytes | None) -> GameSetup | None:
     is_ladder_named = settings.ladder_type is not None and settings.ladder_type != LadderType.NONE
     if is_ladder_now and is_ladder_named:
         game_type = LADDER_TYPE_NAMES.get(settings.ladder_type, f"type {settings.ladder_type}")
+    # Without a readable description the block is the only source for the type, even if outdated.
     elif not game_type and settings.ladder_type is not None:
         game_type = LADDER_TYPE_NAMES.get(settings.ladder_type, f"type {settings.ladder_type}")
     return GameSetup(
@@ -367,17 +385,20 @@ def decode_setup(announcement_body: bytes | None) -> GameSetup | None:
         allows_amazons=settings.allows_amazons,
         version=version_text(settings.game_version),
         program_checksum=f"{settings.program_checksum:016x}",
+        # A Windows GUID keeps its first three fields little endian, hence bytes_le.
         session_guid=str(uuid.UUID(bytes_le=settings.session_guid)),
     )
 
 
 def max_players_text(max_players: int) -> str:
-    if max_players in (0, UNLIMITED_PLAYERS):
+    """The player limit for the page; 0 and UNLIMITED_PLAYERS both mean no limit."""
+    if max_players in NO_PLAYER_LIMITS:
         return "no limit"
     return str(max_players)
 
 
 def version_text(game_version: int) -> str:
+    """The game's version number as the game writes it: 160 becomes "1.60"."""
     whole, hundredths = divmod(game_version, VERSION_DIVISOR)
     return f"{whole}.{hundredths:02d}"
 
@@ -390,6 +411,7 @@ def open_duration_text(opened_at: datetime, closed_at: datetime | None) -> str:
 
 
 def duration_text(duration: timedelta) -> str:
+    """A duration in its two largest units that matter: "1 h 5 min", "3 min 20 s" or "45 s"."""
     total_seconds = max(int(duration.total_seconds()), 0)
     hours, rest = divmod(total_seconds, SECONDS_PER_HOUR)
     minutes, seconds = divmod(rest, SECONDS_PER_MINUTE)
@@ -423,6 +445,7 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str], gam
         # down for every admin.
         return row
     players = [describe_report_player(player, account_names) for player in status.players]
+    # Teammates next to each other, in slot order within a team, as the page lists them.
     players.sort(key=lambda player: (player.team, player.slot))
     return ReportRow(
         report_id=row.report_id,
@@ -444,6 +467,8 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str], gam
 
 
 def describe_report_player(player: MatchReportPlayer, account_names: dict[int, str]) -> ReportPlayerRow:
+    """One slot of a report as the page lists it, named after its account when the lobby player id
+    is one; a computer opponent is named "Computer"."""
     account_id = None
     if player.is_computer:
         name = "Computer"
@@ -472,6 +497,7 @@ def outcome_text(status: GameStatus) -> str:
 
 
 def report_flag_notes(flags: int) -> tuple[str, ...]:
+    """The report's flags in words (GameStatusFlag); bits without a name are shown as a number."""
     notes = []
     if flags & GameStatusFlag.LADDER_GAME:
         notes.append("ladder game, unranked here")

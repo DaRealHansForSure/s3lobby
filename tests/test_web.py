@@ -80,6 +80,8 @@ class WebInterfaceTestCase(unittest.TestCase):
     """A web application on a fresh database with one admin and one player account."""
 
     def setUp(self) -> None:
+        """Create the database with the admin and the player, the application on it, and a test client whose
+        session holds the form token."""
         self.database_folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.database_folder.cleanup)
         database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
@@ -96,9 +98,11 @@ class WebInterfaceTestCase(unittest.TestCase):
             session["csrf_token"] = CSRF_TOKEN
 
     def post(self, path: str, **form: str):
+        """Post a form to path with the session's form token added."""
         return self.client.post(path, data={"csrf_token": CSRF_TOKEN, **form})
 
     def log_on(self, name: str = ADMIN_NAME, access_code: str = ADMIN_CODE):
+        """Log on through the logon form, by default as the admin; returns the response."""
         response = self.post("/logon", name=name, access_code=access_code)
         # A logon starts a fresh session; put the test's form token back into it.
         with self.client.session_transaction() as session:
@@ -107,11 +111,16 @@ class WebInterfaceTestCase(unittest.TestCase):
 
 
 class LiveLobbyTest(WebInterfaceTestCase):
+    """The public live lobby page and what it shows to visitors and to admins."""
+
     def test_without_a_server_the_lobby_says_so(self) -> None:
+        """Without a live state from a running server the page says the server is not running instead of
+        showing an empty lobby."""
         page = self.client.get("/").get_data(as_text=True)
         self.assertIn("The lobby server is not running", page)
 
     def test_visitors_see_players_and_games_but_no_addresses(self) -> None:
+        """Visitors see who is online and in which rooms, but never a player's address."""
         self.database.write_live_state(LIVE_STATE)
         page = self.client.get("/").get_data(as_text=True)
         self.assertIn("Running", page)
@@ -120,12 +129,16 @@ class LiveLobbyTest(WebInterfaceTestCase):
         self.assertNotIn("192.0.2.7", page)
 
     def test_games_show_their_map_teams_and_that_a_ladder_game_is_unranked(self) -> None:
+        """A game shows its map, with a random map named so, and a ladder game is marked unranked, since this
+        server keeps no ladder."""
         self.database.write_live_state(LIVE_STATE)
         page = self.client.get("/live/state").get_data(as_text=True)
         self.assertIn("Random (random map)", page)
         self.assertIn("ladder, unranked", page)
 
     def test_admins_also_see_addresses(self) -> None:
+        """Admins see each player's address and whether the reachability probe found them blocked, to help
+        players with their network."""
         self.database.write_live_state(LIVE_STATE)
         self.log_on()
         page = self.client.get("/live/state").get_data(as_text=True)
@@ -140,6 +153,8 @@ class LiveLobbyTest(WebInterfaceTestCase):
         self.assertNotIn("<b>Alice", page)
 
     def test_every_page_sends_the_security_headers(self) -> None:
+        """Every response carries the Content-Security-Policy without inline script, nosniff, and a ban on
+        framing."""
         response = self.client.get("/")
         self.assertIn("script-src 'self'", response.headers["Content-Security-Policy"])
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
@@ -147,9 +162,12 @@ class LiveLobbyTest(WebInterfaceTestCase):
 
 
 class AdminLogonTest(WebInterfaceTestCase):
+    """The admin logon, the sessions it starts and the protections around both."""
+
     ADMIN_PAGES = ("/accounts", "/clans", "/news", "/chat-themes", "/board", "/settings", "/announcements", "/games")
 
     def test_admin_pages_send_visitors_to_the_logon(self) -> None:
+        """Every admin page sends a visitor to the logon, with the page to come back to afterwards."""
         for path in self.ADMIN_PAGES:
             with self.subTest(path=path):
                 response = self.client.get(path)
@@ -157,6 +175,8 @@ class AdminLogonTest(WebInterfaceTestCase):
                 self.assertIn(f"/logon?next={path}", response.headers["Location"])
 
     def test_admin_logs_on_with_name_and_code_in_any_case(self) -> None:
+        """An admin logs on with name and access code in any case, as in the game, and then reaches every
+        admin page."""
         response = self.log_on(name=ADMIN_NAME.lower(), access_code=ADMIN_CODE.lower())
         self.assertEqual(response.status_code, HTTP_FOUND)
         for path in self.ADMIN_PAGES:
@@ -164,26 +184,34 @@ class AdminLogonTest(WebInterfaceTestCase):
                 self.assertEqual(self.client.get(path).status_code, HTTP_OK)
 
     def test_wrong_code_and_players_without_admin_rights_are_refused(self) -> None:
+        """A wrong code and a player without admin rights are both refused, and no session is left behind."""
         self.assertEqual(self.log_on(access_code="WRONGCODE234").status_code, HTTP_UNAUTHORIZED)
         self.assertEqual(self.log_on(name=PLAYER_NAME, access_code=PLAYER_CODE).status_code, HTTP_UNAUTHORIZED)
         self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND)
 
     def test_revoking_the_code_ends_the_session(self) -> None:
+        """A session ends as soon as the access code it logged on with is revoked, so revoking a leaked code
+        also throws out whoever used it."""
         self.log_on()
         self.database.revoke_access_code(self.admin.account_id, self.admin_code_id)
         self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND)
 
     def test_losing_admin_rights_ends_the_session(self) -> None:
+        """A session ends as soon as its account loses admin rights, not only at its next logon."""
         self.log_on()
         self.database.set_admin(self.admin.account_id, False)
         self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND)
 
     def test_repeated_failures_lock_out_even_the_right_code_for_a_while(self) -> None:
+        """After LOGON_FAILURE_BURST failures from one address even the right code is refused for a while, so
+        access codes cannot be guessed through the web interface."""
         for _ in range(LOGON_FAILURE_BURST):
             self.log_on(access_code="WRONGCODE234")
         self.assertEqual(self.log_on().status_code, HTTP_TOO_MANY_REQUESTS)
 
     def test_forms_without_the_session_token_are_refused(self) -> None:
+        """A form posted without the session's token, or with a forged one, is refused and changes nothing, so
+        another site cannot make an admin's browser change the lobby."""
         self.log_on()
         response = self.client.post("/clans", data={"name": "Romans"})
         self.assertEqual(response.status_code, HTTP_BAD_REQUEST)
@@ -219,6 +247,8 @@ class AdminLogonTest(WebInterfaceTestCase):
         self.assertEqual(self.log_on().status_code, HTTP_FOUND)
 
     def test_logout_ends_the_session_also_for_a_copied_cookie(self) -> None:
+        """Logging out ends the session on the server side, so a copy of the cookie taken before no longer
+        works."""
         self.log_on()
         with self.client.session_transaction() as session:
             copied_session = dict(session)
@@ -228,16 +258,22 @@ class AdminLogonTest(WebInterfaceTestCase):
         self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND, "back to the logon page")
 
     def test_session_ends_after_its_lifetime_however_busy_it_was(self) -> None:
+        """A session ends once its lifetime from the logon is over, even while it is in use, so a stolen
+        session cannot be kept alive forever."""
         self.log_on()
         self.assertEqual(self.client.get("/accounts").status_code, HTTP_OK)
         self.database._backend.execute("UPDATE web_sessions SET created_at = '2000-01-01T00:00:00+00:00'")
         self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND)
 
     def test_forged_token_with_other_characters_is_refused_not_a_server_error(self) -> None:
+        """A form token with characters outside ASCII is refused like any wrong token, not answered with a
+        server error."""
         response = self.client.post("/clans", data={"name": "Romans", "csrf_token": "\u00e9t\u00e9"})
         self.assertEqual(response.status_code, HTTP_BAD_REQUEST)
 
     def test_pages_are_not_cached_and_send_the_isolation_headers(self) -> None:
+        """Pages are not cached and isolated from other windows; Strict-Transport-Security is only sent over
+        HTTPS, where it belongs."""
         response = self.client.get("/")
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertEqual(response.headers["Cross-Origin-Opener-Policy"], "same-origin")
@@ -248,6 +284,7 @@ class DevelopmentLogonTest(WebInterfaceTestCase):
     """`s3lobby web --dev`: admins also log on with DEVELOPMENT_PASSWORD, for testing on one machine."""
 
     def setUp(self) -> None:
+        """The same database, but the application in development mode."""
         super().setUp()
         database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
         self.app = create_app(database_path, secret_key="test secret", is_development_mode=True)
@@ -256,6 +293,8 @@ class DevelopmentLogonTest(WebInterfaceTestCase):
             session["csrf_token"] = CSRF_TOKEN
 
     def log_on_from(self, address: str, name: str = ADMIN_NAME):
+        """Log on with DEVELOPMENT_PASSWORD from the given address, by default as the admin; returns the
+        response."""
         response = self.client.post(
             "/logon",
             data={"csrf_token": CSRF_TOKEN, "name": name, "access_code": DEVELOPMENT_PASSWORD},
@@ -267,11 +306,15 @@ class DevelopmentLogonTest(WebInterfaceTestCase):
         return response
 
     def test_admin_logs_on_with_the_development_password_from_this_machine_and_the_lan(self) -> None:
+        """In development mode an admin gets in with DEVELOPMENT_PASSWORD from this machine and from the LAN.
+        """
         for address in ("127.0.0.1", "192.168.1.20"):
             with self.subTest(address=address):
                 self.assertEqual(self.log_on_from(address).status_code, HTTP_FOUND)
 
     def test_development_password_is_refused_from_the_internet_and_for_players(self) -> None:
+        """A password everybody knows must never open the web interface to the internet, nor give a player
+        admin pages."""
         self.assertEqual(self.log_on_from("8.8.8.8").status_code, HTTP_UNAUTHORIZED)
         self.assertEqual(self.log_on_from("127.0.0.1", name=PLAYER_NAME).status_code, HTTP_UNAUTHORIZED)
 
@@ -283,6 +326,7 @@ class DevelopmentLogonTest(WebInterfaceTestCase):
         self.assertEqual(self.client.get("/accounts").status_code, HTTP_FOUND)
 
     def test_without_development_mode_the_password_is_just_wrong(self) -> None:
+        """Outside development mode DEVELOPMENT_PASSWORD is just a wrong code."""
         database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
         self.client = create_app(database_path, secret_key="test secret").test_client()
         with self.client.session_transaction() as session:
@@ -291,7 +335,10 @@ class DevelopmentLogonTest(WebInterfaceTestCase):
 
 
 class ClanHighlightPageTest(WebInterfaceTestCase):
+    """Switching a clan's green highlight on the clans page."""
+
     def test_clan_is_switched_green_and_back(self) -> None:
+        """The clans page switches a clan's highlight on and off and marks a highlighted clan as green."""
         self.log_on()
         romans = self.database.create_clan("Romans")
         self.post(f"/clans/{romans.clan_id}/highlight", is_highlighted="on")
@@ -306,12 +353,15 @@ class GameColoursTest(WebInterfaceTestCase):
     clan BB (0x449da1, 0x449de2)."""
 
     def test_live_lobby_shows_the_colour_the_server_reports(self) -> None:
+        """The live lobby draws a player in the row colour the server reports, as the game shows them."""
         blue_player = dataclasses.replace(LIVE_STATE.players[0], row_colour="blue")
         self.database.write_live_state(dataclasses.replace(LIVE_STATE, players=(blue_player,)))
         page = self.client.get("/").get_data(as_text=True)
         self.assertIn('<span class="game-row game-row--blue"', page)
 
     def test_admin_is_green_and_a_marked_clan_named_bb_blue(self) -> None:
+        """The admin pages show admins in green and a highlighted clan named BB in blue, matching the game's
+        member lists."""
         self.log_on()
         accounts = self.client.get("/accounts").get_data(as_text=True)
         self.assertIn(f'game-row--green" title="green in the game\'s member lists">{ADMIN_NAME}</span>', accounts)
@@ -322,11 +372,16 @@ class GameColoursTest(WebInterfaceTestCase):
 
 
 class AccountPagesTest(WebInterfaceTestCase):
+    """The account pages: new accounts, bans, clans, deletion and kicks."""
+
     def setUp(self) -> None:
+        """Log on as the admin."""
         super().setUp()
         self.log_on()
 
     def test_new_account_shows_its_code_once_and_the_code_works(self) -> None:
+        """A new account's access code is shown once on the page that creates it and works for a logon; the
+        account page later shows its label but never the code."""
         page = self.post("/accounts", name="Carol", label="laptop").get_data(as_text=True)
         access_code = NEW_ACCESS_CODE_PATTERN.search(page).group(1)
         carol = self.database.find_account("Carol")
@@ -336,12 +391,15 @@ class AccountPagesTest(WebInterfaceTestCase):
         self.assertNotIn(access_code, account_page)
 
     def test_invalid_name_is_refused_with_the_reason(self) -> None:
+        """A name the game would not accept creates no account, and the page says why."""
         response = self.post("/accounts", name="Player1")
         self.assertEqual(response.status_code, HTTP_FOUND)
         self.assertIsNone(self.database.find_account("Player1"))
         self.assertIn("not a valid player name", self.client.get("/accounts").get_data(as_text=True))
 
     def test_admin_cannot_lock_themselves_out(self) -> None:
+        """An admin cannot take away their own rights, ban or delete themselves, which could leave the lobby
+        without an admin."""
         self.post(f"/accounts/{self.admin.account_id}/admin")
         self.post(f"/accounts/{self.admin.account_id}/ban", hours="24")
         self.post(f"/accounts/{self.admin.account_id}/delete", confirm_name=ADMIN_NAME)
@@ -350,6 +408,8 @@ class AccountPagesTest(WebInterfaceTestCase):
         self.assertIsNone(admin.banned_until)
 
     def test_ban_clan_and_removal_of_another_account(self) -> None:
+        """An admin sets another account's clan and ban, and deleting it needs its name typed again: a wrong
+        name deletes nothing."""
         romans = self.database.create_clan("Romans")
         player_path = f"/accounts/{self.player.account_id}"
         self.post(f"{player_path}/clan", clan_id=str(romans.clan_id))
@@ -362,7 +422,6 @@ class AccountPagesTest(WebInterfaceTestCase):
         self.post(f"{player_path}/delete", confirm_name=PLAYER_NAME)
         self.assertIsNone(self.database.find_account(PLAYER_NAME))
 
-
     def test_player_is_removed_from_the_running_lobby_but_not_the_admin(self) -> None:
         """The web interface shares only the database with the server: it queues the kick."""
         self.post(f"/accounts/{self.admin.account_id}/kick")
@@ -373,20 +432,27 @@ class AccountPagesTest(WebInterfaceTestCase):
 
 
 class ContentAndSettingsPagesTest(WebInterfaceTestCase):
+    """The pages for news, chat themes, the board, settings, announcements and the games list."""
+
     def setUp(self) -> None:
+        """Log on as the admin."""
         super().setUp()
         self.log_on()
 
     def test_news_keeps_line_breaks_without_carriage_returns(self) -> None:
+        """Browsers send line breaks as CR LF; the news keeps the lines but stores plain line breaks, which
+        the server splits into the game's text lines."""
         self.post("/news/german", title="Willkommen", body="Erste Zeile\r\nZweite Zeile\r\n")
         self.assertEqual(self.database.find_news("german").body, "Erste Zeile\nZweite Zeile")
 
     def test_text_the_game_cannot_show_is_refused(self) -> None:
+        """A chat theme with a character outside the game's code page is refused, and the page says why."""
         self.post("/chat-themes", name="Party \U0001f389")
         self.assertEqual(self.database.list_chat_themes(), [])
         self.assertIn("which the game cannot show", self.client.get("/chat-themes").get_data(as_text=True))
 
     def test_board_theme_and_message(self) -> None:
+        """A board theme is created and a message posted to it from the web interface."""
         self.post("/board/themes", language="English", name="Tournaments")
         [theme] = self.database.list_board_themes()
         self.post("/board/messages", theme_id=str(theme.theme_id), title="Cup", body="Saturday", author=ADMIN_NAME)
@@ -394,6 +460,8 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertEqual((message.title, message.author), ("Cup", ADMIN_NAME))
 
     def test_one_invalid_setting_saves_none(self) -> None:
+        """A settings form with one invalid value saves none of its values; a valid form saves them all, and
+        an unticked box saves as off."""
         self.post(
             "/settings",
             max_players="20",
@@ -413,6 +481,7 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertIn('name="mark_admins" checked', self.client.get("/settings").get_data(as_text=True))
 
     def test_announcement_is_queued_for_the_running_server(self) -> None:
+        """With a server running, an announcement is queued in the database, where the server picks it up."""
         self.database.write_live_state(LIVE_STATE)
         self.post("/announcements", text="Server restart at 22:00")
         self.assertEqual(self.database.take_pending_announcements(), ["Server restart at 22:00"])
@@ -423,6 +492,8 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertEqual(self.database.take_pending_announcements(), [])
 
     def test_match_report_downloads_as_stored(self) -> None:
+        """A game report downloads byte for byte as an attachment, and one that does not decode is listed as
+        unreadable rather than breaking the games page."""
         self.database.store_game_report(self.player.account_id, FIRST_GAME_GROUP_ID, b"\x01\x02\x03")
         [report] = self.database.list_recent_game_reports(limit=1)
         self.assertIn(PLAYER_NAME, self.client.get("/games").get_data(as_text=True))
@@ -492,6 +563,7 @@ class GameDetailPageTest(WebInterfaceTestCase):
     """/games/ID: everything the lobby kept of one game."""
 
     def setUp(self) -> None:
+        """Log on as the admin."""
         super().setUp()
         self.log_on()
 
@@ -526,6 +598,8 @@ class GameDetailPageTest(WebInterfaceTestCase):
         return game_id
 
     def test_game_page_shows_the_match_teams_setup_and_players(self) -> None:
+        """The game page shows the winner, the winning team, the playing time, every player linked to their
+        account with their id, the random race and the kind of game, and a download for each report."""
         game_id = self.record_two_player_match()
         page = self.client.get(f"/games/{game_id}").get_data(as_text=True)
         for expected in (
@@ -550,6 +624,7 @@ class GameDetailPageTest(WebInterfaceTestCase):
         self.assertIn("(deleted account)", page)
 
     def test_account_page_lists_its_games_with_team_and_result(self) -> None:
+        """An account page lists the games the account played in, with the race and whether it won or lost."""
         game_id = self.record_two_player_match()
         page = self.client.get(f"/accounts/{self.player.account_id}").get_data(as_text=True)
         self.assertIn(f'href="/games/{game_id}"', page)
@@ -559,9 +634,11 @@ class GameDetailPageTest(WebInterfaceTestCase):
         self.assertIn('<span class="badge badge--good">won</span>', winner_page)
 
     def test_unknown_game_is_not_found(self) -> None:
+        """A game id that does not exist answers 404 instead of a server error."""
         self.assertEqual(self.client.get("/games/999").status_code, HTTP_NOT_FOUND)
 
     def test_visitors_are_sent_to_the_logon(self) -> None:
+        """Game pages are for admins only; a visitor is sent to the logon."""
         game_id = self.record_two_player_match()
         self.client.post("/logout", data={"csrf_token": CSRF_TOKEN})
         response = self.client.get(f"/games/{game_id}")

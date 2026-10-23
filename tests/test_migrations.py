@@ -25,6 +25,8 @@ LEGACY_SETTINGS_VERSION = 3
 
 
 class MigrationFilesTest(unittest.TestCase):
+    """The migration files in s3lobby/schema and how they are read."""
+
     def test_every_dialect_has_the_same_numbered_migrations(self) -> None:
         """Copying between dialects relies on the same version meaning the same tables."""
         names_by_dialect = {}
@@ -33,33 +35,45 @@ class MigrationFilesTest(unittest.TestCase):
         self.assertEqual(names_by_dialect["sqlite"], names_by_dialect["mysql"])
 
     def test_statements_are_split_at_semicolons_and_comment_lines_dropped(self) -> None:
+        """A migration file runs as one statement per semicolon, and a semicolon inside a comment line does
+        not split anything."""
         sql = "-- a note; with a semicolon\nCREATE TABLE a (x INTEGER);\n\nCREATE TABLE b (y INTEGER);\n"
         migration = Migration(1, "example", sql)
         self.assertEqual(migration.statements, ["CREATE TABLE a (x INTEGER)", "CREATE TABLE b (y INTEGER)"])
 
     def test_checksum_ignores_windows_line_endings(self) -> None:
+        """A checkout with Windows line endings must not count as an edited migration and stop the server."""
         unix = Migration(1, "example", "CREATE TABLE a (x INTEGER);\n")
         windows = Migration(1, "example", "CREATE TABLE a (x INTEGER);\r\n")
         self.assertEqual(unix.checksum, windows.checksum)
 
 
 class SqliteMigrationTest(unittest.TestCase):
+    """Migrating SQLite files: new ones, old ones from before the migrations table, and ones that do not fit
+    this s3lobby."""
+
     def setUp(self) -> None:
+        """A temporary folder with the path of the test's database file."""
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.path = Path(self.folder.name) / "lobby.sqlite3"
 
     def open_database(self, **options: bool) -> LobbyDatabase:
+        """Open the test's file as a LobbyDatabase, closed again when the test ends."""
         database = LobbyDatabase(self.path, **options)
         self.addCleanup(database.close)
         return database
 
     def raw_connection(self) -> sqlite3.Connection:
+        """A plain sqlite3 connection to the test's file, for setting up and inspecting what LobbyDatabase
+        does not show."""
         connection = sqlite3.connect(self.path)
         self.addCleanup(connection.close)
         return connection
 
     def test_new_database_gets_every_migration_and_records_it(self) -> None:
+        """A new file gets every migration, each recorded in the migrations table, and user_version set to the
+        newest, so an older s3lobby that only reads user_version refuses it instead of breaking it."""
         database = self.open_database()
         self.assertEqual(database.schema_version, latest_version("sqlite"))
         self.assertEqual(len(database.applied_migrations), latest_version("sqlite"))
@@ -70,6 +84,7 @@ class SqliteMigrationTest(unittest.TestCase):
         self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], latest_version("sqlite"))
 
     def test_reopening_applies_nothing(self) -> None:
+        """A database that is up to date is opened without running any migration again."""
         self.open_database().close()
         self.assertEqual(self.open_database().applied_migrations, [])
 
@@ -89,6 +104,8 @@ class SqliteMigrationTest(unittest.TestCase):
         self.assertEqual(database.get_setting(Setting.WELCOME_MESSAGE), "Hallo")
 
     def test_migration_changed_after_it_was_applied_stops_the_start(self) -> None:
+        """Released migration files are never edited; one whose checksum no longer matches the applied one
+        stops the start, since the schema may then differ from what the code expects."""
         self.open_database().close()
         connection = self.raw_connection()
         connection.execute(f"UPDATE {MIGRATIONS_TABLE} SET checksum = 'edited' WHERE version = 1")
@@ -97,6 +114,8 @@ class SqliteMigrationTest(unittest.TestCase):
             LobbyDatabase(self.path)
 
     def test_database_of_a_newer_s3lobby_is_refused(self) -> None:
+        """A database that a newer s3lobby migrated further is refused, since this version does not know its
+        tables."""
         self.open_database().close()
         connection = self.raw_connection()
         connection.execute(
@@ -108,6 +127,8 @@ class SqliteMigrationTest(unittest.TestCase):
             LobbyDatabase(self.path)
 
     def test_legacy_version_beyond_the_known_migrations_is_refused(self) -> None:
+        """A file from before the migrations table whose user_version is beyond the known migrations is
+        refused rather than adopted."""
         connection = self.raw_connection()
         connection.execute(f"PRAGMA user_version = {latest_version('sqlite') + 1}")
         connection.commit()
@@ -115,6 +136,7 @@ class SqliteMigrationTest(unittest.TestCase):
             LobbyDatabase(self.path)
 
     def test_status_without_migrating_shows_the_pending_migrations(self) -> None:
+        """Opened without applying migrations, the database lists them all as pending and changes nothing."""
         database = self.open_database(applies_migrations=False)
         status = database.read_migration_status()
         self.assertEqual(status.applied, [])
@@ -123,13 +145,18 @@ class SqliteMigrationTest(unittest.TestCase):
 
 
 class CopyTest(unittest.TestCase):
+    """Copying a whole lobby from one database to another, as database copy does."""
+
     def setUp(self) -> None:
+        """An empty source and an empty target database in memory."""
         self.source = LobbyDatabase(":memory:")
         self.target = LobbyDatabase(":memory:")
         self.addCleanup(self.source.close)
         self.addCleanup(self.target.close)
 
     def test_copy_keeps_every_row_and_its_id(self) -> None:
+        """A copy carries every table with its row ids, gaps included, since the rows refer to each other by
+        id; new rows in the target then continue after the copied ids."""
         alice = self.source.create_account("Alice")
         self.source.delete_account(self.source.create_account("Bob").account_id)
         carol = self.source.create_account("Carol")
@@ -152,6 +179,8 @@ class CopyTest(unittest.TestCase):
         self.assertGreater(newest.account_id, carol.account_id, "new ids continue after the copied ones")
 
     def test_copy_into_a_database_with_data_is_refused(self) -> None:
+        """A copy into a database that already holds data is refused, so it can neither mix two lobbies nor
+        overwrite one."""
         self.source.create_account("Alice")
         self.target.create_account("Bob")
         with self.assertRaisesRegex(DatabaseError, "not empty"):
@@ -159,7 +188,11 @@ class CopyTest(unittest.TestCase):
 
 
 class LocationTest(unittest.TestCase):
+    """Parsing and describing database locations."""
+
     def test_mysql_location_with_password_and_port(self) -> None:
+        """A mysql:// location gives host, port, user, password and database, with the password URL decoded.
+        """
         location = parse_mysql_location("mysql://lobby:p%40ss@db.example:3307/settlers")
         self.assertEqual(
             (location.host, location.port, location.user, location.password, location.database_name),
@@ -167,17 +200,24 @@ class LocationTest(unittest.TestCase):
         )
 
     def test_password_may_come_from_the_environment(self) -> None:
+        """The password may come from S3LOBBY_DATABASE_PASSWORD instead of the location, which shows up in
+        process lists and shell history; the port defaults to 3306."""
         with mock.patch.dict(os.environ, {MYSQL_PASSWORD_VARIABLE: "from environment"}):
             location = parse_mysql_location("mysql://lobby@db.example/settlers")
         self.assertEqual((location.port, location.password), (3306, "from environment"))
 
     def test_incomplete_mysql_location_is_refused(self) -> None:
+        """A location without a user, without a database or with a port that is not a number is refused with
+        BackendError."""
         incomplete_locations = ("mysql://db.example/settlers", "mysql://lobby@db.example", "mysql://lobby@db.example:port/x")
         for incomplete in incomplete_locations:
             with self.subTest(location=incomplete), self.assertRaises(BackendError):
                 parse_mysql_location(incomplete)
 
     def test_tls_options_are_read_and_checked(self) -> None:
+        """tls=verify checks the server's host name, tls=verify-ca takes its own authority file and needs one,
+        no tls means no TLS context, and an unknown tls value is refused. The described location keeps the
+        TLS option."""
         verified = parse_mysql_location("mysql://lobby@db.example/settlers?tls=verify")
         self.assertTrue(verified.tls_context().check_hostname)
         own_authority = parse_mysql_location("mysql://lobby@db.example/settlers?tls=verify-ca&ca=/srv/ca.pem")
@@ -190,6 +230,8 @@ class LocationTest(unittest.TestCase):
                          "mysql://lobby@db.example:3306/settlers?tls=verify")
 
     def test_described_location_never_shows_the_password(self) -> None:
+        """The location as shown in logs and output never contains the password; a SQLite path is shown as it
+        is."""
         described = describe_location("mysql://lobby:secret@db.example/settlers")
         self.assertNotIn("secret", described)
         self.assertEqual(described, "mysql://lobby@db.example:3306/settlers")

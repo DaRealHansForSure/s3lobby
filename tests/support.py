@@ -86,6 +86,8 @@ class BackgroundServer:
     """
 
     def __init__(self, database_location: str, server_name: str = "Test Lobby") -> None:
+        """Prepare a server on a free loopback port with its own event loop and thread; nothing runs before
+        __enter__."""
         self._settings = ServerSettings(
             bind_host=LOOPBACK,
             port=ANY_FREE_PORT,
@@ -97,12 +99,14 @@ class BackgroundServer:
         self._server: LobbyServer | None = None
 
     def __enter__(self) -> BackgroundServer:
+        """Start the event loop thread and the server on it; returns once the server listens."""
         self._thread.start()
         future = asyncio.run_coroutine_threadsafe(start_server(self._settings), self._loop)
         self._server = future.result(timeout=SERVER_START_TIMEOUT_SECONDS)
         return self
 
     def __exit__(self, *exception_details: object) -> None:
+        """Stop the server whether or not the test failed."""
         self.stop()
 
     def stop(self) -> None:
@@ -117,6 +121,7 @@ class BackgroundServer:
 
     @property
     def address(self) -> Address:
+        """The loopback address and port the server listens on."""
         return self._server.bound_address
 
     def close_abandoned_chat_groups(self, seconds_from_now: float) -> None:
@@ -131,6 +136,8 @@ class FakeGameClient:
     """Speaks the connection layer like the game does and collects the lobby messages it receives."""
 
     def __init__(self, server_address: Address, player_name: str, nonce: int) -> None:
+        """Bind a socket on a free loopback port and get ready to open the connection with block 1; nothing is
+        sent yet."""
         self.player_name = player_name
         self._server_address = server_address
         self._nonce = nonce
@@ -142,9 +149,11 @@ class FakeGameClient:
 
     @property
     def address(self) -> Address:
+        """The address the server sees this client at."""
         return self._socket.getsockname()
 
     def close_socket(self) -> None:
+        """Close the client's socket without telling the server, like a game that is killed."""
         self._socket.close()
 
     def send(self, *lobby_messages: EncodableMessage) -> None:
@@ -193,6 +202,8 @@ class FakeGameClient:
         return [message for message in self._unread_messages if message.message_type == message_type]
 
     def receive_matching(self, is_wanted: Callable[[RawMessage], bool]) -> RawMessage:
+        """The first message is_wanted accepts, read from the unread messages or from new datagrams; others
+        stay unread. Raises socket.timeout when none arrives in time."""
         while True:
             for index, message in enumerate(self._unread_messages):
                 if is_wanted(message):
@@ -201,11 +212,20 @@ class FakeGameClient:
             self._unread_messages += self._read_server_block(datagram)
 
     def _start_new_connection(self) -> None:
+        """Forget the old connection: the next block is number 1 and opens with OpenConnection, and the
+        server's block ids start afresh."""
         self._next_block_id = 1
         self._is_open = False
         self._seen_server_block_ids: set[int] = set()
 
     def _read_server_block(self, datagram: bytes) -> list[RawMessage]:
+        """Check and acknowledge one datagram from the server like the game does and return its lobby
+        messages.
+
+        Every message must have the size the client asserts, the block must start with MessageId, and the
+        first block with content must be block 1 with OpenConnection. A block seen before is acknowledged
+        again but its messages are dropped, since the server resends blocks it saw no acknowledgement for.
+        """
         messages = decode_block(datagram)
         for message in messages:
             check_size_the_client_asserts(message)
@@ -228,6 +248,9 @@ class FakeGameClient:
         return [m for m in content if m.message_type != MessageType.OPEN_CONNECTION]
 
     def _acknowledge(self, server_block_id: int) -> None:
+        """Acknowledge one server block the way the game does: an acknowledgement-only block that repeats the
+        client's last block id, with MinMissingAcknowledge naming the client's next block id, since every
+        earlier block of the client's counts as acknowledged here."""
         messages = [
             MessageId(self._next_block_id - 1).encode(),
             AcknowledgeMessages((server_block_id,)).encode(),
@@ -237,6 +260,8 @@ class FakeGameClient:
 
 
 def check_size_the_client_asserts(message: RawMessage) -> None:
+    """Fail when a message has a size other than the one the real client asserts for its type: the game would
+    drop the connection on it."""
     expected_size = SIZE_THE_CLIENT_ASSERTS.get(message.message_type)
     actual_size = MESSAGE_HEADER_SIZE + len(message.body)
     if expected_size is not None and actual_size != expected_size:
@@ -272,6 +297,7 @@ def go_to_lobby_server(client: FakeGameClient) -> None:
 
 
 def logon_request(client: FakeGameClient, access_code: str = ACCESS_CODE, flags: int = 0, name: str | None = None) -> Logon:
+    """A Logon as the GOG game sends it, with this client's name unless name is given."""
     return Logon(
         protocol_version=LOGON_PROTOCOL_VERSION,
         player_name=client.player_name if name is None else name,
@@ -282,6 +308,7 @@ def logon_request(client: FakeGameClient, access_code: str = ACCESS_CODE, flags:
 
 
 def send_logon(client: FakeGameClient, access_code: str = ACCESS_CODE, flags: int = 0, name: str | None = None) -> Result:
+    """Send a Logon and return the server's Result; OwnPlayer and the rest stay unread."""
     client.send(logon_request(client, access_code, flags, name))
     return Result.decode(client.receive_next(MessageType.RESULT))
 
@@ -299,6 +326,7 @@ def join_group(client: FakeGameClient, group_id: int, player_id: int) -> None:
     client.send(AddPlayerToGroup(group_id, player_id, player_address=("0.0.0.0", 0), player_name=""))
 
     def is_joined_announcement(message: RawMessage) -> bool:
+        """Whether the message announces the joined group under the parent the game expects for it."""
         if message.message_type != MessageType.ADD_GROUP_TO_GROUP:
             return False
         announcement = GroupAnnouncement.decode(message)
@@ -312,6 +340,7 @@ def receive_member_entry(client: FakeGameClient, group_id: int, player_id: int |
     entries stay unread."""
 
     def is_wanted_entry(message: RawMessage) -> bool:
+        """Whether the message is a member entry for the wanted group and player."""
         if message.message_type != MessageType.ADD_PLAYER_TO_GROUP:
             return False
         entry = AddPlayerToGroup.decode(message)
@@ -365,6 +394,7 @@ class LobbyTestCase(unittest.TestCase):
     ACCOUNT_NAMES = ("Alice", "Bob", "Carol")
 
     def setUp(self) -> None:
+        """Create the database with the accounts and start the server."""
         self.database_folder = tempfile.TemporaryDirectory()
         self.database_location = database_location_for_test(str(Path(self.database_folder.name) / "lobby.sqlite3"))
         self.database = LobbyDatabase(self.database_location)
@@ -376,6 +406,7 @@ class LobbyTestCase(unittest.TestCase):
         self.clients: list[FakeGameClient] = []
 
     def tearDown(self) -> None:
+        """Close every client, stop the server and remove the database."""
         for client in self.clients:
             client.close_socket()
         self.server.__exit__(None, None, None)
@@ -383,6 +414,7 @@ class LobbyTestCase(unittest.TestCase):
         self.database_folder.cleanup()
 
     def new_client(self, player_name: str, nonce: int) -> FakeGameClient:
+        """A fake game client for this test's server, closed again in tearDown."""
         client = FakeGameClient(self.server.address, player_name, nonce)
         self.clients.append(client)
         return client

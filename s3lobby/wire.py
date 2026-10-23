@@ -108,7 +108,10 @@ def decode_block(datagram: bytes, max_messages: int | None = None) -> list[RawMe
             raise ProtocolError(f"more than {max_messages} messages in one datagram")
         if len(datagram) - position < MESSAGE_HEADER_SIZE:
             raise ProtocolError(f"message header cut off at byte {position}")
+        # The middle byte is the padding the game always writes as 0; it is skipped, not checked.
         message_type, _, size = struct.unpack_from(HEADER_FORMAT, datagram, position)
+        # The size counts the header too. One smaller than the header would not move the position
+        # forward (a size of 0 would loop here for ever), one larger would read past the datagram.
         is_size_valid = MESSAGE_HEADER_SIZE <= size <= len(datagram) - position
         if not is_size_valid:
             raise ProtocolError(f"message {message_type:#04x} at byte {position} claims {size} bytes")
@@ -129,6 +132,8 @@ def encode_block(messages: Iterable[RawMessage]) -> bytes:
 def readable_text(text: str) -> str:
     """Text from a client as it may be stored or shown: bytes Windows-1252 leaves undefined become
     the replacement character instead of the placeholders that carry them over the wire."""
+    # Back to the bytes that came off the wire first, so the undefined ones can be decoded a second
+    # time, now into the replacement character.
     raw = text.encode(TEXT_ENCODING, errors=TEXT_ERROR_HANDLING)
     return raw.decode(TEXT_ENCODING, errors=READABLE_TEXT_ERROR_HANDLING)
 
@@ -141,14 +146,20 @@ class FieldWriter:
     """
 
     def __init__(self) -> None:
+        """Start with an empty body."""
         self._parts: list[bytes] = []
 
     def write_u32(self, value: int) -> FieldWriter:
+        """Append a u32, little endian; returns the writer for chaining."""
         # Masking lets callers pass values like -1 the way the game's C++ code would.
         self._parts.append(struct.pack(U32_FORMAT, value & U32_MASK))
         return self
 
     def write_string(self, text: str) -> FieldWriter:
+        """Append text in the game's encoding followed by a NUL byte.
+
+        Raises ProtocolError for text that contains a NUL byte: the receiver would end the string there
+        and read the rest as the next fields."""
         encoded = text.encode(TEXT_ENCODING, errors=TEXT_ERROR_HANDLING)
         if STRING_TERMINATOR in encoded:
             raise ProtocolError(f"text {text!r} contains a NUL byte, which would end the string early")
@@ -156,14 +167,17 @@ class FieldWriter:
         return self
 
     def write_bytes(self, data: bytes) -> FieldWriter:
+        """Append bytes exactly as given, without a length in front."""
         self._parts.append(bytes(data))
         return self
 
     def write_socket_address(self, address: Address) -> FieldWriter:
+        """Append a struct sockaddr_in for the address (16 bytes, see encode_socket_address)."""
         self._parts.append(encode_socket_address(address))
         return self
 
     def to_message(self, message_type: int) -> RawMessage:
+        """The fields written so far as the body of a message of the given type."""
         return RawMessage(message_type, b"".join(self._parts))
 
 
@@ -175,6 +189,7 @@ class FieldReader:
     """
 
     def __init__(self, body: bytes) -> None:
+        """Read the body from its first byte."""
         self._body = body
         self._position = 0
 
@@ -185,13 +200,19 @@ class FieldReader:
 
     @property
     def remaining_size(self) -> int:
+        """How many bytes of the body are still unread."""
         return len(self._body) - self._position
 
     def read_u32(self) -> int:
+        """Read a u32, little endian."""
         data = self.read_bytes(U32_SIZE)
         return struct.unpack(U32_FORMAT, data)[0]
 
     def read_string(self) -> str:
+        """Read text up to its NUL byte and step past the NUL.
+
+        Raises ProtocolError when no NUL follows. Bytes that Windows-1252 leaves undefined are kept as
+        placeholders, so the text encodes back to the same bytes."""
         end = self._body.find(STRING_TERMINATOR, self._position)
         if end < 0:
             raise ProtocolError(f"string at body offset {self._position} has no terminating NUL")
@@ -200,6 +221,7 @@ class FieldReader:
         return text
 
     def read_bytes(self, length: int) -> bytes:
+        """Read exactly length bytes; raises ProtocolError when fewer are left."""
         if length > self.remaining_size:
             raise ProtocolError(
                 f"field of {length} bytes at body offset {self._position}, only {self.remaining_size} left"
@@ -209,9 +231,11 @@ class FieldReader:
         return data
 
     def read_socket_address(self) -> Address:
+        """Read a struct sockaddr_in and return its (host, port)."""
         return decode_socket_address(self.read_bytes(SOCKET_ADDRESS_SIZE))
 
     def read_remaining_bytes(self) -> bytes:
+        """Read everything up to the end of the body."""
         return self.read_bytes(self.remaining_size)
 
 
@@ -219,12 +243,15 @@ def encode_socket_address(address: Address) -> bytes:
     """struct sockaddr_in as the game writes it: family u16 little endian, port u16 big endian,
     the IPv4 address in network order, then zero bytes up to 16."""
     host, port = address
+    # inet_aton raises OSError for a host name or an IPv6 address; callers expect a ProtocolError
+    # for anything that cannot go on the wire.
     try:
         packed_host = socket.inet_aton(host)
     except OSError as error:
         raise ProtocolError(f"{host!r} is not an IPv4 address") from error
     family = struct.pack(SOCKET_ADDRESS_FAMILY_FORMAT, ADDRESS_FAMILY_IPV4)
     network_order_port = struct.pack(SOCKET_ADDRESS_PORT_FORMAT, port)
+    # The last eight bytes are the struct's sin_zero field, which Winsock expects to be zero.
     zero_padding = bytes(SOCKET_ADDRESS_SIZE - SOCKET_ADDRESS_PADDING_OFFSET)
     return family + network_order_port + packed_host + zero_padding
 

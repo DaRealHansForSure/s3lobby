@@ -42,6 +42,7 @@ def is_development_client(client_ip: str) -> bool:
     try:
         ip = ipaddress.ip_address(client_ip)
     except ValueError:
+        # Not an IP address at all: never trusted.
         return False
     return ip.is_loopback or ip.is_private
 
@@ -58,6 +59,8 @@ class LobbyOccupancy:
 
 @dataclass(frozen=True)
 class AcceptedLogon:
+    """A logon that may enter the lobby: the account, and the clan to show if the player asked for one."""
+
     account: Account
     # The clan to show next to the player's name; None when the player did not tick the clan box.
     shown_clan: Clan | None
@@ -65,6 +68,8 @@ class AcceptedLogon:
 
 @dataclass(frozen=True)
 class RefusedLogon:
+    """A logon that is turned away with one of the game's own Result codes."""
+
     result_code: ResultCode
     # For the server log only; the player sees the game's own text for the result code.
     reason: str
@@ -92,6 +97,7 @@ class LogonCheck:
         """Run the checks in an order that tells a guesser nothing: the public rules first, then
         the access code, and only after a correct code anything about the account itself."""
         now_seconds = self._clock_seconds()
+        # Casefolded like the database compares names, so "Alice" and "ALICE" share one budget.
         name_and_ip_key = (logon.player_name.casefold(), client_ip)
 
         if logon.flags & LogonFlag.CREATE_PLAYER:
@@ -103,6 +109,7 @@ class LogonCheck:
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many failed attempts, try again later")
         if not is_valid_player_name(logon.player_name):
             return RefusedLogon(ResultCode.INVALID_PLAYER_NAME, "name breaks the game's name rule")
+        # One budget for all clients together: each check below costs a scrypt hash on the event loop.
         if not self._access_code_checks.allows(ALL_CHECKS_KEY, now_seconds):
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many logons at once, try again later")
 
@@ -118,6 +125,8 @@ class LogonCheck:
         else:
             is_known = self._database.check_access_code(account.account_id, logon.password)
         if not is_known:
+            # Kept per IP and per name from that IP: failures from elsewhere never lock out the
+            # owner of the account.
             self._failures_by_ip.record_event(client_ip, now_seconds)
             self._failures_by_name_and_ip.record_event(name_and_ip_key, now_seconds)
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "unknown account or wrong access code")
@@ -132,6 +141,8 @@ class LogonCheck:
         return is_development_client(client_ip)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
+        """Let the failure and check limits forget addresses and names that have gone quiet, so the
+        limiters do not grow without bound."""
         self._failures_by_ip.forget_quiet_keys(now_seconds)
         self._failures_by_name_and_ip.forget_quiet_keys(now_seconds)
         self._access_code_checks.forget_quiet_keys(now_seconds)
@@ -139,10 +150,13 @@ class LogonCheck:
     def _decide_for_known_account(
         self, account: Account, logon: Logon, occupancy: LobbyOccupancy
     ) -> AcceptedLogon | RefusedLogon:
+        """The checks that come only after a correct access code, as they tell something about the
+        account: a ban, a full server, the name or serial number already online, and the clan box."""
         if account.is_banned_at(utc_now()):
             return RefusedLogon(ResultCode.BANNED, f"banned until {account.banned_until:%Y-%m-%d %H:%M} UTC")
 
         max_players = self._database.get_integer_setting(Setting.MAX_PLAYERS)
+        # A maximum of 0 means no limit.
         is_full = max_players > 0 and occupancy.player_count >= max_players
         if is_full:
             return RefusedLogon(ResultCode.SERVER_FULL, f"{occupancy.player_count} of {max_players} players online")

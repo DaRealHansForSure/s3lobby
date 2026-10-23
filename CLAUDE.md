@@ -46,7 +46,14 @@ another project; its history was carried over, so the early commits describe tha
 Run from this folder:
 
 - Tests: `python3 -m unittest`
-- Server: `python3 -m s3lobby serve --verbose --log-file lobby.log`
+- Server and web interface together, in the background: `scripts/start.sh [--dev]`; stop both with
+  `scripts/stop.sh [--force]`. Datagrams go to `lobby.log`, console output to `lobby-console.log`
+  and `web-console.log`.
+- Server alone: `python3 -m s3lobby serve --verbose --log-file lobby.log` (with `--log-file` the
+  datagrams of `--verbose` go to the file only; the console stays at INFO)
+- Development mode for tests with the game: `serve --dev` and `web --dev` accept the password
+  `1234` for every account (web: admins) from this machine and the LAN, and several players may
+  share a serial; refused with `--public-host`, `--upnp` or `--behind-proxy`.
 - Administration: `python3 -m s3lobby account add NAME` and the other subcommands (`--help`)
 - Web interface: `.venv/bin/python -m s3lobby web --database s3lobby.sqlite3` (needs Flask)
 - All tests including the web ones: `.venv/bin/python -m unittest` (a `.venv` with `flask`)
@@ -81,9 +88,15 @@ SQLite needs nothing extra.
   `tests/support.py`.
 - A new lobby behaviour gets a session test in `tests/test_session.py` whose docstring says what
   breaks in the game without it.
-- Code style: descriptive names, docstrings and why-comments, early returns, no magic numbers, no
-  compressed one-liners, four spaces. Never write an em dash or en dash anywhere (code, comments,
-  docs, commit messages); use a plain hyphen.
+- Code style: descriptive names, early returns, no magic numbers, no compressed one-liners, four
+  spaces. Never write an em dash or en dash anywhere (code, comments, docs, commit messages); use
+  a plain hyphen.
+- Documentation in the code, because a human has to be able to continue this work: every
+  function, method and class has a docstring that says what it is for and, where it is not
+  obvious, why it exists or which rule of the game it follows (check with an AST walk; none may be
+  missing). Inside functions, a comment above every step a junior programmer would not understand
+  at once: the reason for a check, what a number or flag means for the game, why an order
+  matters. No comments that restate the code.
 - Never commit game files, the game's executable, or recordings that contain them.
 - Network safety, learned from the security review (`a05c8b9`, `e91a88f`):
   - Anything answered before a logon is no bigger than the request: sender addresses can be
@@ -164,6 +177,14 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
   changed, and `grep` for em and en dashes in what changed.
 - UPnP can be tried against the owner's router (192.168.1.1): a mapping added in a test must be
   deleted again, and `GetSpecificPortMappingEntry` (error 714) confirms it is gone.
+- Two copies of the game on one machine: `build/wine/run-s3.sh --window 1` and `--window 2` (each
+  in its own Wine desktop, game filled in by cnc-ddraw's settings in ddraw.ini, `--monitor NAME`
+  remembered, `--stop` ends every copy). Log the second copy on with a second account (the name is
+  shared between the copies' settings).
+- Checking web pages by eye: render them with headless Chrome (`google-chrome --headless=new
+  --window-size=1280,900 --screenshot=FILE file://PAGE.html`) from HTML fetched with Flask's test
+  client, `/static/` rewritten to file paths; check light and dark (`data-theme` on `<html>`) and
+  375 px wide. The README screenshots come from a demo database, never the owner's data.
 
 ## Open review findings
 

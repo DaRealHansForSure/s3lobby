@@ -555,7 +555,8 @@ GameZone slot instead of the MessageZone's own group for level 0 (0x452455). Tha
 empty there (leaving the GameZone clears it, 0x452039), so chat typed on the board screen is
 silently not sent (0x443e4e), and a private chat invitation from there looks the invited player up
 in the client's first joined group instead (0x44532b, 0x44d664). The board itself uses levels 1
-and 2 (0x446cb0, 0x446d0a) and works. Only patching S3.EXE would fix it (the `add ecx, 0x5ac` at
+and 2 (0x446cb0, 0x446d0a) and works (seen in a run on Windows 10: a theme's message fetched with
+0x16 and shown, the join answered with 0x26 for an admin). Only patching S3.EXE would fix it (the `add ecx, 0x5ac` at
 0x452459 would need 0x824, the MessageZone's own group); s3lobby works with unmodified games, so
 it can only say so: with the setting `board_chat_hint` a player who opens the MessageZone hears
 once per logon, as a server line, that chat there reaches nobody (off until a run confirms it).

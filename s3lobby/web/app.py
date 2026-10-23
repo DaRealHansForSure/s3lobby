@@ -87,6 +87,8 @@ def create_app(
     app.jinja_env.filters["moment"] = format_moment
     app.jinja_env.filters["relative_moment"] = format_relative_moment
 
+    # x_proto as well, so behind an HTTPS proxy Flask knows the request came over HTTPS and builds its
+    # redirects with https.
     if is_behind_proxy:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUSTED_PROXY_COUNT, x_proto=TRUSTED_PROXY_COUNT)
     install_logon_failure_limiter(app)
@@ -141,4 +143,5 @@ def create_app_from_environment() -> Flask:
 
 
 def is_variable_set(name: str) -> bool:
+    """True when the environment variable holds a value that counts as true (1, true, yes, on)."""
     return os.environ.get(name, "").strip().lower() in TRUE_SETTING_VALUES

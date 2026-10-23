@@ -20,7 +20,11 @@ from tests.support import GAME_ZONE_ID, LobbyTestCase, log_on, logon_request
 
 
 class KickTest(LobbyTestCase):
+    """Admins and other processes removing players who are online, and the server closing every connection
+    when it stops."""
+
     def setUp(self) -> None:
+        """Alice, an admin, and Bob, in the same game zone."""
         super().setUp()
         alice_account = self.database.find_account("Alice")
         self.database.set_admin(alice_account.account_id, True)
@@ -28,6 +32,9 @@ class KickTest(LobbyTestCase):
         self.bob, self.bob_id = self.player_in_room("Bob", 42, GAME_ZONE_ID)
 
     def test_admin_kicks_from_the_chat_and_the_others_see_the_player_leave(self) -> None:
+        """A /kick, once confirmed, tells the player why, closes the connection, removes the player from the
+        zone for everyone else, and reports back to the admin. Without the close the player would stay in
+        the lobby."""
         self.alice.send(ChatCommand(group_id=GAME_ZONE_ID, unknown_value=0, command="/kick Bob spamming"))
         request = ChatCommandAnswer.decode(self.alice.receive_next(MessageType.CHAT_COMMAND_ANSWER))
         code = re.search(r"/confirm (\d+)", request.lines[0]).group(1)
@@ -57,6 +64,7 @@ class KickTest(LobbyTestCase):
         must not let that bring the player back."""
 
         def is_bob_joining(message: RawMessage) -> bool:
+            """Whether the message shows Bob arriving in a group."""
             if message.message_type != MessageType.ADD_PLAYER_TO_GROUP:
                 return False
             return AddPlayerToGroup.decode(message).player_id == self.bob_id
@@ -70,6 +78,8 @@ class KickTest(LobbyTestCase):
         self.alice.assert_nothing_matching(is_bob_joining)
 
     def test_kick_for_a_player_who_is_offline_is_dropped(self) -> None:
+        """A kick queued for a player who is not online is thrown away, rather than waiting and ending that
+        player's next session."""
         carol_account = self.database.find_account("Carol")
         self.database.queue_kick(carol_account.account_id, "not here")
         self.alice.assert_nothing_arrives(MessageType.REMOVE_PLAYER_FROM_GROUP)
@@ -77,6 +87,8 @@ class KickTest(LobbyTestCase):
         self.assertEqual(log_on(carol), carol_account.account_id, "a dropped kick does not hit a later logon")
 
     def test_stopping_the_server_closes_every_connection(self) -> None:
+        """Stopping the server sends every client CloseConnection, so players see the drop at once instead of
+        waiting a minute for the game's timeout."""
         self.server.stop()
         self.alice.receive_next(MessageType.CLOSE_CONNECTION)
         self.bob.receive_next(MessageType.CLOSE_CONNECTION)

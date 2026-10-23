@@ -64,10 +64,13 @@ GAME_BLOCK_REMAINDER_SIZE = GAME_BLOCK_SIZE_BY_MESSAGE_TYPE[MessageType.UPDATE_G
 
 
 def receive_announcement(client: FakeGameClient) -> GroupAnnouncement:
+    """The next AddGroupToGroup2 the client receives, decoded."""
     return GroupAnnouncement.decode(client.receive_next(MessageType.ADD_GROUP_TO_GROUP_2))
 
 
 def open_chat_group(client: FakeGameClient, parent_id: int, name: str, password: str) -> None:
+    """Open a chat group under parent_id like the game does, with a password when one is given; the server
+    assigns the group id."""
     flags = GroupFlag.HAS_PASSWORD if password else 0
     client.send(
         GroupAnnouncement(
@@ -116,7 +119,12 @@ def game_description(is_ladder_game: bool) -> GameDescription:
 
 
 class GameTest(LobbyTestCase):
+    """A game Bob opened in the game zone, seen by Alice there: its host, its joiners, its listing, its
+    updates and what the database keeps of it."""
+
     def setUp(self) -> None:
+        """Alice and Bob in the game zone, Bob's game open, and the announcements of it to Bob and Alice read.
+        """
         super().setUp()
         self.alice, self.alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
         self.bob, self.bob_id = self.player_in_room("Bob", 42, GAME_ZONE_ID)
@@ -152,6 +160,8 @@ class GameTest(LobbyTestCase):
         self.alice.assert_nothing_arrives(MessageType.RESULT)
 
     def test_host_is_in_its_game_and_the_zone_sees_it_with_counters(self) -> None:
+        """The host is announced its game as joined (parent 0), the zone lists it under the zone, and the
+        counters say one of two places is taken, which the game shows in the list."""
         self.assertEqual(self.game_for_host.parent_id, JOINED_GROUP_PARENT_ID)
         self.assertEqual(self.game_in_zone.parent_id, GAME_ZONE_ID)
         counters = GroupCounters.decode(self.alice.receive_next(MessageType.GROUP_COUNTERS))
@@ -211,7 +221,16 @@ class GameTest(LobbyTestCase):
         late_view = receive_announcement(carol)
         self.assertEqual((late_view.name, late_view.max_players), ("Renamed", 4))
 
+    def test_joiner_takes_no_update_for_the_game_it_is_in(self) -> None:
+        """A joiner saw the game listed in the zone before it joined; once it is a member, an update for
+        that game must not reach it (0x5d8de6), however the server remembers what it saw."""
+        self.alice.send(AddPlayerToGroup(FIRST_GAME_GROUP_ID, self.alice_id, ("0.0.0.0", 0), ""))
+        receive_announcement(self.alice)
+        self.bob.send(game_update(FIRST_GAME_GROUP_ID, GroupUpdateMask.NAME, "Renamed"))
+        self.alice.assert_nothing_arrives(MessageType.UPDATE_GROUP_2)
+
     def test_game_counts_in_the_statistics_while_it_is_open(self) -> None:
+        """An open game counts in the statistics the Home tab and the web interface show."""
         self.assertEqual(self.database.collect_statistics().games_open, 1)
 
 
@@ -221,15 +240,19 @@ class LadderGameTest(LobbyTestCase):
     would play a ladder game believing it counts."""
 
     def setUp(self) -> None:
+        """Alice and Bob in the game zone, and the notice text as it is fitted into chat lines."""
         super().setUp()
         self.alice, self.alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
         self.bob, self.bob_id = self.player_in_room("Bob", 42, GAME_ZONE_ID)
         self.notice = fit_answer([LADDER_NOT_SUPPORTED_TEXT])
 
     def receive_notice(self, client: FakeGameClient) -> ChatCommandAnswer:
+        """The next server line the client receives."""
         return ChatCommandAnswer.decode(client.receive_next(MessageType.CHAT_COMMAND_ANSWER))
 
     def test_host_of_a_ladder_game_is_told_once(self) -> None:
+        """The host of a ladder game gets the notice when opening it, but not again with every setup update,
+        which would fill the chat."""
         open_game(self.alice, GAME_ZONE_ID, ladder_type=LadderType.INDIVIDUAL)
         notice = self.receive_notice(self.alice)
         self.assertEqual((notice.group_id, notice.lines), (ANNOUNCEMENT_GROUP_ID, self.notice))
@@ -237,11 +260,14 @@ class LadderGameTest(LobbyTestCase):
         self.alice.assert_nothing_arrives(MessageType.CHAT_COMMAND_ANSWER)
 
     def test_joiner_of_a_ladder_game_is_told(self) -> None:
+        """A player joining a ladder game gets the notice too, since the result would not count for them
+        either."""
         open_game(self.alice, GAME_ZONE_ID, ladder_type=LadderType.CLANS)
         self.bob.send(AddPlayerToGroup(FIRST_GAME_GROUP_ID, self.bob_id, ("0.0.0.0", 0), ""))
         self.assertEqual(self.receive_notice(self.bob).lines, self.notice)
 
     def test_normal_game_brings_no_notice(self) -> None:
+        """A game that is no ladder game brings no notice to host or joiner."""
         open_game(self.alice, GAME_ZONE_ID, description=game_description(is_ladder_game=False))
         self.bob.send(AddPlayerToGroup(FIRST_GAME_GROUP_ID, self.bob_id, ("0.0.0.0", 0), ""))
         receive_announcement(self.bob)
@@ -267,6 +293,9 @@ class LadderGameTest(LobbyTestCase):
 
 
 class GroupRulesTest(LobbyTestCase):
+    """Chat groups and the rules every group follows: passwords, closing when empty, limits on what players
+    send, and the chat group a host comes back to after a game setup."""
+
     def player_in_chat_theme(self, player_name: str, nonce: int) -> tuple[FakeGameClient, int]:
         """A player on the ChatZone tab who chose the default chat theme."""
         client, player_id = self.player_in_room(player_name, nonce, CHAT_ZONE_GROUP_ID)
@@ -274,6 +303,8 @@ class GroupRulesTest(LobbyTestCase):
         return client, player_id
 
     def test_chat_group_password_is_checked_and_never_shown(self) -> None:
+        """A chat group's password reaches nobody else, only the flag that one is needed; a wrong guess is
+        refused with Result WRONG_GROUP_PASSWORD and the right one lets the player in."""
         alice, _ = self.player_in_chat_theme("Alice", 17)
         bob, bob_id = self.player_in_chat_theme("Bob", 42)
         open_chat_group(alice, CHAT_THEME_PARENT_ID, "Romans only", password="hunter")
@@ -337,6 +368,9 @@ class GroupRulesTest(LobbyTestCase):
         self.assertEqual(self.receive_joined_group(bob, lambda group_id: group_id == game_id), game_id)
 
     def test_empty_chat_group_closes_after_a_while(self) -> None:
+        """An empty chat group stays for EMPTY_CHAT_GROUP_KEEP_SECONDS, so a player coming back from a game
+        setup still finds it, and is then removed from its theme so the list does not fill with abandoned
+        groups."""
         alice, alice_id = self.player_in_chat_theme("Alice", 17)
         bob, _ = self.player_in_chat_theme("Bob", 42)
         open_chat_group(alice, CHAT_THEME_PARENT_ID, "test", password="")
@@ -423,17 +457,23 @@ class GroupRulesTest(LobbyTestCase):
         alice.assert_nothing_arrives(MessageType.UPDATE_GROUP_2)
 
     def test_unknown_group_cannot_be_joined_or_conjured(self) -> None:
+        """A join for a group that does not exist is refused with Result GROUP_CHANGE_FAILED, and does not
+        create the group."""
         alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
         alice.send(AddPlayerToGroup(999, alice_id, ("0.0.0.0", 0), ""))
         self.assertEqual(Result.decode(alice.receive_next(MessageType.RESULT)).code, ResultCode.GROUP_CHANGE_FAILED)
 
     def test_group_cannot_be_opened_in_a_parent_the_player_is_not_in(self) -> None:
+        """A player can open a group only inside a group they are in; otherwise anyone could put games into a
+        zone they never entered."""
         alice, _ = self.player_in_room("Alice", 17, GAME_ZONE_ID)
         bob, _ = self.player_in_room("Bob", 42, OTHER_ZONE_ID)
         open_game(alice, OTHER_ZONE_ID)
         bob.assert_nothing_arrives(MessageType.ADD_GROUP_TO_GROUP_2)
 
     def test_oversized_names_are_not_passed_on(self) -> None:
+        """A group name beyond MAX_GROUP_TEXT_LENGTH is not passed on, so a crafted client cannot feed the
+        other players' game clients oversized text."""
         alice, _ = self.player_in_chat_theme("Alice", 17)
         bob, _ = self.player_in_chat_theme("Bob", 42)
         open_chat_group(alice, CHAT_THEME_PARENT_ID, "X" * (MAX_GROUP_TEXT_LENGTH + 1), password="")

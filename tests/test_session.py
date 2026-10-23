@@ -58,6 +58,8 @@ from tests.support import (
 
 
 class LobbySessionTest(LobbyTestCase):
+    """Whole sessions with fake game clients against a running server, each step as the real game takes it."""
+
     def test_patch_check_says_no_patch_and_the_list_names_this_server(self) -> None:
         """Without Result NO_PATCH_NEEDED the client stops with "patch check failed"; an empty
         server list stops it with error 0x1e."""
@@ -191,6 +193,21 @@ class LobbySessionTest(LobbyTestCase):
             departure = RemovePlayerFromGroup.decode(alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP))
         self.assertEqual(departure.player_id, bob_id)
 
+    def test_logon_succeeds_even_when_the_database_cannot_record_it(self) -> None:
+        """The session row only feeds the statistics; if writing it fails, the game must still get its
+        Result and OwnPlayer, or it waits on the logon screen for an answer that never comes."""
+        alice = self.new_client("Alice", nonce=17)
+        with mock.patch.object(LobbyDatabase, "record_logon", side_effect=DatabaseError("database is locked")):
+            alice_id = log_on(alice)
+        join_group(alice, LOBBY_ROOM_ID, alice_id)
+        bob = self.new_client("Bob", nonce=42)
+        join_group(bob, LOBBY_ROOM_ID, log_on(bob))
+        receive_member_entry(bob, LOBBY_ROOM_ID, alice_id)
+        # Without a session row there is nothing to close at the logout, and the logout still reaches Bob.
+        alice.send(Logout())
+        departure = RemovePlayerFromGroup.decode(bob.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP))
+        self.assertEqual(departure.player_id, alice_id)
+
     def test_member_list_carries_the_address_the_server_saw(self) -> None:
         """Clients chat straight to each other's addresses and only know themselves as 0.0.0.0."""
         alice = self.new_client("Alice", nonce=17)
@@ -262,7 +279,6 @@ class LobbySessionTest(LobbyTestCase):
         self.assertEqual((removal.parent_id, removal.group_id), (GAME_ZONE_ID, FIRST_GAME_GROUP_ID))
         # The confirmation would have come in the same block as the room, which join_group read.
         self.assertEqual(bob.unread_messages_of_type(MessageType.REMOVE_PLAYER_FROM_GROUP), [])
-
 
 
 class ForgedDatagramTest(LobbyTestCase):

@@ -51,11 +51,13 @@ class ReachabilityProber(asyncio.DatagramProtocol):
     """Probes players from its own UDP socket and reports each result to on_result."""
 
     def __init__(self, on_result: Callable[[Address, Reachability], None]) -> None:
+        """Report each probe's result to on_result; the socket arrives later in connection_made."""
         self._on_result = on_result
         self._transport: asyncio.DatagramTransport | None = None
         self._pending: dict[Address, asyncio.TimerHandle] = {}
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        """Keep the transport asyncio hands over once the probe socket is bound."""
         # A datagram endpoint always hands over a DatagramTransport.
         self._transport = cast(asyncio.DatagramTransport, transport)
 
@@ -74,6 +76,7 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             timer.cancel()
 
     def close(self) -> None:
+        """Cancel every probe still running and close the probe socket."""
         for timer in self._pending.values():
             timer.cancel()
         self._pending.clear()
@@ -81,6 +84,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             self._transport.close()
 
     def datagram_received(self, data: bytes, address: Address) -> None:
+        """Take a datagram from a probed address as the answer to its probe: the player is
+        reachable. The game's connection is closed again at once."""
         # Anything from a probed address is its answer; datagrams from anyone else are ignored.
         timer = self._pending.pop(address, None)
         if timer is None:
@@ -91,9 +96,13 @@ class ReachabilityProber(asyncio.DatagramProtocol):
         self._on_result(address, Reachability.OPEN)
 
     def error_received(self, error: OSError) -> None:
+        """Log a socket error at debug level; an unreachable player shows as a missing answer."""
         log.debug("reachability probe socket: %s", error)
 
     def _send_probe(self, address: Address, probe_block: bytes, attempts_left: int) -> None:
+        """Send the probe block and schedule the next attempt; once no attempt is left without an
+        answer, the player is reported BLOCKED."""
+        # Called once more after the last attempt, when its wait for an answer is over.
         if attempts_left == 0:
             self._pending.pop(address, None)
             log.info("%s: not reachable from other ports", address)
@@ -111,6 +120,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
         """Acknowledge the game's answer and close, so it does not keep the connection for its
         minute of timeout. Its block has to be acknowledged in the same block as the close: the
         game checks it is in sync before it closes (PP.CheckInSync 0x606310)."""
+        # A garbled answer still proved the player reachable; only the close is skipped, and the
+        # game's connection times out by itself.
         try:
             messages = decode_block(data)
         except ProtocolError:
@@ -125,6 +136,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             [
                 MessageId(CLOSING_BLOCK_ID).encode(),
                 AcknowledgeMessages((answer_block_id,)).encode(),
+                # The game's answer acknowledges the probe block (inferred), so this closing block is
+                # the lowest one of ours still waiting for an acknowledgement.
                 MinMissingAcknowledge(CLOSING_BLOCK_ID).encode(),
                 CloseConnection().encode(),
             ]

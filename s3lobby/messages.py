@@ -39,7 +39,9 @@ from s3lobby.wire import Address, FieldReader, FieldWriter, ProtocolError, RawMe
 class EncodableMessage(Protocol):
     """Anything the server can queue for a client: it only has to turn itself into bytes."""
 
-    def encode(self) -> RawMessage: ...
+    def encode(self) -> RawMessage:
+        """The message as raw type and body, ready to be packed into a block."""
+        ...
 
 
 def open_message_body(message: RawMessage, accepted_types: Iterable[int]) -> FieldReader:
@@ -61,10 +63,12 @@ class MessageId:
     block_id: int
 
     def encode(self) -> RawMessage:
+        """The block id as one u32."""
         return FieldWriter().write_u32(self.block_id).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> MessageId:
+        """Read a MessageId; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(block_id=reader.read_u32())
 
@@ -79,10 +83,12 @@ class OpenConnection:
     nonce: int
 
     def encode(self) -> RawMessage:
+        """The nonce as one u32."""
         return FieldWriter().write_u32(self.nonce).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> OpenConnection:
+        """Read an OpenConnection; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(nonce=reader.read_u32())
 
@@ -94,10 +100,12 @@ class CloseConnection:
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.CLOSE_CONNECTION
 
     def encode(self) -> RawMessage:
+        """A message with an empty body."""
         return RawMessage(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> CloseConnection:
+        """Read a CloseConnection after checking its type; any body is ignored."""
         open_message_body(message, {cls.MESSAGE_TYPE})
         return cls()
 
@@ -112,6 +120,7 @@ class AcknowledgeMessages:
     block_ids: tuple[int, ...] = ()
 
     def encode(self) -> RawMessage:
+        """One u32 per acknowledged block id, nothing else."""
         writer = FieldWriter()
         for block_id in self.block_ids:
             writer.write_u32(block_id)
@@ -119,8 +128,11 @@ class AcknowledgeMessages:
 
     @classmethod
     def decode(cls, message: RawMessage) -> AcknowledgeMessages:
+        """Read u32 block ids up to the end of the body; raises ProtocolError for a body that is not a
+        whole number of u32 values."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         block_ids = []
+        # One to three bytes left at the end make read_u32 raise, which is the whole-number check.
         while reader.remaining_size > 0:
             block_ids.append(reader.read_u32())
         return cls(block_ids=tuple(block_ids))
@@ -136,12 +148,15 @@ class MinMissingAcknowledge:
     lowest_unconfirmed_block_id: int
 
     def encode(self) -> RawMessage:
+        """The lowest unconfirmed block id as one u32; raises ValueError for 0, which the client cannot
+        read."""
         if self.lowest_unconfirmed_block_id == 0:
             raise ValueError("MinMissingAcknowledge must not carry 0, the client cannot read it")
         return FieldWriter().write_u32(self.lowest_unconfirmed_block_id).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> MinMissingAcknowledge:
+        """Read a MinMissingAcknowledge; raises ProtocolError for 0, which the game never sends."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         lowest_unconfirmed_block_id = reader.read_u32()
         if lowest_unconfirmed_block_id == 0:
@@ -159,10 +174,12 @@ class AdjustConnectionTimeout:
     timeout_ms: int
 
     def encode(self) -> RawMessage:
+        """The new timeout in milliseconds as one u32."""
         return FieldWriter().write_u32(self.timeout_ms).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> AdjustConnectionTimeout:
+        """Read the requested timeout; the connection layer caps it before using it."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(timeout_ms=reader.read_u32())
 
@@ -193,12 +210,14 @@ class CheckFileVersion:
         return f"language {self.language_index}"
 
     def encode(self) -> RawMessage:
+        """Game version, edition and language index as three u32."""
         writer = FieldWriter()
         writer.write_u32(self.game_version).write_u32(self.edition).write_u32(self.language_index)
         return writer.to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> CheckFileVersion:
+        """Read the client's version check; raises ProtocolError for a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(
             game_version=reader.read_u32(),
@@ -215,10 +234,12 @@ class GetLobbyServerList:
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.GET_LOBBY_SERVER_LIST
 
     def encode(self) -> RawMessage:
+        """A message with an empty body."""
         return RawMessage(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> GetLobbyServerList:
+        """Read a GetLobbyServerList after checking its type; any body is ignored."""
         open_message_body(message, {cls.MESSAGE_TYPE})
         return cls()
 
@@ -240,6 +261,7 @@ class LobbyServerList:
     servers: tuple[LobbyServerEntry, ...]
 
     def encode(self) -> RawMessage:
+        """Address text and name of each server, one pair after the other."""
         writer = FieldWriter()
         for server in self.servers:
             writer.write_string(server.address_text).write_string(server.name)
@@ -247,6 +269,7 @@ class LobbyServerList:
 
     @classmethod
     def decode(cls, message: RawMessage) -> LobbyServerList:
+        """Read pairs of strings up to the end of the body."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         servers = []
         while reader.remaining_size > 0:
@@ -264,10 +287,12 @@ class Result:
     value: int = 0
 
     def encode(self) -> RawMessage:
+        """Code and value as two u32."""
         return FieldWriter().write_u32(self.code).write_u32(self.value).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> Result:
+        """Read a Result; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(code=reader.read_u32(), value=reader.read_u32())
 
@@ -292,6 +317,7 @@ class Logon:
     serial_number: str
 
     def encode(self) -> RawMessage:
+        """The logon fields in the order the game's constructor writes them."""
         writer = FieldWriter()
         writer.write_u32(self.protocol_version).write_string(self.player_name).write_string(self.password)
         writer.write_u32(self.flags).write_string(self.serial_number)
@@ -299,6 +325,7 @@ class Logon:
 
     @classmethod
     def decode(cls, message: RawMessage) -> Logon:
+        """Read a logon; raises ProtocolError for another type or a body cut short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(
             protocol_version=reader.read_u32(),
@@ -309,6 +336,7 @@ class Logon:
         )
 
     def __repr__(self) -> str:
+        """Every field but the password, so the logon can be logged."""
         # Keep the password out of logs and tracebacks.
         return (
             f"Logon(protocol_version={self.protocol_version}, player_name={self.player_name!r}, "
@@ -323,10 +351,12 @@ class Logout:
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.LOGOUT
 
     def encode(self) -> RawMessage:
+        """A message with an empty body."""
         return RawMessage(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> Logout:
+        """Read a Logout after checking its type; any body is ignored."""
         open_message_body(message, {cls.MESSAGE_TYPE})
         return cls()
 
@@ -344,10 +374,12 @@ class OwnPlayer:
     player_id: int
 
     def encode(self) -> RawMessage:
+        """The player id as one u32."""
         return FieldWriter().write_u32(self.player_id).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> OwnPlayer:
+        """Read an OwnPlayer; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(player_id=reader.read_u32())
 
@@ -366,11 +398,13 @@ class OwnPlayerWithClan:
     clan_name: str
 
     def encode(self) -> RawMessage:
+        """Player id, clan id and clan name."""
         writer = FieldWriter().write_u32(self.player_id).write_u32(self.clan_id).write_string(self.clan_name)
         return writer.to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> OwnPlayerWithClan:
+        """Read an OwnPlayerWithClan; raises ProtocolError for another type or a body cut short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(player_id=reader.read_u32(), clan_id=reader.read_u32(), clan_name=reader.read_string())
 
@@ -416,6 +450,7 @@ class GameSettings:
 
     @property
     def is_ladder_game(self) -> bool:
+        """True when the long block names a ladder; False for the short block, which has no ladder type."""
         return self.ladder_type is not None and self.ladder_type != LadderType.NONE
 
     @classmethod
@@ -424,11 +459,14 @@ class GameSettings:
         reader = FieldReader(game_block.remainder)
         session_guid = reader.read_bytes(SESSION_GUID_SIZE)
         game_version = reader.read_u32()
+        # The 64-bit checksum travels as two u32, the low half first.
         checksum_low = reader.read_u32()
         checksum_high = reader.read_u32()
         settings = cls(session_guid, game_version, (checksum_high << 32) | checksum_low)
+        # The short block (0x0f, 0x19) ends here; only the long one (0x20, 0x21) goes on.
         if reader.remaining_size == 0:
             return settings
+        # Of the Amazons value only AMAZONS_ALLOWED_BIT is known; the other bits are ignored here.
         amazons_value = reader.read_u32()
         ladder_type = reader.read_u32()
         if reader.remaining_size:
@@ -456,6 +494,8 @@ class GameDescription:
     map_name: str
 
     def encode(self) -> bytes:
+        """The description as the bytes a host stores in its group: a whole serialized message with its
+        header, not a RawMessage, because it travels inside another message."""
         writer = FieldWriter()
         writer.write_u32(self.team_count).write_u32(self.computer_opponent_count)
         writer.write_u32(int(self.is_ladder_game)).write_string(self.map_name)
@@ -464,6 +504,8 @@ class GameDescription:
     @classmethod
     def decode(cls, description: bytes) -> GameDescription:
         """Raises ProtocolError unless the bytes hold exactly one game description message."""
+        # The description is a whole serialized message, header included, so the block parser
+        # reads it like a datagram holding one message.
         messages = decode_block(description)
         is_one_description = len(messages) == 1 and messages[0].message_type == GAME_DESCRIPTION_MESSAGE_TYPE
         if not is_one_description:
@@ -508,6 +550,8 @@ class GroupAnnouncement:
     description: bytes = field(default=b"", repr=False)
 
     def encode(self) -> RawMessage:
+        """The announcement in the layout above; raises ValueError when flags announce a game block but
+        there is none."""
         writer = FieldWriter()
         writer.write_u32(self.parent_id).write_u32(self.group_id)
         writer.write_u32(self.flags).write_u32(self.max_players)
@@ -522,7 +566,12 @@ class GroupAnnouncement:
 
     @classmethod
     def decode(cls, message: RawMessage) -> GroupAnnouncement:
+        """Read an AddGroupToGroup or AddGroupToGroup2.
+
+        The game block's size depends on the message type. Raises ProtocolError for a body cut short
+        or for bytes left after the last field."""
         reader = open_message_body(message, GROUP_ANNOUNCEMENT_MESSAGE_TYPES)
+        # Safe to convert: open_message_body already refused every type that is not one of ours.
         message_type = MessageType(message.message_type)
         parent_id = reader.read_u32()
         group_id = reader.read_u32()
@@ -579,6 +628,7 @@ class GroupUpdate:
     description: bytes = field(repr=False)
 
     def encode(self) -> RawMessage:
+        """The update in the layout above; game block and description are always written."""
         writer = FieldWriter()
         writer.write_u32(self.group_id).write_u32(self.update_mask)
         writer.write_u32(self.flags).write_u32(self.max_players)
@@ -589,6 +639,8 @@ class GroupUpdate:
 
     @classmethod
     def decode(cls, message: RawMessage) -> GroupUpdate:
+        """Read an UpdateGroup or UpdateGroup2; raises ProtocolError for a body cut short or bytes left
+        after the description."""
         reader = open_message_body(message, GROUP_UPDATE_MESSAGE_TYPES)
         message_type = MessageType(message.message_type)
         update = cls(
@@ -639,12 +691,14 @@ class GroupCounters:
     status_flags: int
 
     def encode(self) -> RawMessage:
+        """Group id, player count, maximum and status flags as four u32."""
         writer = FieldWriter().write_u32(self.group_id).write_u32(self.player_count)
         writer.write_u32(self.max_players).write_u32(self.status_flags)
         return writer.to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> GroupCounters:
+        """Read a GroupCounters; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(
             group_id=reader.read_u32(),
@@ -655,27 +709,35 @@ class GroupCounters:
 
 
 def write_game_block(writer: FieldWriter, game_block: GameBlock) -> None:
+    """Append the host's sockaddr_in and the rest of the game block exactly as the host wrote it."""
     writer.write_socket_address(game_block.host_address).write_bytes(game_block.remainder)
 
 
 def read_game_block(reader: FieldReader, message_type: MessageType) -> GameBlock:
+    """Read a game block: the host address, then the rest of the block's fixed size, which is longer
+    in the 0x20 and 0x21 messages than in 0x0f and 0x19."""
     host_address = reader.read_socket_address()
     remainder_size = GAME_BLOCK_SIZE_BY_MESSAGE_TYPE[message_type] - SOCKET_ADDRESS_SIZE
     return GameBlock(host_address=host_address, remainder=reader.read_bytes(remainder_size))
 
 
 def write_description(writer: FieldWriter, description: bytes) -> None:
+    """Append the description as u32 length followed by its bytes."""
     writer.write_u32(len(description)).write_bytes(description)
 
 
 def read_description(reader: FieldReader) -> bytes:
     """u32 length, then that many bytes. A game's host stores a serialized GameDescription there;
     the server keeps the bytes and passes them on unchanged."""
+    # The length comes from the client; read_bytes refuses one longer than what is left of the
+    # body, so a forged length cannot make the server read or allocate more than it received.
     length = reader.read_u32()
     return reader.read_bytes(length)
 
 
 def require_end_of_body(reader: FieldReader, message: RawMessage) -> None:
+    """Raise ProtocolError when bytes are left after the message's last field, so unknown trailing
+    data is never passed on to other players."""
     if reader.remaining_size:
         raise ProtocolError(f"{reader.remaining_size} unexpected bytes after {message.type_name}")
 
@@ -690,10 +752,12 @@ class RemoveGroupFromGroup:
     group_id: int
 
     def encode(self) -> RawMessage:
+        """Parent id and group id as two u32."""
         return FieldWriter().write_u32(self.parent_id).write_u32(self.group_id).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> RemoveGroupFromGroup:
+        """Read a RemoveGroupFromGroup; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(parent_id=reader.read_u32(), group_id=reader.read_u32())
 
@@ -719,6 +783,7 @@ class AddPlayerToGroup:
     extra_text: str = ""
 
     def encode(self) -> RawMessage:
+        """Group id, player id, address, name and extra text in wire order."""
         writer = FieldWriter()
         writer.write_u32(self.group_id).write_u32(self.player_id).write_socket_address(self.player_address)
         writer.write_string(self.player_name).write_string(self.extra_text)
@@ -726,6 +791,7 @@ class AddPlayerToGroup:
 
     @classmethod
     def decode(cls, message: RawMessage) -> AddPlayerToGroup:
+        """Read an AddPlayerToGroup; raises ProtocolError for another type or a body cut short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(
             group_id=reader.read_u32(),
@@ -752,6 +818,7 @@ class AddPlayerToGroupWithClan:
     extra_text: str = ""
 
     def encode(self) -> RawMessage:
+        """The fields of AddPlayerToGroup, then clan id and clan name."""
         writer = FieldWriter()
         writer.write_u32(self.group_id).write_u32(self.player_id).write_socket_address(self.player_address)
         writer.write_string(self.player_name).write_string(self.extra_text)
@@ -760,6 +827,7 @@ class AddPlayerToGroupWithClan:
 
     @classmethod
     def decode(cls, message: RawMessage) -> AddPlayerToGroupWithClan:
+        """Read an AddPlayerToGroupWithClan; raises ProtocolError for another type or a body cut short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(
             group_id=reader.read_u32(),
@@ -789,6 +857,7 @@ class AddPlayerToGroupWithFlags:
     extra_text: str = ""
 
     def encode(self) -> RawMessage:
+        """The fields of AddPlayerToGroupWithClan, then the player flags."""
         writer = FieldWriter()
         writer.write_u32(self.group_id).write_u32(self.player_id).write_socket_address(self.player_address)
         writer.write_string(self.player_name).write_string(self.extra_text)
@@ -797,6 +866,7 @@ class AddPlayerToGroupWithFlags:
 
     @classmethod
     def decode(cls, message: RawMessage) -> AddPlayerToGroupWithFlags:
+        """Read an AddPlayerToGroupWithFlags; raises ProtocolError for another type or a body cut short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(
             group_id=reader.read_u32(),
@@ -825,10 +895,12 @@ class RemovePlayerFromGroup:
     player_id: int
 
     def encode(self) -> RawMessage:
+        """Group id and player id as two u32."""
         return FieldWriter().write_u32(self.group_id).write_u32(self.player_id).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> RemovePlayerFromGroup:
+        """Read a RemovePlayerFromGroup; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(group_id=reader.read_u32(), player_id=reader.read_u32())
 
@@ -852,6 +924,7 @@ class ChatMessage:
     kind: int | None = None
 
     def encode(self) -> RawMessage:
+        """Group id, sender id, for 0x1e the kind (normal when none is set), then the text."""
         writer = FieldWriter().write_u32(self.group_id).write_u32(self.sender_player_id)
         if self.message_type == MessageType.CHAT_MESSAGE_2:
             normal_chat_kind = 0
@@ -861,6 +934,7 @@ class ChatMessage:
 
     @classmethod
     def decode(cls, message: RawMessage) -> ChatMessage:
+        """Read a 0x0b or 0x1e chat line; kind is None for 0x0b, which has none."""
         reader = open_message_body(message, {MessageType.CHAT_MESSAGE, MessageType.CHAT_MESSAGE_2})
         message_type = MessageType(message.message_type)
         group_id = reader.read_u32()
@@ -887,11 +961,13 @@ class ChatCommand:
     command: str
 
     def encode(self) -> RawMessage:
+        """Group id, the unknown value and the command text."""
         writer = FieldWriter().write_u32(self.group_id).write_u32(self.unknown_value)
         return writer.write_string(self.command).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> ChatCommand:
+        """Read a chat command; raises ProtocolError for another type or a body cut short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(group_id=reader.read_u32(), unknown_value=reader.read_u32(), command=reader.read_string())
 
@@ -906,6 +982,7 @@ class ChatCommandAnswer:
     lines: tuple[str, ...]
 
     def encode(self) -> RawMessage:
+        """Group id, the unused value (0), the line count and the lines."""
         unused_value = 0
         writer = FieldWriter().write_u32(self.group_id).write_u32(unused_value).write_u32(len(self.lines))
         for line in self.lines:
@@ -914,10 +991,14 @@ class ChatCommandAnswer:
 
     @classmethod
     def decode(cls, message: RawMessage) -> ChatCommandAnswer:
+        """Read a chat command answer; the unused value is skipped. Raises ProtocolError when the body
+        holds fewer lines than its count says."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         group_id = reader.read_u32()
         reader.read_u32()
         line_count = reader.read_u32()
+        # A forged count ends at the end of the body: every line takes at least its NUL byte, so
+        # read_string raises long before the loop could run for billions of lines.
         lines = tuple(reader.read_string() for _ in range(line_count))
         return cls(group_id=group_id, lines=lines)
 
@@ -933,10 +1014,12 @@ class GetImageList:
     group_id: int
 
     def encode(self) -> RawMessage:
+        """The group id as one u32."""
         return FieldWriter().write_u32(self.group_id).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> GetImageList:
+        """Read a GetImageList; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(group_id=reader.read_u32())
 
@@ -963,6 +1046,7 @@ class ImageList:
     images: tuple[ImageEntry, ...] = ()
 
     def encode(self) -> RawMessage:
+        """Group id, entry count, then banner id, banner sub id and url per entry."""
         writer = FieldWriter().write_u32(self.group_id).write_u32(len(self.images))
         for image in self.images:
             writer.write_u32(image.banner_id).write_u32(image.banner_sub_id).write_string(image.url)
@@ -970,12 +1054,15 @@ class ImageList:
 
     @classmethod
     def decode(cls, message: RawMessage) -> ImageList:
+        """Read an image list; raises ProtocolError when the body holds fewer entries than its count says."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         group_id = reader.read_u32()
         image_count = reader.read_u32()
         images = []
         for _ in range(image_count):
-            images.append(ImageEntry(banner_id=reader.read_u32(), banner_sub_id=reader.read_u32(), url=reader.read_string()))
+            banner_id = reader.read_u32()
+            banner_sub_id = reader.read_u32()
+            images.append(ImageEntry(banner_id=banner_id, banner_sub_id=banner_sub_id, url=reader.read_string()))
         return cls(group_id=group_id, images=tuple(images))
 
 
@@ -990,6 +1077,7 @@ class TextIdList:
     text_ids: tuple[int, ...]
 
     def encode(self) -> RawMessage:
+        """Group id, id count, then one u32 per text id."""
         writer = FieldWriter().write_u32(self.group_id).write_u32(len(self.text_ids))
         for text_id in self.text_ids:
             writer.write_u32(text_id)
@@ -997,6 +1085,7 @@ class TextIdList:
 
     @classmethod
     def decode(cls, message: RawMessage) -> TextIdList:
+        """Read a text id list; raises ProtocolError when the body holds fewer ids than its count says."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         group_id = reader.read_u32()
         text_count = reader.read_u32()
@@ -1020,6 +1109,7 @@ class ServerStatistics:
     games_last_day: int
 
     def encode(self) -> RawMessage:
+        """The six counters as u32, in the order the Home tab shows them."""
         writer = FieldWriter()
         for value in (
             self.players_online,
@@ -1034,6 +1124,7 @@ class ServerStatistics:
 
     @classmethod
     def decode(cls, message: RawMessage) -> ServerStatistics:
+        """Read the six counters; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(
             players_online=reader.read_u32(),
@@ -1053,10 +1144,12 @@ class GetTextMessage:
     text_id: int
 
     def encode(self) -> RawMessage:
+        """The text id as one u32."""
         return FieldWriter().write_u32(self.text_id).to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> GetTextMessage:
+        """Read a GetTextMessage; raises ProtocolError for another type or a body too short."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         return cls(text_id=reader.read_u32())
 
@@ -1074,6 +1167,7 @@ class TextMessage:
     lines: tuple[str, ...] = ()
 
     def encode(self) -> RawMessage:
+        """Text id, title, line count and the lines."""
         writer = FieldWriter().write_u32(self.text_id).write_string(self.title).write_u32(len(self.lines))
         for line in self.lines:
             writer.write_string(line)
@@ -1081,6 +1175,7 @@ class TextMessage:
 
     @classmethod
     def decode(cls, message: RawMessage) -> TextMessage:
+        """Read a text message; raises ProtocolError when the body holds fewer lines than its count says."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         text_id = reader.read_u32()
         title = reader.read_string()
@@ -1098,8 +1193,8 @@ class MatchReportPlayer:
     player (0 for a computer opponent, inferred); in a ladder game a slot without one makes the
     report not valid for the ladder (0x5405ec). race is a Race: the race the game played, drawn by
     the game when the setup said "Random" (flag RANDOM_RACE). unused is always 0 (0x54061d). slot is
-    the slot number, 0 to 19;
-    team the slot's team as the game numbers it (the winning team uses the same numbers).
+    the slot number, 0 to 19; team the slot's team as the game numbers it (the winning team uses
+    the same numbers).
     """
 
     flags: int
@@ -1111,6 +1206,7 @@ class MatchReportPlayer:
 
     @property
     def is_computer(self) -> bool:
+        """True when the slot was played by a computer opponent."""
         return bool(self.flags & MatchPlayerFlag.COMPUTER)
 
 
@@ -1145,13 +1241,16 @@ class GameStatus:
 
     @property
     def is_ladder_game(self) -> bool:
+        """True when the report is about a ladder game."""
         return bool(self.flags & GameStatusFlag.LADDER_GAME)
 
     @property
     def has_winner(self) -> bool:
+        """True when the report names a winning team, which only the report at the end of a match does."""
         return self.winning_team != NO_WINNING_TEAM
 
     def encode(self) -> RawMessage:
+        """The report in the layout above, each slot as six u32 in MatchReportPlayer's field order."""
         writer = FieldWriter()
         writer.write_u32(self.group_id).write_u32(self.flags)
         writer.write_u32(self.winning_team).write_u32(self.game_time)
@@ -1163,6 +1262,10 @@ class GameStatus:
 
     @classmethod
     def decode(cls, message: RawMessage) -> GameStatus:
+        """Read a match report.
+
+        Raises ProtocolError unless the player count matches the bytes left exactly; it is checked
+        before any slot is read, so a forged count cannot keep the server reading."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         group_id = reader.read_u32()
         flags = reader.read_u32()
@@ -1198,6 +1301,11 @@ def describe_for_log(message: RawMessage) -> str:
             return describe_decoded(message, Logon)
         case MessageType.ADD_PLAYER_TO_GROUP:
             return describe_decoded(message, AddPlayerToGroup, secret_field="extra_text")
+        # The clan forms carry the same extra text, which a join fills with a chat group's password.
+        case MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN:
+            return describe_decoded(message, AddPlayerToGroupWithClan, secret_field="extra_text")
+        case MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS:
+            return describe_decoded(message, AddPlayerToGroupWithFlags, secret_field="extra_text")
         case MessageType.ADD_GROUP_TO_GROUP | MessageType.ADD_GROUP_TO_GROUP_2:
             return describe_decoded(message, GroupAnnouncement, secret_field="third_text")
         case MessageType.UPDATE_GROUP | MessageType.UPDATE_GROUP_2:
@@ -1210,10 +1318,15 @@ def describe_for_log(message: RawMessage) -> str:
 
 
 def describe_decoded(message: RawMessage, message_class: type, secret_field: str | None = None) -> str:
+    """The decoded message's repr with secret_field replaced, or a short note when it does not decode.
+
+    An unreadable message is not shown in hex: its bytes could still hold the secret."""
     try:
         decoded = message_class.decode(message)
+    # A logging helper must never raise: a message that does not decode is described, not refused.
     except ProtocolError:
         return f"{message.type_name}[{len(message.body)} bytes, unreadable, not shown]"
+    # An empty secret stays as it is, so the log still shows that none was given.
     if secret_field is not None and getattr(decoded, secret_field):
         decoded = replace(decoded, **{secret_field: SECRET_PLACEHOLDER})
     return repr(decoded)
