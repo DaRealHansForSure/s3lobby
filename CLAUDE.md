@@ -142,37 +142,15 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 
 ## Open review findings
 
-Fixed so far: web hardening (open redirect, server-side web sessions, lockout, headers), the
-housekeeping guard, block budget, acknowledgement and timeout caps, no Home answers before a logon,
-logon deadline, readable text, the log budget, game logon limits and check budget, wrong group
-password and group update limits, admin rights read at the command, update passwords hidden in
-the log. Still to do, most important first:
+The Python, network and web reviews of 2026-10-23 are worked through; SECURITY.md lists the known
+limits. Still open, as each touches behaviour the real game relies on and needs a recorded session
+first:
 
-- UPnP: control URL only on the answering device and plain http, no proxies or redirects, a
-  global external address only, an overall discovery deadline; forward only private addresses
-  from the game's ports; one lock around mapping changes (forward and release race today).
-- `decode_block` should stop at the message limit instead of parsing a whole datagram first.
-- The reachability probe only for confirmed connections.
-- SIGTERM handler for a clean stop; cancel background router tasks before stopping forwarding;
-  close what `start_server` opened when it fails halfway.
-- Database: indexes on `lobby_sessions(ended_at)` and `games(closed_at)`, statistics cached for a
-  few seconds, a short SQLite busy timeout, ROLLBACK when COMMIT fails, driver errors wrapped as
-  `DatabaseError`, `is_matching_access_code` returning False for a malformed hash, settings saved
-  in one transaction, `forget_client` updating memory and clients before the database.
-- Input: `isdigit()` accepts characters `int()` refuses (use `isascii() and isdigit()`); the web
-  settings checkbox must accept every true value (`1`, `yes`, `on`); access code labels limited and
-  ban reasons checked with `check_game_text`; `/games` also catching `ValueError` from a report.
-- Announcements queued while the server is down are marked sent at its start without reaching
-  anyone: skip them or fix the text in the web interface.
-- Typing and tidiness: optional return types (`create_account`, `from_stored_time`), transport
-  typing, `RouterForwarding._run` with a TypeVar, duplicated constants (`FIRST_PRINTABLE_CHARACTER`,
-  `MAX_BAN_HOURS`, `DEFAULT_BAN_HOURS`, true values, `HTTP_NOT_FOUND`), frozen dataclasses holding
-  lists.
-- Needs a recorded session before any change (it touches confirmed behaviour): dropping unnumbered
-  lobby messages from logged on players and narrowing the block window (a forged datagram from an
-  admin's address can run /ban today), ignoring a nonce reset from a logged on address, and a
-  confirmation code for admin chat commands. MySQL over TLS (`ssl=` for remote hosts) is a choice
-  for the owner.
+- Dropping unnumbered lobby messages from logged on players and narrowing the client block id
+  window: a forged datagram from a player's address is still taken as theirs (admin commands are
+  safe through /confirm, ordinary actions are not).
+- Ignoring a nonce reset (a new OpenConnection) from an address that has a logged on player:
+  a forged one ends that player's session today.
 
 ## Future work
 
