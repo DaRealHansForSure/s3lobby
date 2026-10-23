@@ -559,16 +559,12 @@ group id that holds its place on the board (`board_theme_group_id`). A theme's t
 (0x14) is copied as it arrives (CGroup.SetIdList 0x5dbe30), so messages keep the server's order
 (*inferred*: not yet seen with several messages).
 
-A client bug, not reachable from the server: the screen's group lookup (0x452390) returns the
-GameZone slot instead of the MessageZone's own group for level 0 (0x452455). That slot is always
-empty there (leaving the GameZone clears it, 0x452039), so chat typed on the board screen is
-silently not sent (0x443e4e), and a private chat invitation from there looks the invited player up
-in the client's first joined group instead (0x44532b, 0x44d664). The board itself uses levels 1
-and 2 (0x446cb0, 0x446d0a) and works (seen in a run on Windows 10: a theme's message fetched with
-0x16 and shown, the join answered with 0x26 for an admin). Only patching S3.EXE would fix it (the `add ecx, 0x5ac` at
-0x452459 would need 0x824, the MessageZone's own group); s3lobby works with unmodified games, so
-it can only say so: with the setting `board_chat_hint` a player who opens the MessageZone hears
-once per logon, as a server line, that chat there reaches nobody (off until a run confirms it).
+The MessageZone screen has no chat field (seen in a run): its screen group lookup (0x452390)
+returns the GameZone slot for level 0 (0x452455), which would send chat nowhere (0x443e4e), but
+the screen offers no way to type any. The board itself uses levels 1 and 2 (0x446cb0, 0x446d0a)
+and works (seen in a run on Windows 10: a theme's message fetched with 0x16 and shown, the join
+answered with 0x26 for an admin). An earlier server line warning about board chat (setting
+`board_chat_hint`) was removed for that reason.
 
 ### Other
 

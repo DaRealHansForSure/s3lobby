@@ -148,10 +148,6 @@ class Setting(Enum):
     # After each logon from the internet, probe whether other players can reach the player
     # directly (reachability.py). Off by default: no run with the real game has seen the probe.
     CHECK_REACHABILITY = "check_reachability"
-    # Tell a player who opens the MessageZone once per logon that chat typed there reaches nobody (a
-    # bug of the game, 0x452455). Off by default: no run with the real game has seen a server line
-    # on that tab yet.
-    BOARD_CHAT_HINT = "board_chat_hint"
     # The ladder (s3lobby/ladder.py, docs/ladder.md). LADDER_ENABLED tells the game a valid result
     # was stored (Result 0x6c) instead of "not valid for ladder" (0x6a), and drops the "not ranked"
     # line; off until a run with the real game has shown the answer. The ladder evaluates every
@@ -194,7 +190,6 @@ SETTING_DEFAULTS = {
     Setting.BANNER_ID: "0",
     Setting.BANNER_SUB_ID: "0",
     Setting.MARK_ADMINS: "true",
-    Setting.BOARD_CHAT_HINT: "false",
     Setting.CHECK_REACHABILITY: "false",
     Setting.LADDER_ENABLED: "false",
     Setting.LADDER_MINIMUM_MINUTES: "10",
@@ -233,7 +228,6 @@ BOOLEAN_SETTINGS = frozenset(
         Setting.UNIQUE_SERIAL_NUMBERS,
         Setting.MARK_ADMINS,
         Setting.CHECK_REACHABILITY,
-        Setting.BOARD_CHAT_HINT,
         Setting.LADDER_ENABLED,
         Setting.LADDER_NEWS_STANDINGS,
         Setting.LADDER_LOGON_LINE,

@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 from s3lobby.constants import (
-    BOARD_CHAT_HINT_TEXT,
     BOARD_LANGUAGE_GROUP_ID_BASE,
     BOARD_LANGUAGES,
     BOARD_MESSAGE_TEXT_ID_BASE,
@@ -15,9 +14,8 @@ from s3lobby.constants import (
     MESSAGE_ZONE_GROUP_ID,
     MessageType,
 )
-from s3lobby.database import Setting
 from s3lobby.lobby import board_theme_group_id
-from s3lobby.messages import ChatCommandAnswer, GetTextMessage, GroupAnnouncement, RemovePlayerFromGroup, TextIdList, TextMessage
+from s3lobby.messages import GetTextMessage, GroupAnnouncement, RemovePlayerFromGroup, TextIdList, TextMessage
 from s3lobby.wire import RawMessage
 from tests.support import FakeGameClient, LobbyTestCase, join_group
 
@@ -131,28 +129,6 @@ class MessageZoneTest(LobbyTestCase):
         alice.send(GetTextMessage(BOARD_MESSAGE_TEXT_ID_BASE + hidden.message_id))
         text = TextMessage.decode(alice.receive_next(MessageType.TEXT_MESSAGE))
         self.assertNotEqual(text.title, "Hidden")
-
-
-class BoardChatHintTest(LobbyTestCase):
-    """Chat typed on the message board reaches nobody, a bug of the game (0x452455). The optional
-    server line tells the player so once per logon."""
-
-    def test_hint_comes_once_per_logon_when_turned_on(self) -> None:
-        """With the setting on, entering the MessageZone tab brings the hint, but only the first time per
-        logon, so players moving between tabs are not told again and again."""
-        self.database.set_setting(Setting.BOARD_CHAT_HINT, "true")
-        alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
-        line = ChatCommandAnswer.decode(alice.receive_next(MessageType.CHAT_COMMAND_ANSWER))
-        self.assertEqual(line.lines, (BOARD_CHAT_HINT_TEXT,))
-        alice.send(RemovePlayerFromGroup(MESSAGE_ZONE_GROUP_ID, alice_id))
-        join_group(alice, MESSAGE_ZONE_GROUP_ID, alice_id)
-        alice.assert_nothing_arrives(MessageType.CHAT_COMMAND_ANSWER)
-
-    def test_no_hint_while_the_setting_is_off(self) -> None:
-        """No run with the real game has seen a server line on that tab yet, so the hint stays off unless an
-        admin turns it on."""
-        alice, _ = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
-        alice.assert_nothing_arrives(MessageType.CHAT_COMMAND_ANSWER)
 
 
 if __name__ == "__main__":

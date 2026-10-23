@@ -559,16 +559,6 @@ ANNOUNCEMENT_GROUP_ID = 0
 # ladder_enabled): the server ranks in the background, but the game is told nothing counts.
 LADDER_NOT_SUPPORTED_TEXT = "Ladder games are not supported on this server: you can play, but the result is not ranked."
 
-# Server line for a player who opens the MessageZone (setting board_chat_hint). The game looks up the
-# wrong group for chat typed there (0x452455: the GameZone slot, always empty on that screen), so
-# that chat reaches nobody; the server cannot change that. The game shows server lines only in a
-# screen with a chat view, so the line may only appear once the player is back in a room, and is
-# worded to make sense there too.
-# At most 100 characters (MAX_ANSWER_LINE_LENGTH), so it stays one chat line.
-BOARD_CHAT_HINT_TEXT = (
-    "Chat typed on the message board reaches nobody (a bug of the game); please chat in the ChatZone."
-)
-
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.
 HOUSEKEEPING_INTERVAL_SECONDS = 0.25

@@ -112,15 +112,6 @@ SETTING_FIELDS = (
         group="Member lists and board",
     ),
     SettingField(
-        Setting.BOARD_CHAT_HINT,
-        "Tell players the message board has no chat",
-        "Chat typed in the MessageZone reaches nobody, a bug of the game itself. With this on, a "
-        "player who opens the MessageZone hears so once per logon as a server line. Not yet tried "
-        "with the real game.",
-        is_checkbox=True,
-        group="Member lists and board",
-    ),
-    SettingField(
         Setting.CHECK_REACHABILITY,
         "Check whether players can be reached",
         "After each logon from the internet, test from a second port whether other players can write "
