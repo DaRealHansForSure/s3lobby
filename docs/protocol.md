@@ -107,7 +107,7 @@ the client's `CLobbySession` (vtable 0x65d01c) overrides the slots for messages 
 | 0x16 | GetTextMessage | C to S | |
 | 0x19 | UpdateGroup | both | 0x5d8a50 |
 | 0x1a | three group counters | S to C | 0x5d8580 |
-| 0x1b | 24-byte group record | S to C | 0x5d96b0 |
+| 0x1b | Home statistics: six u32 | S to C | 0x5d96b0 |
 | 0x1c | image list | S to C | 0x5d4e50 |
 | 0x1d | GetImageList | C to S | |
 | 0x1e | ChatMessage2 | both | 0x5d1610 |
@@ -172,7 +172,8 @@ Types 4, 8, 0x13, 0x17 and 0x18 are neither built nor handled by this client.
   60 s it drops the peer (state 7). Any datagram resets that timer (table 0x65d47c).
 - With nothing outstanding the client sends a keepalive every 5 s (0x604da4).
 - AdjustConnectionTimeout sets the sender's own timeout and tells the peer: the client sends
-  600000 and 60000 (0x454d6f, 0x452072; *inferred*: 10 minutes around a running game).
+  600000 (10 minutes) when its match starts (UnlinkGameFromZones, 0x454d6f) and 60000 again when
+  it leaves the game slots after the match (0x452072 in 0x451ee0).
 
 ### Closing
 
@@ -213,7 +214,7 @@ Offsets count from the first byte after the header.
   | Bit | Meaning |
   |---|---|
   | 0x1 | "create player": the player used the logon dialog's create button (dialog flag +0xf0, set at 0x43a35c after the create dialog 0x43bf90) |
-  | 0x2 | set when the game's edition setting is 1; meaning unknown |
+  | 0x2 | set when the game's edition setting is 1. This build never sets edition 1: it only writes 0, 2, 3 and 4 (0x40ee3b..0x40ef4a), so the bit is never sent |
   | 0x4 | the "Clan" box (registry ClanFlag, label 0x9013d "player is marked as clan member in the chat") |
 - **0x09 Result**: u32 code, u32 value; size exactly 12 (0x5e1e30, 0x5e2080). The handler
   (0x5cd820) switches on the code (table 0x5d0618 / 0x5d05c0):
@@ -437,7 +438,8 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
   (0x53ae66, once). Body: u32 group id (the lobby game), u32 flags (1 ladder game, game settings
   +0x2a; 2 not valid for the ladder: a ladder slot without lobby player id, 0x5405ec, or the lobby
   manager's mark +0x675), u32 winning team (0xffffffff while more than one team is left: a team
-  counts while it still owns buildings of the types 0xf, 0x10 or 0x12, 0x5406e7..0x540768), u32
+  counts while it still owns something of the types 0xf, 0x10 or 0x12, 0x5406e7..0x540768;
+  *inferred*: buildings), u32
   game time (the game's tick counter, global 0x7dfd48), string map (the map file of the game
   settings, +0x2c via 0x436a60), u32 n, then n records of six u32 per slot in the match
   (0x5ec316..0x5ec505):
@@ -509,7 +511,6 @@ and compare with the server's `--verbose` log):
 - Two real players: chat between clients, joining another player's game, the game's own
   DirectPlay connection between two machines.
 - What the real server named the zone groups 30..38 and rooms 1..3.
-- The meaning of the unknown u32 fields, the Logon flag bits and the dialog texts of the refusal
-  codes (texts 0x900xx live in the game's text files).
+- How long one tick of GameStatus's game time is.
 - Which registry view the game reads when it runs without administrator rights (WOW6432Node or
   VirtualStore).
