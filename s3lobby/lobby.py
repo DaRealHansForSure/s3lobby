@@ -125,7 +125,7 @@ class LobbyOutbox(Protocol):
 
     def close_connection(self, client_address: Address) -> None: ...
 
-    def check_reachability(self, client_address: Address) -> None: ...
+    def player_logged_on(self, client_address: Address) -> None: ...
 
     def reachability_of(self, client_address: Address) -> Reachability: ...
 
@@ -353,8 +353,7 @@ class Lobby:
         welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
         if welcome_message:
             self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
-        if self._database.get_boolean_setting(Setting.CHECK_REACHABILITY):
-            self._outbox.check_reachability(client_address)
+        self._outbox.player_logged_on(client_address)
 
     def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
         account = decision.account

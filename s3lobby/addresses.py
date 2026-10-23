@@ -38,12 +38,20 @@ class ViewerAddresses:
     """Turns a client's address as the server sees it into the address a given viewer can reach.
 
     local_ip_facing names the IP of this machine that a viewer reaches it at; public_ip returns the
-    public host's current IP, or None when none is configured or it could not be resolved.
+    public host's current IP, or None when none is configured or it could not be resolved;
+    forwarded_port returns the outside port the router forwards to a player in this network (UPnP),
+    or None when it forwards none.
     """
 
-    def __init__(self, local_ip_facing: Callable[[Address], str], public_ip: Callable[[], str | None]) -> None:
+    def __init__(
+        self,
+        local_ip_facing: Callable[[Address], str],
+        public_ip: Callable[[], str | None],
+        forwarded_port: Callable[[Address], int | None] = lambda subject: None,
+    ) -> None:
         self._local_ip_facing = local_ip_facing
         self._public_ip = public_ip
+        self._forwarded_port = forwarded_port
 
     def address_for_viewer(self, subject: Address, viewer: Address) -> Address:
         """The address the viewer should use for the subject."""
@@ -61,14 +69,14 @@ class ViewerAddresses:
             this_machine = self._this_machine_for(viewer, is_viewer_on_the_internet)
             if this_machine is None:
                 return subject
-            return (this_machine, subject_port)
+            return (this_machine, self._outside_port(subject, is_viewer_on_the_internet))
         is_subject_hidden_from_viewer = not subject_ip.is_global and is_viewer_on_the_internet
         if not is_subject_hidden_from_viewer:
             return subject
         public_ip = self._public_ip()
         if public_ip is None:
             return subject
-        return (public_ip, subject_port)
+        return (public_ip, self._outside_port(subject, is_viewer_on_the_internet))
 
     def message_for_viewer(self, message: EncodableMessage, viewer: Address) -> EncodableMessage:
         """The message with every address in it as the viewer can reach it."""
@@ -78,6 +86,17 @@ class ViewerAddresses:
             host_address = self.address_for_viewer(message.game_block.host_address, viewer)
             return replace(message, game_block=replace(message.game_block, host_address=host_address))
         return message
+
+    def _outside_port(self, subject: Address, is_viewer_on_the_internet: bool) -> int:
+        """The port an internet viewer reaches the subject at: its own forwarded port when the
+        router forwards one, else the game's port, which the router may forward by hand."""
+        subject_port = subject[1]
+        if not is_viewer_on_the_internet:
+            return subject_port
+        forwarded_port = self._forwarded_port(subject)
+        if forwarded_port is None:
+            return subject_port
+        return forwarded_port
 
     def _this_machine_for(self, viewer: Address, is_viewer_on_the_internet: bool) -> str | None:
         """This machine's IP as the viewer reaches it; None when there is no route to the viewer."""

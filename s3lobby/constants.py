@@ -424,6 +424,14 @@ CLOSING_LINGER_MS = 10_000
 # How often the server looks for announcements queued in the database by another process.
 ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
 
+# UPnP port forwarding (--upnp, forwarding.py): the outside UDP ports handed to players in the
+# server's network, one each, and how long a mapping lasts before the server renews it. Renewing at
+# half the lease keeps a mapping alive through one failed renewal.
+UPNP_FIRST_PLAYER_PORT = 33430
+UPNP_LAST_PLAYER_PORT = 33529
+UPNP_LEASE_SECONDS = 3600
+UPNP_RENEW_SECONDS = UPNP_LEASE_SECONDS / 2
+
 # How often the server looks up its public host name again: a home router's public address changes
 # now and then, and a dynamic DNS name follows it.
 PUBLIC_HOST_REFRESH_SECONDS = 300.0
