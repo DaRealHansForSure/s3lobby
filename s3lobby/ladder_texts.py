@@ -53,7 +53,7 @@ GERMAN_MONTHS = ("Jan", "Feb", "März", "Apr", "Mai", "Juni", "Juli", "Aug", "Se
 BOARD_BYLINE_RESERVE_BYTES = 96
 # Events older than this are noted without writing about them: a season created afterwards for past
 # dates, or a ladder switched on long after a season ended, must not flood the board.
-EVENT_MAX_AGE = timedelta(days=7)
+LADDER_EVENT_MAX_AGE = timedelta(days=7)
 DAYS_PER_WEEK = 7
 # Each line the game receives travels with a terminating NUL (Lobby's text_message counts the same).
 LINE_TERMINATOR_BYTES = 1
@@ -394,10 +394,10 @@ class LadderWriter:
             has_started = season.starts_at is not None and season.starts_at <= now
             has_ended = season.ends_at is not None and season.ends_at <= now
             if has_started and not has_ended and self._is_new_event(f"season-start:{season.season_id}"):
-                if now - season.starts_at <= EVENT_MAX_AGE:
+                if now - season.starts_at <= LADDER_EVENT_MAX_AGE:
                     self._post(themes, {language: self._texts.season_start(season, language) for language in themes})
             if has_ended and self._is_new_event(f"season-end:{season.season_id}"):
-                if now - season.ends_at <= EVENT_MAX_AGE:
+                if now - season.ends_at <= LADDER_EVENT_MAX_AGE:
                     self._post(themes, {language: self._texts.season_end(season, language) for language in themes})
                     announcements.append(self._texts.season_end_announcement(season))
         last_week = week_start_of(now) - timedelta(days=DAYS_PER_WEEK)

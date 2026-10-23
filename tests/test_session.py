@@ -14,6 +14,8 @@ from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
+    NEWS_AUDIENCE_GERMAN,
+    NEWS_TEXT_ID_BY_AUDIENCE,
     GameStatusFlag,
     LadderState,
     LadderType,
@@ -31,6 +33,7 @@ from s3lobby.messages import (
     CheckFileVersion,
     GameStatus,
     GetLobbyServerList,
+    GetTextMessage,
     GroupAnnouncement,
     LobbyServerList,
     Logon,
@@ -42,7 +45,9 @@ from s3lobby.messages import (
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
     Result,
+    TextMessage,
 )
+from s3lobby.ladder import Evaluation, ResultPlayer
 from tests.test_groups import game_description, receive_announcement
 from tests.support import (
     ACCESS_CODE,
@@ -382,6 +387,58 @@ class LadderEvaluationTest(LobbyTestCase):
         for client in (self.alice, self.bob):
             line = ChatCommandAnswer.decode(client.receive_next(MessageType.CHAT_COMMAND_ANSWER))
             self.assertEqual(line.lines[0], "Liga: Alice beat Bob. Alice 1016 (+16), Bob 984 (-16).")
+
+    def store_alice_beats_bob(self, decided_by: int | None = None) -> None:
+        """A counted Liga result in the database, Alice over Bob, decided by an admin when given."""
+        alice_id = self.database.find_account("Alice").account_id
+        bob_id = self.database.find_account("Bob").account_id
+        game_id = self.database.record_game_opened("Duel", alice_id, ladder_type=LadderType.INDIVIDUAL)
+        self.database.store_ladder_result(
+            Evaluation(
+                game_id,
+                LadderType.INDIVIDUAL,
+                LadderState.COUNTED,
+                "decided by an admin" if decided_by else "",
+                winning_team=0,
+                played_at=self.database.now(),
+                players=(
+                    ResultPlayer(alice_id, None, 0, 0, 0, True, False),
+                    ResultPlayer(bob_id, None, 1, 0, 1, False, False),
+                ),
+            ),
+            decided_by_account_id=decided_by,
+        )
+
+    def test_the_news_carries_the_standings_while_the_ladder_is_on(self) -> None:
+        """The game has no screen for standings; the Home tab's news is where every player looks
+        after logging on, so the top five go under the admins' text there."""
+        self.database.set_setting(Setting.LADDER_ENABLED, "true")
+        self.database.set_news(NEWS_AUDIENCE_GERMAN, "Willkommen", "Viel Spass!")
+        self.store_alice_beats_bob()
+        alice, _ = self.player_in_room("Alice", 17, LOBBY_ROOM_ID)
+        alice.send(GetTextMessage(NEWS_TEXT_ID_BY_AUDIENCE[NEWS_AUDIENCE_GERMAN]))
+        news = TextMessage.decode(alice.receive_next(MessageType.TEXT_MESSAGE))
+        self.assertEqual(news.lines[0], "Viel Spass!")
+        self.assertIn("Liga (unendliche Saison): 1. Alice 1016, 2. Bob 984.", news.lines)
+
+    def test_a_player_hears_their_place_and_a_decision_at_logon(self) -> None:
+        """Without a line at logon, a player learns of an admin's decision on their disputed game
+        only by asking; with ladder_logon_line on they also hear their place."""
+        self.database.set_setting(Setting.LADDER_ENABLED, "true")
+        self.database.set_setting(Setting.LADDER_LOGON_LINE, "true")
+        admin_id = self.database.find_account("Carol").account_id
+        self.store_alice_beats_bob(decided_by=admin_id)
+        alice = self.new_client("Alice", 17)
+        log_on(alice)
+        answer = ChatCommandAnswer.decode(alice.receive_next(MessageType.CHAT_COMMAND_ANSWER))
+        self.assertEqual(answer.lines, ("Liga: 1016, place 1 of 2.", "Ladder: an admin decided Duel: Alice won."))
+        # A second logon tells the place again, but the decision only once.
+        alice.send(Logout())
+        alice.close_connection()
+        again = self.new_client("Alice", 18)
+        log_on(again)
+        answer = ChatCommandAnswer.decode(again.receive_next(MessageType.CHAT_COMMAND_ANSWER))
+        self.assertEqual(answer.lines, ("Liga: 1016, place 1 of 2.",))
 
     def test_two_copies_of_one_installation_do_not_count(self) -> None:
         """Bob logs on with Alice's serial number: one installation against itself is void."""
