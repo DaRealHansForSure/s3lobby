@@ -125,18 +125,20 @@ Rules that keep clans fair:
   count at most `ladder_pair_daily_limit` (default 3) times per day; later ones are stored as void
   with that reason.
 
-### Seasons and all time
+### Seasons
 
-Both run side by side:
-
-- **All time:** every counted result since the ladder started, never reset.
-- **Seasons:** the current season's standings start everyone at the start value and use only that
-  season's results. A season is a date range set by admins (a name, a start, an end); the setting
-  `ladder_season_months` (default 3) proposes the next one automatically when the current one ends.
-  Past seasons stay readable with their final standings and champions.
+- **The infinite season** always runs: every counted result since the ladder started, never reset.
+  It is the ladder players see by default, in the game and on the web.
+- **Custom seasons** are created by admins whenever they like: a name, a start, an end (or none
+  until an admin ends it), and which ladders count (Liga, Clanliga or both). Examples: a "Winter
+  Cup" for December, a weekend tournament, a Clanliga season for the summer. In a custom season
+  everyone starts at the start value and only that season's results count. Several custom seasons
+  may run at the same time; one match then counts in each of them and in the infinite season.
+- Admins can rename a custom season, move its dates, end it early or delete it. An ended season
+  stays readable with its final standings and champions.
 
 Because ratings are derived, a season is only a filter on the results; nothing is copied or reset
-in the database.
+in the database, and a season created afterwards for past dates shows its standings at once.
 
 ## 3. What the players see
 
@@ -146,14 +148,15 @@ in the database.
   the other reports arrived, which the game cannot wait for.
 - **Back in the lobby**, a server line to the players of the match: "Liga: Alice beats Bob, 1016 ->
   1032 (Bob 984 -> 968)", "Clanliga: Romans beat Amazons, 1012 -> 1028", or why it did not count.
-- **Chat commands:** `/rank [NAME]` (season and all time: rating, place, won, lost, lost by
-  leaving, provisional or not), `/top` (the season's first five), `/clanrank [CLAN]` (Clanliga
-  rating and strength from Liga), `/season` (name and end of the current season).
-- **Home tab:** the news text can end with the season's top five players and clans. The game
+- **Chat commands:** `/rank [NAME]` (infinite season and every running custom season: rating,
+  place, won, lost, lost by leaving, provisional or not), `/top [SEASON]` (the first five, of the
+  infinite season unless one is named), `/clanrank [CLAN]` (Clanliga rating and strength from
+  Liga), `/seasons` (the running custom seasons and when they end).
+- **Home tab:** the news text can end with the infinite season's top five players and clans. The game
   fetches it once per logon, so it shows the standings as of the logon (protocol.md,
   GetTextMessage).
 - **Web interface:** a public page `/ladder` like the live lobby, with tabs Liga, Clanliga and
-  clan strength, a switch between the current season, past seasons and all time, and the last
+  clan strength, a choice between the infinite season and the custom ones (running first, then ended), and the last
   results; the rating on each account and clan page; on each game page whether and how it counted.
 - Not planned: showing the rank in the member list's clan column. It would work technically (the
   column shows whatever text the server sends), but it hides the clan and changes what a run
@@ -164,7 +167,8 @@ in the database.
 - See every ladder game with its state: counted, disputed, void, with the reason.
 - Decide a disputed result (pick the winner) or void a counted one, in the web interface and with
   `s3lobby ladder decide|void GAME_ID`; ratings follow at once because they are derived.
-- Manage seasons: `s3lobby ladder season add NAME --start DATE --end DATE` and on the web.
+- Manage custom seasons on the web and with `s3lobby ladder season add NAME --start DATE
+  [--end DATE] [--ladder liga|clanliga|both]`, `season edit`, `season end` and `season delete`.
 - Every number is a setting, on the Settings page and with `s3lobby setting set`:
 
   | Setting | Default | Meaning |
@@ -179,7 +183,6 @@ in the database.
   | `ladder_provisional_games` | 10 | how many results are provisional |
   | `ladder_active_days` | 30 | how recent a Liga result must be for the clan strength |
   | `ladder_clan_member_days` | 3 | how long a player must be in a clan for Clanliga |
-  | `ladder_season_months` | 3 | length proposed for the next season |
 
 ## 5. Database (one migration, 0010, for every dialect)
 
@@ -187,7 +190,8 @@ in the database.
   game time, decided at, decided by (server or an admin account).
 - `ladder_result_players`: result id, account id, clan id at the time (for Clanliga), team, race,
   won, left.
-- `ladder_seasons`: name, start, end.
+- `ladder_seasons`: name, start, end (null while open), ladders counted, created by. The
+  infinite season is not a row: it is all results.
 - `accounts.clan_joined_at`: when the account joined its current clan (null for the members of
   today; they count as members since before the ladder started).
 - No rating table: ratings are computed from the results when asked and cached in memory by the
@@ -205,7 +209,7 @@ Static pages on the web interface's own stylesheets, with made up names and numb
 |---|---|
 | [Liga](mockups/ladder/ladder-liga-light.png) ([dark](mockups/ladder/ladder-liga-dark.png)) | the public `/ladder` page: season choice, standings with rating, last change, won, lost, left, provisional players, and the last results |
 | [Clanliga](mockups/ladder/ladder-clanliga-light.png) ([dark](mockups/ladder/ladder-clanliga-dark.png)) | the clans' Clanliga ratings and their strength from Liga |
-| [Ladder games](mockups/ladder/ladder-admin-light.png) ([dark](mockups/ladder/ladder-admin-dark.png)) | for admins: every evaluated game with its state and reason, deciding and voiding, the seasons and their champions |
+| [Ladder games](mockups/ladder/ladder-admin-light.png) ([dark](mockups/ladder/ladder-admin-dark.png)) | for admins: every evaluated game with its state and reason, deciding and voiding, the infinite season and the custom seasons with their champions |
 | [Game page](mockups/ladder/ladder-game-light.png) ([dark](mockups/ladder/ladder-game-dark.png)) | the ladder part of a game's page, and the server lines and chat command answers the players read in the game |
 
 ## Building it in steps
@@ -214,7 +218,7 @@ Static pages on the web interface's own stylesheets, with made up names and numb
    "not ranked" line, but evaluates every ladder game into `ladder_results`. The admin pages show
    the outcome, so the rules can be checked against real matches first. A run has to confirm the
    open points below.
-2. **Standings.** Liga and Clanliga ratings, clan strength, seasons and all time, the public
+2. **Standings.** Liga and Clanliga ratings, clan strength, the infinite season and custom seasons, the public
    `/ladder` page, the chat commands, the server line after a match, the admin decisions.
 3. **Tell the game.** With `ladder_enabled` on, valid end reports get 0x6c and the "not ranked"
    line goes away. Off by default until a run with the real game shows the message (project rule
@@ -236,5 +240,5 @@ Static pages on the web interface's own stylesheets, with made up names and numb
 1. Elo, and a concept for clans (section 2, Clans).
 2. Leaving: decided by recommendation (section 1, A player who leaves).
 3. Minimum game time and daily limit per pair, both configurable (section 4).
-4. Seasons and all time side by side (section 2, Seasons and all time).
+4. An infinite season that always runs, and custom seasons admins create (section 2, Seasons).
 5. Clanliga in the first version.

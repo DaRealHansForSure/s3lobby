@@ -50,18 +50,30 @@
   </div>
 </section>
 <section>
-  <div class="section-head"><h2>Seasons</h2></div>
+  <div class="section-head"><h2>Seasons</h2>
+  <p>The infinite season always runs and holds every counted result. Custom seasons count the
+  results between their dates, starting everyone at 1000; several may run at once.</p></div>
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Season</th><th>From</th><th>To</th><th>Liga champion</th><th>Clanliga champion</th></tr></thead>
+      <thead><tr><th>Season</th><th>From</th><th>To</th><th>Counts</th><th>Liga leader</th><th>Clanliga leader</th><th></th></tr></thead>
       <tbody>
-        <tr><td>Season 4 <span class="badge badge--good">current</span></td><td class="cell-time">2026-10-01</td><td class="cell-time">2026-12-31</td><td class="muted">-</td><td class="muted">-</td></tr>
-        <tr><td>Season 3</td><td class="cell-time">2026-07-01</td><td class="cell-time">2026-09-30</td><td>Jin (1302)</td><td>Amazons (1144)</td></tr>
-        <tr><td>Season 2</td><td class="cell-time">2026-04-01</td><td class="cell-time">2026-06-30</td><td>Thalia (1265)</td><td>Romans (1120)</td></tr>
+        <tr><td>Infinite season <span class="badge badge--accent">always</span></td><td class="cell-time">2026-06-01</td><td class="muted">-</td><td>Liga, Clanliga</td><td>Thalia (1284)</td><td>Romans (1168)</td><td></td></tr>
+        <tr><td>Autumn Cup <span class="badge badge--good">running</span></td><td class="cell-time">2026-10-01</td><td class="cell-time">2026-11-30</td><td>Liga</td><td>Jin (1088)</td><td class="muted">-</td><td><div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Edit</button><button class="btn btn--outline btn--sm" type="button">End now</button></div></td></tr>
+        <tr><td>LAN weekend <span class="badge">ended</span></td><td class="cell-time">2026-09-12</td><td class="cell-time">2026-09-13</td><td>Liga, Clanliga</td><td>Marcus (1061)</td><td>BB (1032)</td><td><div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Edit</button><button class="btn btn--outline btn--sm" type="button">Delete</button></div></td></tr>
+        <tr><td>Clan Summer <span class="badge">ended</span></td><td class="cell-time">2026-06-01</td><td class="cell-time">2026-08-31</td><td>Clanliga</td><td class="muted">-</td><td>Amazons (1144)</td><td><div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Edit</button><button class="btn btn--outline btn--sm" type="button">Delete</button></div></td></tr>
       </tbody>
     </table>
   </div>
-  <p class="meta">The next season is proposed for 3 months when the current one ends (setting <code>ladder_season_months</code>).</p>
+</section>
+<section>
+  <div class="section-head"><h2>New custom season</h2></div>
+  <div class="form-grid">
+    <label class="field"><span class="label">Name</span><input class="input" type="text" value="Spring Cup"></label>
+    <label class="field"><span class="label">Counts</span><select class="select"><option>Liga and Clanliga</option><option>Liga</option><option>Clanliga</option></select></label>
+    <label class="field"><span class="label">From</span><input class="input" type="date" value="2027-03-01"></label>
+    <label class="field"><span class="label">To</span><input class="input" type="date"><span class="hint">Empty: runs until an admin ends it.</span></label>
+  </div>
+  <div class="form-actions"><button class="btn btn--primary" type="button">Create season</button></div>
 </section>
 </main>
 <footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
