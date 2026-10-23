@@ -49,6 +49,7 @@ from s3lobby.constants import (
     GROUP_UPDATE_BURST,
     HOME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
+    KICK_REASON_READING_SECONDS,
     LADDER_NOT_SUPPORTED_TEXT,
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
@@ -153,6 +154,10 @@ class LobbyOutbox(Protocol):
 
     def close_connection(self, client_address: Address) -> None:
         """Close the connection to a client, as for a kick."""
+
+    def close_connection_later(self, client_address: Address, delay_seconds: float) -> None:
+        """Close the connection to a client after a while, unless the client has opened a new one
+        by then."""
 
     def player_logged_on(self, client_address: Address) -> None:
         """Tell the network side that the client at this address is now a logged on player."""
@@ -342,7 +347,11 @@ class Lobby:
         log.info("player %d %r removed from the lobby: %s", player.player_id, player.name, reason)
         address = player.address
         self.forget_client(address)
-        self._outbox.close_connection(address)
+        # The others see the player leave at once, but the connection stays a few seconds: closed at
+        # once, the game jumps straight to "The connection to the lobby server dropped." and back to
+        # its menu, and nobody could read the reason in the chat (seen in a run: a ban's reason
+        # never showed).
+        self._outbox.close_connection_later(address, KICK_REASON_READING_SECONDS)
         return True
 
     def live_state(self) -> LiveLobbyState:

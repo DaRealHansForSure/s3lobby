@@ -649,6 +649,10 @@ MAX_ANNOUNCEMENT_LENGTH = 256
 # the full screen game: it waited unseen, and the screen stayed frozen (seen in a run).
 EMPTY_CHAT_GROUP_KEEP_SECONDS = 120.0
 
+# How long a kicked or banned player stays connected after hearing the reason, so the line can be
+# read in the chat before the game drops to its "connection dropped" dialog.
+KICK_REASON_READING_SECONDS = 6.0
+
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4
 

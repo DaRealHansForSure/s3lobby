@@ -55,6 +55,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   page has a name search.
 - `scripts/start.sh --follow` shows the lobby's log right after starting it.
 
+### Fixed
+
+- A kicked or banned player can read the reason: the connection now closes a few seconds after
+  the reason line instead of at once, which sent the game straight to its "connection dropped"
+  dialog (seen in a run). The others still see the player leave at once.
+
 ### Removed
 
 - The setting `board_chat_hint` and its server line: the MessageZone screen has no chat field
