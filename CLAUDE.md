@@ -44,7 +44,10 @@ another project; its history was carried over, so the early commits describe tha
   results, and builds the views with names every front end shows; `ladder_admin.py` is `s3lobby
   ladder`. Ratings are never stored, always replayed from the results.
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,
-  `templates/`, `static/`). Public live lobby, everything else for admins only.
+  `templates/`, `static/`). Public: the live lobby, `/ladder`, `/players/NAME` and `/logon`;
+  everything else under `/admin` (`ADMIN_PATH_PREFIX`) with the dropdown menus of
+  `templates/admin_base.html`, long lists paged by `paging.py`, SortableJS bundled in
+  `static/vendor/` (the CSP allows no outside scripts).
 - `docs/protocol.md`: the protocol as read from the game, with the S3.EXE address of every fact.
 - `tests/`: unittest. `support.py` has a background server and a fake game client.
 
@@ -113,7 +116,8 @@ SQLite needs nothing extra.
   - Text from clients is relayed byte for byte, but passes `wire.readable_text` before it is
     stored or shown: undefined Windows-1252 bytes arrive as surrogates, which UTF-8 cannot encode.
   - A setting that makes the server send something no run with the real game has seen yet
-    (`mark_admins`, `check_reachability`) is off by default until a run confirms it.
+    (`check_reachability`, `ladder_enabled`) is off by default until a run confirms it;
+    `allow_create_player` is off by default for the reasons in SECURITY.md.
 - The lobby works with and without the web interface, and anyone with the code can build their
   own tools on it. Every rule lives in a module the server and the command line use (the web
   interface only calls it); every admin action on the web also exists as an `s3lobby` command;
@@ -142,9 +146,9 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
   that says why. Types: `feat` (new behaviour), `fix` (wrong behaviour corrected, security fixes
   included), `docs`, `refactor` (no change in behaviour), `test`, `build` (packaging), `ci`,
   `chore` (repository upkeep, releases), `perf`. Scopes are the area: `server`, `lobby`, `logon`,
-  `commands`, `protocol`, `database`, `web`, `cli`, `upnp`, `live`, `readme`, `security`. A change
-  that breaks a promise to admins or to the game gets `!` after the type and a `BREAKING CHANGE:`
-  line in the body.
+  `commands`, `protocol`, `database`, `web`, `cli`, `upnp`, `live`, `ladder`, `scripts`, `readme`,
+  `security`. A change that breaks a promise to admins or to the game gets `!` after the type and a
+  `BREAKING CHANGE:` line in the body.
 - Git flow: `main` holds releases only, `develop` the work in progress. Every change goes on a
   branch from `develop` (`feature/...`, `fix/...`, `docs/...`, `refactor/...`) and is merged back
   with `git merge --no-ff BRANCH -m "Merge branch 'BRANCH' into develop"`.
