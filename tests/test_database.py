@@ -32,24 +32,34 @@ class SteppingClock:
     """A clock the test moves by hand."""
 
     def __init__(self) -> None:
+        """Start at START."""
         self.now = START
 
     def __call__(self) -> datetime:
+        """The time the test has moved the clock to."""
         return self.now
 
     def advance(self, **duration: float) -> None:
+        """Move the clock forward by a timedelta given as keyword arguments, such as minutes=10."""
         self.now += timedelta(**duration)
 
 
 class LobbyDatabaseTest(unittest.TestCase):
+    """LobbyDatabase on a fresh database per test, SQLite in memory or the configured MySQL one, with a clock
+    the test moves."""
+
     def setUp(self) -> None:
+        """A fresh database on a clock that starts at START."""
         self.clock = SteppingClock()
         self.database = LobbyDatabase(database_location_for_test(":memory:"), clock=self.clock)
 
     def tearDown(self) -> None:
+        """Close the database."""
         self.database.close()
 
     def test_player_names_follow_the_game_rule(self) -> None:
+        """Only names the game accepts (letters A to Z, single spaces between words) are valid, and an account
+        with another name is refused, since its player could never log on."""
         self.assertTrue(is_valid_player_name("Player"))
         self.assertTrue(is_valid_player_name("Roman Legion"))
         for invalid_name in ("", " Player", "Player ", "Two  Spaces", "Player1", "Spieler_X", "Müller"):
@@ -59,12 +69,16 @@ class LobbyDatabaseTest(unittest.TestCase):
             self.database.create_account("Player1")
 
     def test_account_names_are_unique_regardless_of_case(self) -> None:
+        """Names differing only in case are one name, as logons match them without regard to case; the stored
+        spelling is kept."""
         self.database.create_account("Alice")
         with self.assertRaises(DatabaseError):
             self.database.create_account("ALICE")
         self.assertEqual(self.database.find_account("alice").name, "Alice")
 
     def test_issued_access_code_is_checked_by_hash_and_can_be_revoked(self) -> None:
+        """An issued code has the expected length and alphabet, is accepted while active and refused once
+        revoked; a wrong code is refused."""
         account = self.database.create_account("Alice")
         access_code = self.database.issue_access_code(account.account_id, label="home PC")
         self.assertEqual(len(access_code), ACCESS_CODE_LENGTH)
@@ -77,6 +91,8 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertFalse(self.database.check_access_code(account.account_id, access_code))
 
     def test_access_code_is_checked_without_regard_to_case(self) -> None:
+        """A code is accepted in any case, whether issued or added in lower case, since players type it into
+        the game's password field by hand."""
         account = self.database.create_account("Alice")
         access_code = self.database.issue_access_code(account.account_id)
         for typed_code in (access_code, access_code.lower(), access_code.swapcase().capitalize()):
@@ -99,6 +115,8 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertFalse(self.database.is_access_code_active(alice.account_id, second_code_id))
 
     def test_access_code_is_stored_only_as_a_salted_hash(self) -> None:
+        """Codes are stored only as scrypt hashes, each with its own salt, so a stolen database file shows
+        neither the codes nor which accounts share one."""
         account = self.database.create_account("Alice")
         self.database.add_access_code(account.account_id, "SAMECODE2345")
         self.database.add_access_code(account.account_id, "SAMECODE2345")
@@ -108,6 +126,8 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertNotEqual(stored[0], stored[1], "each code gets its own salt")
 
     def test_single_access_code_is_revoked_and_listed_without_the_code(self) -> None:
+        """One code can be revoked on its own, only by its owner and only once; the listing shows label, state
+        and last use but never the code, and the remaining code still works."""
         alice = self.database.create_account("Alice")
         bob = self.database.create_account("Bob")
         self.database.add_access_code(alice.account_id, "FIRSTCODE234", label="laptop")
@@ -124,6 +144,8 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual(self.database.list_access_codes(alice.account_id)[0].last_used_at, START)
 
     def test_recent_games_reports_and_announcements_come_newest_first(self) -> None:
+        """The recent games, game reports and announcements the web interface shows come newest first, with
+        their host, sender, close and send times, and limits are kept."""
         alice = self.database.create_account("Alice")
         self.database.record_game_opened("First", alice.account_id)
         second_game = self.database.record_game_opened("Second", None)
@@ -147,6 +169,7 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual([(entry.text, entry.sent_at) for entry in announcements], [("three", None), ("two", START), ("one", START)])
 
     def test_ban_lasts_until_its_end(self) -> None:
+        """A ban holds until its end and no longer, and lifting it ends it at once."""
         account = self.database.create_account("Alice")
         self.database.ban_account(account.account_id, until=START + timedelta(hours=2), reason="spam")
         banned = self.database.find_account("Alice")
@@ -156,6 +179,7 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertFalse(self.database.find_account("Alice").is_banned_at(START))
 
     def test_an_account_belongs_to_at_most_one_clan(self) -> None:
+        """Joining another clan leaves the first, and an account can leave its clan altogether."""
         alice = self.database.create_account("Alice")
         romans = self.database.create_clan("Romans")
         vikings = self.database.create_clan("Vikings")
@@ -167,12 +191,16 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertIsNone(self.database.find_clan_of_account(alice.account_id))
 
     def test_news_per_audience_is_replaced_not_duplicated(self) -> None:
+        """Each audience has at most one news text, replaced on each change, since Home offers one text id per
+        audience."""
         self.database.set_news("german", "Willkommen", "Erste Fassung")
         self.database.set_news("german", "Willkommen", "Zweite Fassung")
         self.assertEqual(self.database.find_news("german").body, "Zweite Fassung")
         self.assertIsNone(self.database.find_news("other"))
 
     def test_board_messages_belong_to_their_theme(self) -> None:
+        """Deleting a board theme deletes its messages too, so no message is left without a theme to be listed
+        in."""
         theme = self.database.add_board_theme("English", "Tournaments", "Upcoming events")
         message = self.database.post_board_message(theme.theme_id, "Cup", "Saturday 8 pm", author="Alice")
         self.assertEqual(self.database.list_board_messages(theme.theme_id), [message])
@@ -209,6 +237,8 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual(self.database.find_news("german").title, "Grüße")
 
     def test_setting_values_are_checked(self) -> None:
+        """Values the server could not use are refused when they are set: numbers out of range, booleans that
+        are no yes or no, banner URLs the game cannot fetch, and welcome lines that are too long."""
         refused_values = {
             Setting.MAX_PLAYERS: ("-1", "ten", str(2**32)),
             Setting.UNIQUE_SERIAL_NUMBERS: ("maybe",),
@@ -232,12 +262,15 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertTrue(self.database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS))
 
     def test_settings_fall_back_to_their_defaults(self) -> None:
+        """A setting never set reads as its default until a value is stored."""
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 0)
         self.assertFalse(self.database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS))
         self.database.set_setting(Setting.MAX_PLAYERS, "50")
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 50)
 
     def test_statistics_count_players_and_games_per_period(self) -> None:
+        """The statistics count who is online and what is open now, and the players and games of the last hour
+        and the last day, for Home and the web interface."""
         alice = self.database.create_account("Alice")
         bob = self.database.create_account("Bob")
         old_session = self.database.record_logon(bob.account_id)
@@ -276,6 +309,8 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertFalse(is_matching_access_code("ANYCODE23456", "scrypt$many$8$1$00$00"))
 
     def test_settings_change_together_or_not_at_all(self) -> None:
+        """A form saving several settings with one bad value changes none of them, so the settings never end
+        up half saved."""
         with self.assertRaises(DatabaseError):
             self.database.set_settings({Setting.WELCOME_MESSAGE: "Hello", Setting.MAX_PLAYERS: "lots"})
         self.assertEqual(self.database.get_setting(Setting.WELCOME_MESSAGE), "")
@@ -300,6 +335,8 @@ class LobbyDatabaseTest(unittest.TestCase):
             self.database.set_setting(Setting.MAX_PLAYERS, "\u00b2")
 
     def test_labels_and_ban_reasons_are_checked_like_game_texts(self) -> None:
+        """Labels longer than the limit and ban reasons with a line break are refused; a ban reason is shown
+        to the player in a single chat line."""
         alice = self.database.create_account("Alice")
         with self.assertRaises(DatabaseError):
             self.database.add_access_code(alice.account_id, "SAMECODE2345", label="x" * 65)
@@ -307,11 +344,15 @@ class LobbyDatabaseTest(unittest.TestCase):
             self.database.ban_account(alice.account_id, START + timedelta(hours=1), "line\nbreak")
 
     def test_announcements_queued_while_stopped_are_dropped_at_start(self) -> None:
+        """Announcements queued while the server was stopped are stale by the time it starts, so they are
+        dropped instead of sent."""
         self.database.queue_announcement("Server restart at 22:00")
         self.assertEqual(self.database.discard_pending_announcements(), 1)
         self.assertEqual(self.database.take_pending_announcements(), [])
 
     def test_restart_closes_what_the_previous_run_left_open(self) -> None:
+        """Sessions and games a crashed run left open are closed at the next start, where nobody is connected
+        yet, so the statistics do not count them forever."""
         alice = self.database.create_account("Alice")
         self.database.record_logon(alice.account_id)
         self.database.record_game_opened("Game", alice.account_id)
@@ -320,6 +361,8 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual((statistics.players_online, statistics.games_open), (0, 0))
 
     def test_database_of_an_older_version_is_upgraded_in_place(self) -> None:
+        """A file made by the first schema, with data in it, is migrated to the newest version on opening,
+        keeps its data and works with the newer tables."""
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "old.sqlite3"
             old_database = sqlite3.connect(path)
@@ -337,6 +380,7 @@ class LobbyDatabaseTest(unittest.TestCase):
             upgraded.close()
 
     def test_schema_version_is_stored_and_reopening_keeps_the_data(self) -> None:
+        """A database file reopened keeps its data and its schema version."""
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "lobby.sqlite3"
             first = LobbyDatabase(path)

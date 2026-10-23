@@ -33,6 +33,8 @@ def database_location_for_test(sqlite_location: str) -> str:
 
 
 def drop_all_tables(location: str) -> None:
+    """Empty the MySQL or MariaDB database at location so each test starts from a fresh schema; refuses any
+    other kind of location, so a mistyped variable never drops a SQLite file."""
     backend = open_backend(location)
     try:
         if not isinstance(backend, MysqlBackend):

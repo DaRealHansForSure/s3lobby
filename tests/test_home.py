@@ -30,7 +30,10 @@ OTHER_NEWS_ID = NEWS_TEXT_ID_BY_AUDIENCE["other"]
 
 
 class HomeTabTest(LobbyTestCase):
+    """The Home tab: news texts, the statistics table and the banner."""
+
     def enter_home(self, player_name: str = "Alice", nonce: int = 17) -> FakeGameClient:
+        """Log a new client on and join it to the Home tab; returns the client."""
         client = self.new_client(player_name, nonce)
         player_id = log_on(client)
         join_group(client, HOME_GROUP_ID, player_id)
@@ -49,6 +52,8 @@ class HomeTabTest(LobbyTestCase):
         self.assertEqual((news.text_id, news.title, news.lines), (GERMAN_NEWS_ID, "Willkommen", ("Erste Zeile", "Zweite Zeile")))
 
     def test_without_news_the_list_is_empty_and_unknown_ids_still_get_a_title(self) -> None:
+        """Without news the text id list is empty, and a request for an unknown text still gets a text with a
+        title, since a text without one leaves the page at "Loading message"."""
         alice = self.enter_home()
         self.assertEqual(TextIdList.decode(alice.receive_next(MessageType.TEXT_ID_LIST)).text_ids, ())
         alice.send(GetTextMessage(OTHER_NEWS_ID))
@@ -65,6 +70,8 @@ class HomeTabTest(LobbyTestCase):
         self.assertLessEqual(len(news.body), MAX_TEXT_MESSAGE_BYTES + 16)
 
     def test_home_receives_statistics_and_they_follow_logons(self) -> None:
+        """Players on Home get the statistics table when they arrive and again whenever the number online
+        changes, so the table never shows stale numbers."""
         alice = self.enter_home()
         first = ServerStatistics.decode(alice.receive_next(MessageType.SERVER_STATISTICS))
         self.assertEqual(first.players_online, 1)
@@ -73,6 +80,8 @@ class HomeTabTest(LobbyTestCase):
         self.assertEqual(second.players_online, 2)
 
     def test_banner_turns_on_the_image_request_and_is_offered(self) -> None:
+        """With a banner configured, Home is announced with the flag that makes the game ask for images, and
+        the image list then carries the banner's id and URL."""
         self.database.set_setting(Setting.BANNER_URL, "ftp://192.168.1.10/banner/lobby.png")
         self.database.set_setting(Setting.BANNER_ID, "7")
         client = self.new_client("Alice", 17)

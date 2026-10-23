@@ -58,6 +58,8 @@ from tests.support import (
 
 
 class LobbySessionTest(LobbyTestCase):
+    """Whole sessions with fake game clients against a running server, each step as the real game takes it."""
+
     def test_patch_check_says_no_patch_and_the_list_names_this_server(self) -> None:
         """Without Result NO_PATCH_NEEDED the client stops with "patch check failed"; an empty
         server list stops it with error 0x1e."""
