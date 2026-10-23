@@ -2,6 +2,9 @@
 -- when they were in that clan (Clanliga counts a player for a clan only after some days in it), and
 -- a number for their game installation: players of one game whose games share a serial number get
 -- the same number, so the ladder can refuse two copies of one installation without storing serials.
+-- The ladder the host chose (LadderType 1 or 2; NULL for a normal game), as the game was last shown.
+ALTER TABLE games ADD COLUMN ladder_type INTEGER;
+CREATE INDEX games_by_ladder_type ON games(ladder_type);
 ALTER TABLE game_players ADD COLUMN clan_id INTEGER REFERENCES clans(id) ON DELETE SET NULL;
 ALTER TABLE game_players ADD COLUMN clan_joined_at TEXT;
 ALTER TABLE game_players ADD COLUMN installation INTEGER;
