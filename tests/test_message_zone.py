@@ -9,16 +9,31 @@ from s3lobby.constants import (
     BOARD_LANGUAGE_GROUP_ID_BASE,
     BOARD_LANGUAGES,
     BOARD_MESSAGE_TEXT_ID_BASE,
-    BOARD_THEME_GROUP_ID_BASE,
+    BOARD_THEME_ID_SPAN,
+    FIRST_GAME_GROUP_ID,
+    MAX_BOARD_THEMES_PER_LANGUAGE,
     MESSAGE_ZONE_GROUP_ID,
     MessageType,
 )
 from s3lobby.database import Setting
+from s3lobby.lobby import board_theme_group_id
 from s3lobby.messages import ChatCommandAnswer, GetTextMessage, GroupAnnouncement, RemovePlayerFromGroup, TextIdList, TextMessage
 from s3lobby.wire import RawMessage
 from tests.support import FakeGameClient, LobbyTestCase, join_group
 
 ENGLISH_GROUP_ID = BOARD_LANGUAGE_GROUP_ID_BASE + BOARD_LANGUAGES.index("English")
+
+
+def receive_listed(client: FakeGameClient, parent_id: int, count: int) -> list[GroupAnnouncement]:
+    """The next groups shown inside one parent."""
+
+    def is_listed_in_parent(message: RawMessage) -> bool:
+        """Whether the message lists a group inside parent_id."""
+        if message.message_type != MessageType.ADD_GROUP_TO_GROUP:
+            return False
+        return GroupAnnouncement.decode(message).parent_id == parent_id
+
+    return [GroupAnnouncement.decode(client.receive_matching(is_listed_in_parent)) for _ in range(count)]
 
 
 def receive_listed_names(client: FakeGameClient, parent_id: int, count: int) -> list[str]:
@@ -51,9 +66,10 @@ class MessageZoneTest(LobbyTestCase):
         message = self.database.post_board_message(theme.theme_id, "Saturday cup", "1 vs 1\nfrom 8 pm", author="Alice")
         alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
         join_group(alice, ENGLISH_GROUP_ID, alice_id)
-        self.assertEqual(receive_listed_names(alice, ENGLISH_GROUP_ID, 1), ["Tournaments"])
+        [listed_theme] = receive_listed(alice, ENGLISH_GROUP_ID, 1)
+        self.assertEqual(listed_theme.name, "Tournaments")
 
-        theme_group_id = BOARD_THEME_GROUP_ID_BASE + theme.theme_id
+        theme_group_id = listed_theme.group_id
         join_group(alice, theme_group_id, alice_id)
         listed = TextIdList.decode(alice.receive_next(MessageType.TEXT_ID_LIST))
         text_id = BOARD_MESSAGE_TEXT_ID_BASE + message.message_id
@@ -66,8 +82,9 @@ class MessageZoneTest(LobbyTestCase):
         self.assertEqual(text.lines[2:], ("1 vs 1", "from 8 pm"))
 
     def test_themes_come_in_the_board_s_order_and_hidden_ones_stay_away(self) -> None:
-        """Admins put the ladder's theme or an important one on top; the game lists the themes in the
-        order they arrive (inferred), and a hidden theme is not sent at all."""
+        """Admins put the ladder's theme or an important one on top. The game lists a parent's
+        groups by ascending group id (0x5db570), not in the order they arrive, so the group ids
+        must follow the board's order; a hidden theme is not sent at all."""
         cups = self.database.add_board_theme("English", "Cups")
         rules = self.database.add_board_theme("English", "Rules")
         hidden = self.database.add_board_theme("English", "Old news")
@@ -75,8 +92,29 @@ class MessageZoneTest(LobbyTestCase):
         self.database.set_board_theme_hidden(hidden.theme_id, True)
         alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
         join_group(alice, ENGLISH_GROUP_ID, alice_id)
-        self.assertEqual(receive_listed_names(alice, ENGLISH_GROUP_ID, 2), ["Rules", "Cups"])
+        listed = sorted(receive_listed(alice, ENGLISH_GROUP_ID, 2), key=lambda theme: theme.group_id)
+        self.assertEqual([theme.name for theme in listed], ["Rules", "Cups"])
         alice.assert_nothing_matching(lambda message: b"Old news" in message.body)
+
+    def test_a_new_order_reaches_players_who_open_the_board_again(self) -> None:
+        """Moving a theme up while the server runs gives it a lower group id, so the game shows it
+        higher the next time a player opens the language's themes."""
+        cups = self.database.add_board_theme("English", "Cups")
+        rules = self.database.add_board_theme("English", "Rules")
+        alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
+        join_group(alice, ENGLISH_GROUP_ID, alice_id)
+        before = sorted(receive_listed(alice, ENGLISH_GROUP_ID, 2), key=lambda theme: theme.group_id)
+        self.assertEqual([theme.name for theme in before], ["Cups", "Rules"])
+        alice.send(RemovePlayerFromGroup(ENGLISH_GROUP_ID, alice_id))
+        self.database.set_board_theme_order([rules.theme_id, cups.theme_id])
+        join_group(alice, ENGLISH_GROUP_ID, alice_id)
+        after = sorted(receive_listed(alice, ENGLISH_GROUP_ID, 2), key=lambda theme: theme.group_id)
+        self.assertEqual([theme.name for theme in after], ["Rules", "Cups"])
+
+    def test_every_theme_place_fits_below_the_game_ids(self) -> None:
+        """The last place of the last language must not reach the ids games and chat groups use."""
+        last = board_theme_group_id(len(BOARD_LANGUAGES) - 1, MAX_BOARD_THEMES_PER_LANGUAGE - 1, BOARD_THEME_ID_SPAN - 1)
+        self.assertLess(last, FIRST_GAME_GROUP_ID)
 
     def test_a_hidden_message_is_not_listed_or_sent(self) -> None:
         """A hidden message stays stored for admins, but the game neither lists it nor gets its text."""
@@ -86,7 +124,8 @@ class MessageZoneTest(LobbyTestCase):
         self.database.set_board_message_hidden(hidden.message_id, True)
         alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
         join_group(alice, ENGLISH_GROUP_ID, alice_id)
-        join_group(alice, BOARD_THEME_GROUP_ID_BASE + theme.theme_id, alice_id)
+        [listed_theme] = receive_listed(alice, ENGLISH_GROUP_ID, 1)
+        join_group(alice, listed_theme.group_id, alice_id)
         listed = TextIdList.decode(alice.receive_next(MessageType.TEXT_ID_LIST))
         self.assertEqual(listed.text_ids, (BOARD_MESSAGE_TEXT_ID_BASE + shown.message_id,))
         alice.send(GetTextMessage(BOARD_MESSAGE_TEXT_ID_BASE + hidden.message_id))
