@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greta's ladder - s3lobby (mockup)</title>
+<link rel="stylesheet" href="../../../s3lobby/web/static/tokens.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">s3lobby</a>
+    <div class="header-actions"><span class="muted">Greta</span> <button class="btn btn--quiet btn--sm" type="button">Log out</button></div>
+  </div>
+  <div class="app-nav-bar"><nav class="app-nav" aria-label="Sections"><a href="#">Lobby</a>
+<a href="#">Ladder</a>
+<a href="#">Accounts</a>
+<a href="#">Clans</a>
+<a href="#">News</a>
+<a href="#">Chat themes</a>
+<a href="#">Board</a>
+<a href="#">Announcements</a>
+<a href="#">Settings</a>
+<a href="#">Games</a>
+<a href="#" aria-current="page">Ladder games</a></nav></div>
+</header>
+<main class="wrap page">
+<div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
+<section>
+  <div class="section-head">
+    <h1>Greta's ladder</h1>
+    <p>Liga game opened by Greta in League 1 vs 1. This mockup shows only the new ladder part of the game page.</p>
+  </div>
+  <div class="table-block">
+    <table class="table table--facts">
+      <tbody>
+        <tr><th>Ladder</th><td>Liga, 1 on 1</td></tr>
+        <tr><th>State</th><td><span class="badge badge--good">counted</span> Greta won; both end reports agree</td></tr>
+        <tr><th>Played</th><td>27:41 (minimum 10:00)</td></tr>
+        <tr><th>Season</th><td>Season 4</td></tr>
+        <tr><th>Ratings</th><td>Greta 1022 to 1043 <span class="badge badge--good">+21</span>, Ole 961 to 931 <span class="badge badge--bad">-30</span> (provisional, K 32)</td></tr>
+        <tr><th>Answer to the game</th><td>0x6c, shown as "Game status stored at the Lobby server."</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void this result</button></div>
+</section>
+<section>
+  <div class="section-head"><h2>What the players read in the game</h2>
+  <p>Server lines in the lobby chat, the only place the game can show the ladder.</p></div>
+  <div class="card">
+<pre class="message-text">After the match, to both players:
+  Liga: Greta beats Ole, 1022 -> 1043 (Ole 961 -> 931).
+
+/rank Greta
+  Greta: Liga 1043, place 6 of 23 in Season 4.
+  Won 9, lost 7, left 0. All time 1043, place 6.
+
+/top
+  Season 4: 1 Thalia 1284, 2 Jin 1236, 3 Marcus 1179,
+  4 Lena 1121, 5 Pavel 1088.
+
+/clanrank Romans
+  Romans: Clanliga 1168, place 1 of 4. Won 7, lost 4.
+  Strength from Liga 1077 (Marcus, Lena, Ole).
+
+A match that does not count:
+  Liga: not ranked, the match was shorter than 10 minutes.</pre>
+  </div>
+</section>
+</main>
+<footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
+</body>
+</html>
