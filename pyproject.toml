@@ -16,11 +16,18 @@ classifiers = [
     "Topic :: Games/Entertainment :: Real Time Strategy",
 ]
 
+[project.optional-dependencies]
+# The web interface (s3lobby web); the lobby server itself needs nothing beyond the standard library.
+web = ["flask>=3.0"]
+
 [project.scripts]
 s3lobby = "s3lobby.cli:main"
 
 [tool.setuptools]
-packages = ["s3lobby"]
+packages = ["s3lobby", "s3lobby.web"]
+
+[tool.setuptools.package-data]
+"s3lobby.web" = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.setuptools.dynamic]
 version = { attr = "s3lobby.__version__" }

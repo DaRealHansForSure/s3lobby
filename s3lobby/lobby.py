@@ -24,6 +24,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Protocol
 
 from s3lobby.constants import (
@@ -60,7 +61,7 @@ from s3lobby.constants import (
     ResultCode,
 )
 from s3lobby.commands import ChatCommands, fit_answer
-from s3lobby.database import Clan, LobbyDatabase, Setting
+from s3lobby.database import Clan, LobbyDatabase, Setting, to_stored_time, utc_now
 from s3lobby.groups import (
     Group,
     GroupKind,
@@ -71,6 +72,7 @@ from s3lobby.groups import (
     with_real_host_address,
 )
 from s3lobby.guards import ThrottledLogger
+from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
     AddPlayerToGroup,
@@ -133,6 +135,7 @@ class Player:
     is_admin: bool
     session_id: int
     shown_clan: Clan | None = None
+    logged_on_at: datetime = field(default_factory=utc_now)
     group_ids: set[int] = field(default_factory=set)
     visible_groups: set[VisibleGroup] = field(default_factory=set)
 
@@ -217,6 +220,24 @@ class Lobby:
         """Send what another process (the command line, a web interface) queued in the database."""
         for text in self._database.take_pending_announcements():
             self.announce(text)
+
+    def live_state(self) -> LiveLobbyState:
+        """Who is online and which groups exist, for the web interface (see live.py)."""
+        players = [live_player(player) for player in sorted(self._players_by_id.values(), key=lambda player: player.name)]
+        groups = [self._live_group(self._groups[group_id]) for group_id in sorted(self._groups)]
+        return LiveLobbyState(server_name=self._server_name, players=players, groups=groups)
+
+    def _live_group(self, group: Group) -> LiveGroup:
+        return LiveGroup(
+            group_id=group.group_id,
+            kind=group.kind.value,
+            name=group.announcement.name,
+            max_players=group.announcement.max_players,
+            is_full=group.is_full,
+            has_password=bool(group.password),
+            member_names=[player.name for player in self._members_of(group)],
+            listed_in_ids=sorted(group.listed_in_parent_ids),
+        )
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         """Let the per client warning and logon limits forget clients that went quiet."""
@@ -790,6 +811,20 @@ def own_player_message(player: Player) -> EncodableMessage:
     if player.shown_clan is None:
         return OwnPlayer(player.player_id)
     return OwnPlayerWithClan(player.player_id, player.shown_clan.clan_id, player.shown_clan.name)
+
+
+def live_player(player: Player) -> LivePlayer:
+    host, port = player.address
+    clan_name = player.shown_clan.name if player.shown_clan is not None else ""
+    return LivePlayer(
+        player_id=player.player_id,
+        name=player.name,
+        clan=clan_name,
+        is_admin=player.is_admin,
+        address=f"{host}:{port}",
+        logged_on_at=to_stored_time(player.logged_on_at),
+        group_ids=sorted(player.group_ids),
+    )
 
 
 def member_entry(group_id: int, player: Player) -> EncodableMessage:

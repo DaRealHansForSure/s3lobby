@@ -337,6 +337,13 @@ CLOSING_LINGER_MS = 10_000
 # How often the server looks for announcements queued in the database by another process.
 ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
 
+# How often the server writes its live lobby (s3lobby/live.py) to the database when it changed, and
+# how often it writes it unchanged, as a sign of life. The web interface takes a state older than
+# LIVE_STATE_STALE_SECONDS as a server that is not running.
+LIVE_STATE_WRITE_INTERVAL_SECONDS = 1.0
+LIVE_STATE_HEARTBEAT_SECONDS = 10.0
+LIVE_STATE_STALE_SECONDS = 30.0
+
 # Group id of a server line sent to every player: the line shows in whatever room the player is
 # in; the id only names the group in the client's chat log file (0x5d2420).
 ANNOUNCEMENT_GROUP_ID = 0
@@ -391,6 +398,9 @@ WARNING_INTERVAL_SECONDS = 10.0
 MAX_GROUP_TEXT_LENGTH = 64
 MAX_GROUP_DESCRIPTION_BYTES = 512
 MAX_CHAT_COMMAND_LENGTH = 256
+# This server's limit for an announcement or the welcome line. ChatCommandAnswer wraps it into
+# lines the chat window shows; 256 characters stay within its line cap.
+MAX_ANNOUNCEMENT_LENGTH = 256
 
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4

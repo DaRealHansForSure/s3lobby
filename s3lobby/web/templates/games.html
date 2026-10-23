@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set active_nav = "games" %}
+{% block title %}Games{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Games</h1>
+    <p>The newest games opened in the lobby. The open ones are on the Lobby page too.</p>
+  </div>
+  {% if games %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Game</th><th>Host</th><th>Opened</th><th>Closed</th></tr></thead>
+      <tbody>
+        {% for game in games %}
+        <tr>
+          <td>{{ game.name }}</td>
+          <td>{{ game.host_name or "-" }}</td>
+          <td>{{ game.opened_at | moment }}</td>
+          <td>{% if game.closed_at %}{{ game.closed_at | moment }}{% else %}<span class="badge badge--good">open</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No games yet.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Match reports</h2>
+    <p>What the game sends after a match, stored as received. Their layout is only partly known,
+    so they are offered as files.</p>
+  </div>
+  {% if reports %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Received</th><th>From</th><th class="num">Game id</th><th class="num">Bytes</th><th></th></tr></thead>
+      <tbody>
+        {% for report in reports %}
+        <tr>
+          <td>{{ report.received_at | moment }}</td>
+          <td>{{ report.sender_name or "-" }}</td>
+          <td class="num">{{ "%#x" | format(report.group_id) }}</td>
+          <td class="num">{{ report.size }}</td>
+          <td><a href="{{ url_for('games.download_report', report_id=report.report_id) }}">Download</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No reports yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

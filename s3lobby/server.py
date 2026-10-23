@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import socket
 import time
 from dataclasses import dataclass
@@ -22,6 +23,8 @@ from dataclasses import dataclass
 from s3lobby.connection import ReliableConnection
 from s3lobby.constants import (
     ANNOUNCEMENT_POLL_INTERVAL_SECONDS,
+    LIVE_STATE_HEARTBEAT_SECONDS,
+    LIVE_STATE_WRITE_INTERVAL_SECONDS,
     DATAGRAM_BURST_PER_ADDRESS,
     DATAGRAMS_PER_SECOND_PER_ADDRESS,
     DEFAULT_SERVER_PORT,
@@ -78,6 +81,9 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._lobby = Lobby(settings.server_name, outbox=self, database=database)
         self._datagram_rate = RateLimiter(DATAGRAMS_PER_SECOND_PER_ADDRESS, DATAGRAM_BURST_PER_ADDRESS)
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
+        # Nothing written yet: the first check writes at once.
+        self._last_live_state_json = ""
+        self._last_live_state_write_seconds = -math.inf
 
     @property
     def bound_address(self) -> Address:
@@ -147,15 +153,20 @@ class LobbyServer(asyncio.DatagramProtocol):
                 pass
         if self._transport is not None:
             self._transport.close()
+        self._database.clear_live_state()
         self._database.close()
 
     async def _run_housekeeping(self) -> None:
         last_announcement_poll_seconds = time.monotonic()
+        last_live_state_check_seconds = time.monotonic()
         while True:
             await asyncio.sleep(HOUSEKEEPING_INTERVAL_SECONDS)
             if time.monotonic() - last_announcement_poll_seconds >= ANNOUNCEMENT_POLL_INTERVAL_SECONDS:
                 last_announcement_poll_seconds = time.monotonic()
                 self._lobby.send_pending_announcements()
+            if time.monotonic() - last_live_state_check_seconds >= LIVE_STATE_WRITE_INTERVAL_SECONDS:
+                last_live_state_check_seconds = time.monotonic()
+                self.write_live_state_when_due(last_live_state_check_seconds)
             now_ms = monotonic_ms()
             for client_address, connection in list(self._connections.items()):
                 if connection.is_finished(now_ms):
@@ -166,6 +177,20 @@ class LobbyServer(asyncio.DatagramProtocol):
             self._datagram_rate.forget_quiet_keys(now_seconds)
             self._warnings.forget_quiet_keys(now_seconds)
             self._lobby.forget_quiet_keys(now_seconds)
+
+    def write_live_state_when_due(self, now_seconds: float) -> None:
+        """Write the lobby for the web interface when it changed, or as a sign of life when the
+        last write is LIVE_STATE_HEARTBEAT_SECONDS old. Comparing the JSON text keeps an idle
+        lobby from rewriting the database every second."""
+        state = self._lobby.live_state()
+        state_json = state.to_json()
+        is_unchanged = state_json == self._last_live_state_json
+        is_heartbeat_due = now_seconds - self._last_live_state_write_seconds >= LIVE_STATE_HEARTBEAT_SECONDS
+        if is_unchanged and not is_heartbeat_due:
+            return
+        self._database.write_live_state(state)
+        self._last_live_state_json = state_json
+        self._last_live_state_write_seconds = now_seconds
 
     def _receive_datagram(self, data: bytes, client_address: Address) -> None:
         """Parse and act on one datagram; raises ProtocolError when it breaks a rule."""
@@ -272,6 +297,7 @@ async def start_server(settings: ServerSettings) -> LobbyServer:
         database.close()
         raise
     server.start_housekeeping()
+    server.write_live_state_when_due(time.monotonic())
     return server
 
 

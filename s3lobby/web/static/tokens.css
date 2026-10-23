@@ -1,0 +1,203 @@
+/* tokens.css - beni-ui-kit
+   Custom properties only. This file paints nothing and moves nothing,
+   so it is safe to import into any existing project. Import it first;
+   everything else reads from it.
+*/
+
+/* ---------------------------------------------------------------
+   1. Tokens
+   Light is cold concrete grey with a deep ink navy.
+   Dark is neutral graphite with a lifted navy.
+   Nothing is shared between them. The two dark blocks stay in sync.
+--------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  --canvas:        #e1e4e7;
+  --surface:       #f4f6f7;
+  --surface-alt:   #cfd5d9;
+  --border:        #b3bbc1;
+  --border-strong: #8b949b;
+  --text:          #12171c;
+  --text-muted:    #545f68;
+
+  --accent:          #1b3a6b;
+  --accent-hover:    #142c52;
+  --accent-contrast: #ffffff;
+  --accent-soft:     #d4dced;
+  --knob:            #ffffff;
+
+  --good: #17603f;
+  --warn: #6d5a10;
+  --bad:  #9b2226;
+  --good-soft: #d1e5da;
+  --warn-soft: #e5e0c6;
+  --bad-soft:  #eed9d9;
+
+  /* chart bands. The -soft tokens are badge backgrounds, deliberately
+     close to the surface; as areas the reader must tell apart they are
+     invisible in dark. These separate by lightness as well as hue. */
+  --good-fill: #c4ddce;
+  --warn-fill: #dec470;
+  --bad-fill:  #d79086;
+
+  --shadow: 0 6px 24px rgba(18, 23, 28, 0.18);
+
+  /* extended palette, for categories rather than actions.
+     Sixteen separate hues, not eight plus tints. Ordered so the
+     first N are the most separated, with two neutrals at the end
+     for the "other" bucket that every chart eventually needs. */
+  --data-1: #2f63b0;
+  --data-2: #0e6172;
+  --data-3: #2c6b3a;
+  --data-4: #5d6415;
+  --data-5: #8a6412;
+  --data-6: #91422a;
+  --data-7: #96203c;
+  --data-8: #56317c;
+  --data-9:  #3f7ca8;
+  --data-10: #2f9b73;
+  --data-11: #6f9138;
+  --data-12: #a83a72;
+  --data-13: #4a45b5;
+  --data-14: #7a5a3c;
+  --data-15: #5a6b78;
+  --data-16: #3f474d;
+
+  /* type, system stacks only, nothing downloaded */
+  --font-ui:   system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --size-xs: 0.78rem;
+  --size-sm: 0.875rem;
+  --size-md: 1rem;
+  --size-lg: 1.15rem;
+  --size-xl: 1.45rem;
+  --size-2xl: 1.9rem;
+  --size-3xl: 2.5rem;
+
+  /* space, 4px steps */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4.5rem;
+
+  /* squared geometry, hierarchy comes from border weight not rounding */
+  --radius-control: 0;
+  --radius-box: 0;
+  --radius-tag: 2px;
+  /* the one exception, see the toggle in components.css */
+  --radius-pill: 999px;
+
+  --measure: 68ch;
+
+  /* One dial for the whole interface. Every size and space below is in
+     rem, so changing this scales the design without touching a rule.
+     The mobile override lives with the breakpoints in components.css. */
+  --zoom: 1;
+}
+
+/* Dark, when the OS asks for it and the user hasn't overridden it here. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --canvas:        #191b1a;
+    --surface:       #222524;
+    --surface-alt:   #2c302e;
+    --border:        #3a3e3c;
+    --border-strong: #565b59;
+    --text:          #e8eae9;
+    --text-muted:    #979e9c;
+
+    --accent:          #5b8ad9;
+    --accent-hover:    #7ba4e6;
+    --accent-contrast: #0c1526;
+    --accent-soft:     #1b2842;
+    --knob:            #e8eae9;
+
+    --good: #5bbd85;
+    --warn: #bfae55;
+    --bad:  #d9564f;
+    --good-soft: #17301f;
+    --warn-soft: #2b2814;
+    --bad-soft:  #331c1a;
+
+    --good-fill: #245439;
+    --warn-fill: #927f33;
+    --bad-fill:  #ab4e43;
+
+    --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+
+    --data-1: #8fb6ea;
+    --data-2: #35a9bd;
+    --data-3: #57b25c;
+    --data-4: #a3a845;
+    --data-5: #cfa63f;
+    --data-6: #d07a4e;
+    --data-7: #d4515e;
+    --data-8: #a97ddb;
+    --data-9:  #63c0e6;
+    --data-10: #4ec792;
+    --data-11: #8fc44f;
+    --data-12: #d96bab;
+    --data-13: #6d7be6;
+    --data-14: #b58d67;
+    --data-15: #8aa7bd;
+    --data-16: #7d8582;
+  }
+}
+
+/* Dark, chosen explicitly with the toggle. Same values as above. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas:        #191b1a;
+  --surface:       #222524;
+  --surface-alt:   #2c302e;
+  --border:        #3a3e3c;
+  --border-strong: #565b59;
+  --text:          #e8eae9;
+  --text-muted:    #979e9c;
+
+  --accent:          #5b8ad9;
+  --accent-hover:    #7ba4e6;
+  --accent-contrast: #0c1526;
+  --accent-soft:     #1b2842;
+  --knob:            #e8eae9;
+
+  --good: #5bbd85;
+  --warn: #bfae55;
+  --bad:  #d9564f;
+  --good-soft: #17301f;
+  --warn-soft: #2b2814;
+  --bad-soft:  #331c1a;
+
+  --good-fill: #245439;
+  --warn-fill: #927f33;
+  --bad-fill:  #ab4e43;
+
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+
+  --data-1: #8fb6ea;
+  --data-2: #35a9bd;
+  --data-3: #57b25c;
+  --data-4: #a3a845;
+  --data-5: #cfa63f;
+  --data-6: #d07a4e;
+  --data-7: #d4515e;
+  --data-8: #a97ddb;
+  --data-9:  #63c0e6;
+  --data-10: #4ec792;
+  --data-11: #8fc44f;
+  --data-12: #d96bab;
+  --data-13: #6d7be6;
+  --data-14: #b58d67;
+  --data-15: #8aa7bd;
+  --data-16: #7d8582;
+}

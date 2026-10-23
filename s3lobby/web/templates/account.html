@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, action_button with context %}
+{% set active_nav = "accounts" %}
+{% block title %}{{ account.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>{{ account.name }}</h1>
+    <p class="badges">
+      {% if is_online %}<span class="badge badge--good">online</span>{% endif %}
+      {% if account.is_admin %}<span class="badge badge--accent">admin</span>{% endif %}
+      {% if is_banned %}<span class="badge badge--bad">banned until {{ account.banned_until | moment }}</span>{% endif %}
+      <span class="badge">created {{ account.created_at | moment }}</span>
+      <span class="badge">last logon {{ account.last_logon_at | moment }}</span>
+    </p>
+  </div>
+  {% if is_online %}
+  <div class="note note--accent" role="note">
+    {{ account.name }} is in the lobby right now. A ban, clan or admin change applies from the next logon.
+  </div>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Access codes</h2>
+    <p>Each code works on its own; revoke the code of a PC that is no longer used.</p>
+  </div>
+  {% if access_codes %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Label</th><th>Created</th><th>Last used</th><th>State</th><th></th></tr></thead>
+      <tbody>
+        {% for code in access_codes %}
+        <tr>
+          <td>{{ code.label or "-" }}</td>
+          <td>{{ code.created_at | moment }}</td>
+          <td>{{ code.last_used_at | moment }}</td>
+          <td>{% if code.is_active %}<span class="badge badge--good">active</span>{% else %}<span class="badge">revoked {{ code.revoked_at | moment }}</span>{% endif %}</td>
+          <td>{% if code.is_active %}{{ action_button(url_for('accounts.revoke_access_code', account_id=account.account_id, code_id=code.code_id), "Revoke") }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No access codes.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('accounts.issue_access_code', account_id=account.account_id) }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field">
+        <span class="label">Label for a new code</span>
+        <input class="input" type="text" name="label" maxlength="{{ max_name_length }}">
+        <span class="hint">Optional, for example the PC the code is for.</span>
+      </label>
+      <div><button class="btn btn--primary" type="submit">Issue a new code</button></div>
+    </div>
+  </form>
+  <div class="form-actions">
+    {{ action_button(url_for('accounts.revoke_all_access_codes', account_id=account.account_id), "Revoke every code", "btn--danger") }}
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Clan and rights</h2></div>
+  <div class="grid">
+    <form class="card" method="post" action="{{ url_for('accounts.set_clan', account_id=account.account_id) }}">
+      {{ csrf_field() }}
+      <label class="field">
+        <span class="label">Clan</span>
+        <select class="select" name="clan_id">
+          <option value="">No clan</option>
+          {% for each_clan in clans %}
+          <option value="{{ each_clan.clan_id }}"{% if clan and clan.clan_id == each_clan.clan_id %} selected{% endif %}>{{ each_clan.name }}</option>
+          {% endfor %}
+        </select>
+        <span class="hint">Shown next to the name when the player ticks the logon dialog's Clan box.</span>
+      </label>
+      <button class="btn btn--outline" type="submit">Save clan</button>
+    </form>
+    <form class="card" method="post" action="{{ url_for('accounts.set_admin', account_id=account.account_id) }}">
+      {{ csrf_field() }}
+      <label class="check">
+        <input type="checkbox" name="is_admin"{% if account.is_admin %} checked{% endif %}{% if is_own_account %} disabled{% endif %}>
+        <span>Admin: may use this interface and the admin chat commands</span>
+      </label>
+      {% if is_own_account %}
+        <p class="meta">You cannot take away your own admin rights.</p>
+      {% else %}
+        <button class="btn btn--outline" type="submit">Save rights</button>
+      {% endif %}
+    </form>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Ban</h2></div>
+  {% if is_own_account %}
+    <p class="empty-state">You cannot ban yourself.</p>
+  {% elif is_banned %}
+    <p>Banned until {{ account.banned_until | moment }}{% if account.ban_reason %}: {{ account.ban_reason }}{% endif %}.</p>
+    <div class="form-actions">{{ action_button(url_for('accounts.unban_account', account_id=account.account_id), "Lift the ban") }}</div>
+  {% else %}
+  <form method="post" action="{{ url_for('accounts.ban_account', account_id=account.account_id) }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field">
+        <span class="label">Hours</span>
+        <input class="input" type="number" name="hours" min="1" max="{{ max_ban_hours }}" value="{{ default_ban_hours }}" required>
+      </label>
+      <label class="field">
+        <span class="label">Reason</span>
+        <input class="input" type="text" name="reason" maxlength="{{ max_ban_reason_length }}">
+        <span class="hint">A note for other admins; the player does not see it.</span>
+      </label>
+    </div>
+    <div class="form-actions"><button class="btn btn--danger" type="submit">Ban</button></div>
+  </form>
+  {% endif %}
+</section>
+
+{% if not is_own_account %}
+<section>
+  <div class="section-head">
+    <h2>Remove account</h2>
+    <p>Removes the account with its access codes and clan membership. Games and reports it took
+    part in stay, without the name.</p>
+  </div>
+  <form method="post" action="{{ url_for('accounts.delete_account', account_id=account.account_id) }}">
+    {{ csrf_field() }}
+    <label class="field">
+      <span class="label">Type {{ account.name }} to confirm</span>
+      <input class="input" type="text" name="confirm_name" autocomplete="off" required>
+    </label>
+    <button class="btn btn--danger" type="submit">Remove account</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

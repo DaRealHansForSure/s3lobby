@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% set active_nav = "accounts" %}
+{% block title %}Accounts{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Accounts</h1>
+    <p>Players log on with their account name and an access code. The game's own "create player"
+    button is refused, so every account starts here or on the command line.</p>
+  </div>
+  {% if rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Name</th><th>Clan</th><th>State</th><th>Created</th><th>Last logon</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><a href="{{ url_for('accounts.show_account', account_id=row.account.account_id) }}">{{ row.account.name }}</a></td>
+          <td>{{ row.clan_name or "-" }}</td>
+          <td>
+            <div class="badges">
+              {% if row.is_online %}<span class="badge badge--good">online</span>{% endif %}
+              {% if row.account.is_admin %}<span class="badge badge--accent">admin</span>{% endif %}
+              {% if row.is_banned %}<span class="badge badge--bad">banned</span>{% endif %}
+            </div>
+          </td>
+          <td>{{ row.account.created_at | moment }}</td>
+          <td>{{ row.account.last_logon_at | moment }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No accounts yet.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>New account</h2>
+    <p>The next page shows the account's first access code, once. Give it to the player together
+    with the name.</p>
+  </div>
+  <form method="post" action="{{ url_for('accounts.create_account') }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field">
+        <span class="label">Player name</span>
+        <input class="input" type="text" name="name" maxlength="{{ max_name_length }}" pattern="{{ player_name_pattern }}" required>
+        <span class="hint">Letters A to Z and single spaces, the game's own rule.</span>
+      </label>
+      <label class="field">
+        <span class="label">Code label</span>
+        <input class="input" type="text" name="label" maxlength="{{ max_name_length }}">
+        <span class="hint">Optional note, for example the PC the code is for.</span>
+      </label>
+    </div>
+    <label class="check"><input type="checkbox" name="is_admin"> <span>Admin: may use this interface and the admin chat commands</span></label>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Create account</button></div>
+  </form>
+</section>
+{% endblock %}

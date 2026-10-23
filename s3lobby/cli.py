@@ -6,6 +6,7 @@
     s3lobby clan join Romans Alice
     s3lobby news set --audience german --title "Willkommen" --text "Viel Spass!"
     s3lobby announce "Server restart at 22:00"
+    s3lobby web --port 8080
 
 Every subcommand takes --database to choose the SQLite file (default: s3lobby.sqlite3 in the
 current folder). python -m s3lobby works the same as the installed s3lobby command.
@@ -15,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import logging
+import os
 import sys
 from collections.abc import Sequence
 
@@ -29,6 +32,11 @@ LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)-7s %(message)s"
 LOG_TIME_FORMAT = "%H:%M:%S"
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
+# The web interface listens on this machine only unless told otherwise: it is an admin interface,
+# and plain HTTP should not leave the machine without a reverse proxy adding HTTPS.
+DEFAULT_WEB_HOST = "127.0.0.1"
+DEFAULT_WEB_PORT = 8080
+WEB_SECRET_VARIABLE = "S3LOBBY_WEB_SECRET"
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +49,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return EXIT_FAILURE
     if options.command == "serve":
         return run_server(options)
+    if options.command == "web":
+        return run_web_interface(options)
     return run_admin(options)
 
 
@@ -59,6 +69,30 @@ def run_server(options: argparse.Namespace) -> int:
         log.info("stopped")
     except (OSError, DatabaseError) as error:
         log.error("cannot serve: %s", error)
+        return EXIT_FAILURE
+    return EXIT_SUCCESS
+
+
+def run_web_interface(options: argparse.Namespace) -> int:
+    """Serve the web interface with Flask's own server, which is enough for a LAN. For the internet,
+    run s3lobby.web.app:create_app_from_environment under a WSGI server behind an HTTPS proxy."""
+    if importlib.util.find_spec("flask") is None:
+        print("error: the web interface needs Flask; install it with: pip install .[web]", file=sys.stderr)
+        return EXIT_FAILURE
+    # Imported here so every other command works without Flask installed.
+    from s3lobby.web.app import create_app
+
+    configure_logging(options.verbose, log_file=None)
+    try:
+        app = create_app(
+            database_path=options.database,
+            secret_key=os.environ.get(WEB_SECRET_VARIABLE),
+            secure_cookies=options.secure_cookies,
+            is_behind_proxy=options.behind_proxy,
+        )
+        app.run(host=options.host, port=options.port, threaded=True)
+    except OSError as error:
+        log.error("cannot serve the web interface: %s", error)
         return EXIT_FAILURE
     return EXIT_SUCCESS
 
@@ -112,6 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_board_commands(commands, database_option)
     add_setting_commands(commands, database_option)
     add_announce_command(commands, database_option)
+    add_web_command(commands, database_option)
     return parser
 
 
@@ -275,6 +310,27 @@ def add_announce_command(commands: argparse._SubParsersAction, database_option: 
     )
     announce.add_argument("text")
     announce.set_defaults(admin_function=admin.queue_announcement)
+
+
+def add_web_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    web = commands.add_parser(
+        "web",
+        parents=[database_option],
+        help="run the web interface: the live lobby, and administration for admins (needs Flask)",
+        description=(
+            f"Admins log on with their player name and an access code. Set {WEB_SECRET_VARIABLE} to a "
+            "long random string to keep them logged on across restarts."
+        ),
+    )
+    web.add_argument("--host", default=DEFAULT_WEB_HOST, help="address to listen on (default: %(default)s)")
+    web.add_argument("--port", type=int, default=DEFAULT_WEB_PORT, help="TCP port (default: %(default)s)")
+    web.add_argument("--secure-cookies", action="store_true", help="send the session cookie over HTTPS only")
+    web.add_argument(
+        "--behind-proxy",
+        action="store_true",
+        help="take the client address from the reverse proxy's X-Forwarded-For header",
+    )
+    web.add_argument("--verbose", action="store_true", help="log every request")
 
 
 def add_text_source(parser: argparse.ArgumentParser) -> None:

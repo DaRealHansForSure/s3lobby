@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% set active_nav = "settings" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Settings</h1>
+    <p>The running server reads these when it needs them, so a change applies from the next logon
+    or the next visit to the Home tab.</p>
+  </div>
+  <form method="post" action="{{ url_for('server_settings.save_settings') }}">
+    {{ csrf_field() }}
+    {% for row in rows %}
+      {% if row.field.is_checkbox %}
+      <label class="check">
+        <input type="checkbox" name="{{ row.field.setting.key }}"{% if row.is_checked %} checked{% endif %}>
+        <span>{{ row.field.label }}<br><span class="muted">{{ row.field.hint }}</span></span>
+      </label>
+      {% else %}
+      <label class="field">
+        <span class="label">{{ row.field.label }}</span>
+        <input class="input" type="text" name="{{ row.field.setting.key }}" value="{{ row.value }}">
+        <span class="hint">{{ row.field.hint }}</span>
+      </label>
+      {% endif %}
+    {% endfor %}
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Save settings</button></div>
+  </form>
+</section>
+{% endblock %}
