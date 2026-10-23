@@ -7,6 +7,31 @@ machines.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-23
+
+### Added
+
+- SECURITY.md: the game sends its password and chat in plain text, and what that means.
+- A roadmap in the README, with ranked ladder games.
+
+### Changed
+
+- The GitHub Actions run on Node.js 24.
+
+### Fixed
+
+- Bytes the game's code page leaves undefined no longer break the database and the live lobby.
+
+### Security
+
+- Web interface: no open redirect after logon; server-side sessions (migration 0006) that a logout
+  ends and that last at most 12 hours; no lockout of admins by others; bounded logon checks;
+  no-store caching, isolation headers, HSTS and a `__Host-` cookie with HTTPS.
+- Server: guarded housekeeping, a block size budget, capped acknowledgements and timeouts, no
+  answers before a logon, a logon deadline and a total log budget.
+- Game logon failures counted per address, a budget of code checks, and limits on wrong group
+  passwords and group updates per player; admin rights read at each command.
+
 ## [0.7.0] - 2026-10-23
 
 ### Added
@@ -121,7 +146,8 @@ machines.
 - `docs/protocol.md`: the protocol with the address in the game's executable for every fact.
 - README, packaging and CLAUDE.md.
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.4.0...v0.5.0
