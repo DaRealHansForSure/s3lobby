@@ -55,7 +55,10 @@ class HomeTabTest(LobbyTestCase):
         self.assertEqual(TextMessage.decode(alice.receive_next(MessageType.TEXT_MESSAGE)).title, UNKNOWN_TEXT_TITLE)
 
     def test_long_news_is_cut_to_one_datagram(self) -> None:
-        self.database.set_news("other", "Welcome", "\n".join(f"line {number} " + "x" * 60 for number in range(100)))
+        """The longest text the database takes still needs a byte per line on the wire, and
+        the title too; the lobby cuts what does not fit."""
+        short_lines = ["x" * 9] * (MAX_TEXT_MESSAGE_BYTES // 10)
+        self.database.set_news("other", "Welcome", "\n".join(short_lines))
         alice = self.enter_home()
         alice.send(GetTextMessage(OTHER_NEWS_ID))
         news = alice.receive_next(MessageType.TEXT_MESSAGE)

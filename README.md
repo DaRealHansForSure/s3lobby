@@ -66,8 +66,10 @@ s3lobby account ban Alice --hours 24 --reason "spam"
 s3lobby account admin Alice                      may use the admin chat commands
 ```
 
-Player names follow the game's own rule: letters A to Z and single spaces. The server stores only
-a salted hash of each access code. A refused logon shows the game's own dialog text: unknown name
+Player names follow the game's own rule: letters A to Z and single spaces. Neither the name nor the
+access code is case sensitive: codes are made of capitals and digits only, so a player may type
+them in any case without making them easier to guess. The server stores only a salted hash of each
+access code. A refused logon shows the game's own dialog text: unknown name
 or wrong code, banned, server full, already logged on, or "no clan member" when the player ticked
 the logon dialog's Clan box without being in a clan. Clan members who tick the box are shown with
 their clan in the room member lists. After ten failed attempts from one IP or for one name, further

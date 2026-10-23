@@ -53,6 +53,10 @@ class LogonCheckTest(unittest.TestCase):
         decision = self.check.decide(logon(name="alice"), CLIENT_IP, EMPTY_LOBBY)
         self.assertEqual(decision.account.name, "Alice")
 
+    def test_access_code_is_matched_without_regard_to_case(self) -> None:
+        decision = self.check.decide(logon(access_code=ACCESS_CODE.lower()), CLIENT_IP, EMPTY_LOBBY)
+        self.assertIsInstance(decision, AcceptedLogon)
+
     def test_unknown_account_and_wrong_code_get_the_same_refusal(self) -> None:
         self.assert_refused_with(
             self.check.decide(logon(name="Mallory"), CLIENT_IP, EMPTY_LOBBY), ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE

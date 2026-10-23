@@ -92,6 +92,12 @@ class BackgroundServer:
         return self
 
     def __exit__(self, *exception_details: object) -> None:
+        self.stop()
+
+    def stop(self) -> None:
+        """Close the server and end its thread; a second call does nothing."""
+        if self._loop.is_closed():
+            return
         future = asyncio.run_coroutine_threadsafe(self._server.close(), self._loop)
         future.result(timeout=SERVER_START_TIMEOUT_SECONDS)
         self._loop.call_soon_threadsafe(self._loop.stop)
