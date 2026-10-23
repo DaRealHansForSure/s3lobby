@@ -5,9 +5,10 @@
 {%- endmacro %}
 
 {# A form with a single button, for actions in a table row or a button row; fields are sent along
-   as hidden values. #}
-{% macro action_button(action, label, style="btn--outline", fields={}) -%}
-<form class="inline-form" method="post" action="{{ action }}">
+   as hidden values. With confirm, the page asks first in a dialog (app.js) and the button only
+   acts after the admin confirms; without script the form submits as it is. #}
+{% macro action_button(action, label, style="btn--outline", fields={}, confirm="") -%}
+<form class="inline-form" method="post" action="{{ action }}"{% if confirm %} data-confirm="{{ confirm }}" data-confirm-label="{{ label }}"{% endif %}>
   {{ csrf_field() }}
   {% for name, value in fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
   <button class="btn {{ style }} btn--sm" type="submit">{{ label }}</button>
@@ -35,8 +36,12 @@
 {%- else %}<span class="muted">-</span>{% endif %}
 {%- endmacro %}
 
-{% macro names(list) -%}
-{% if list %}{{ list | join(", ") }}{% else %}<span class="muted">-</span>{% endif %}
+{# A list of names, at most limit of them: a room with a hundred players shows the first few and
+   how many more there are (the search on the lobby page finds anyone). #}
+{% macro names(list, limit=8) -%}
+{% if not list %}<span class="muted">-</span>
+{%- elif list | length > limit %}{{ list[:limit] | join(", ") }} <span class="muted">and {{ list | length - limit }} more</span>
+{%- else %}{{ list | join(", ") }}{% endif %}
 {%- endmacro %}
 
 {# The ladder's pieces, shared by the ladder page and the player pages. #}

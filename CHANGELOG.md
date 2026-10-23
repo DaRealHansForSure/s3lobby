@@ -41,6 +41,15 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   The game sorts a list's groups by their id (0x5db570), so each board theme's group id now holds
   its place on the board.
 
+- Admins act on players from the live lobby: each player has Message (a server line only that
+  player sees, if online), Kick and Ban; `s3lobby announce TEXT --to NAME` does the same from the
+  command line, and the Announcements page shows whom each line was for and whether it arrived
+  (migration 0012). The live lobby has a search, and long name lists show the first names and how
+  many more there are.
+- Kicks, bans, removals, voiding and deciding a ladder game, and ending or deleting a season ask
+  for a confirmation in a dialog first.
+- `scripts/start.sh --follow` shows the lobby's log right after starting it.
+
 ### Removed
 
 - The setting `board_chat_hint` and its server line: the MessageZone screen has no chat field

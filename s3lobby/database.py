@@ -434,11 +434,24 @@ class PendingKick:
 @dataclass(frozen=True)
 class AnnouncementRecord:
     """An announcement queued for the running server. sent_at is None until the server took it,
-    or until a server start discarded it as stale."""
+    or until a server start discarded it as stale. recipient_name is empty for every player;
+    reached_count is how many players got it (None for announcements from before migration 0012)."""
 
     text: str
     created_at: datetime
     sent_at: datetime | None
+    recipient_name: str = ""
+    reached_count: int | None = None
+
+
+@dataclass(frozen=True)
+class PendingAnnouncement:
+    """A server line the running server is to send: to every player, or to the account
+    account_id only."""
+
+    announcement_id: int
+    text: str
+    account_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1723,16 +1736,20 @@ class LobbyDatabase:
 
     # Announcements from outside the server process.
 
-    def queue_announcement(self, text: str) -> None:
-        """Queue a line for the running server to show in every player's chat. Raises
-        DatabaseError for an empty text or one the game cannot show."""
+    def queue_announcement(self, text: str, account_id: int | None = None) -> None:
+        """Queue a line for the running server to show in every player's chat, or with account_id
+        in that player's chat only. Raises DatabaseError for an empty text, one the game cannot
+        show, or an account that does not exist."""
         check_title("announcement", text)
         check_game_text("announcement", text, MAX_ANNOUNCEMENT_LENGTH)
-        with self._backend.transaction():
-            self._backend.execute(
-                "INSERT INTO pending_announcements (text, created_at) VALUES (?, ?)",
-                (text, to_stored_time(self._clock())),
-            )
+        try:
+            with self._backend.transaction():
+                self._backend.execute(
+                    "INSERT INTO pending_announcements (text, created_at, account_id) VALUES (?, ?, ?)",
+                    (text, to_stored_time(self._clock()), account_id),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"there is no account {account_id}") from error
 
     def discard_pending_announcements(self) -> int:
         """Mark every queued announcement as done without sending it; returns how many. At server
@@ -1744,24 +1761,39 @@ class LobbyDatabase:
             )
         return result.row_count
 
-    def take_pending_announcements(self) -> list[str]:
-        """The announcements not sent yet, oldest first, marked as sent in the same step."""
+    def take_pending_lines(self) -> list[PendingAnnouncement]:
+        """The announcements and messages to single players not sent yet, oldest first, marked as
+        sent in the same step."""
         # One transaction, as in take_pending_kicks: a failure halfway marks none as sent.
         with self._backend.transaction():
             rows = self._backend.fetch_all(
-                "SELECT id, text FROM pending_announcements WHERE sent_at IS NULL ORDER BY id"
+                "SELECT id, text, account_id FROM pending_announcements WHERE sent_at IS NULL ORDER BY id"
             )
             sent_at = to_stored_time(self._clock())
             for row in rows:
                 self._backend.execute(
                     "UPDATE pending_announcements SET sent_at = ? WHERE id = ?", (sent_at, row["id"])
                 )
-        return [row["text"] for row in rows]
+        return [PendingAnnouncement(row["id"], row["text"], row["account_id"]) for row in rows]
+
+    def take_pending_announcements(self) -> list[str]:
+        """The texts of the lines not sent yet, oldest first, marked as sent (see take_pending_lines)."""
+        return [line.text for line in self.take_pending_lines()]
+
+    def record_announcement_reach(self, announcement_id: int, reached_count: int) -> None:
+        """Note how many players a sent line reached: 0 for a player who was not online."""
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE pending_announcements SET reached_count = ? WHERE id = ?", (reached_count, announcement_id)
+            )
 
     def list_recent_announcements(self, limit: int) -> list[AnnouncementRecord]:
         """The newest announcements first; sent_at is None while the server has not taken one yet."""
         rows = self._backend.fetch_all(
-            "SELECT text, created_at, sent_at FROM pending_announcements ORDER BY id DESC LIMIT ?",
+            "SELECT pending_announcements.text, pending_announcements.created_at, pending_announcements.sent_at, "
+            "pending_announcements.reached_count, accounts.name AS recipient_name FROM pending_announcements "
+            "LEFT JOIN accounts ON accounts.id = pending_announcements.account_id "
+            "ORDER BY pending_announcements.id DESC LIMIT ?",
             (limit,),
         )
         return [
@@ -1769,6 +1801,8 @@ class LobbyDatabase:
                 text=row["text"],
                 created_at=from_stored_time(row["created_at"]),
                 sent_at=from_optional_stored_time(row["sent_at"]),
+                recipient_name=row["recipient_name"] or "",
+                reached_count=row["reached_count"],
             )
             for row in rows
         ]

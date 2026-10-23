@@ -2,7 +2,15 @@
 {% set active_nav = "lobby" %}
 {% block title %}Lobby{% endblock %}
 {% block content %}
-<div id="live-state" data-state-url="{{ url_for('lobby_view.live_state_part') }}">
+{% set action = url_for('lobby_view.live_lobby') %}
+<form class="grid-12 toolbar" method="get" action="{{ action }}">
+  <label class="field col-6">
+    <span class="label">Find a player</span>
+    <input class="input" type="search" name="q" value="{{ search }}" placeholder="Name or clan">
+  </label>
+  <div class="form-actions col-3"><button class="btn btn--outline" type="submit">Find</button>{% if search %} <a class="btn btn--quiet" href="{{ action }}">Show all</a>{% endif %}</div>
+</form>
+<div id="live-state" data-state-url="{{ url_for('lobby_view.live_state_part', q=search or None) }}">
   {% include "_live_state.html" %}
 </div>
 {% endblock %}

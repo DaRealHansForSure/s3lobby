@@ -315,3 +315,6 @@ a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--ac
 .is-hidden > td { color: var(--text-muted); }
 /* SortableJS marks the place an item is dragged to. */
 .sortable-ghost { opacity: 0.4; }
+
+/* A link drawn as a button (Ban, Public site, Message) reads as a button, not as a link. */
+a.btn { text-decoration: none; }

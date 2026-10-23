@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 import unittest
 from dataclasses import dataclass
 
@@ -14,6 +15,9 @@ from s3lobby.reachability import Reachability
 from tests.support import LobbyTestCase, log_on
 
 GAME_ZONE = 30
+# How long a test waits for the running server to take a queued line: it polls every second.
+ANNOUNCEMENT_POLL_SECONDS = 0.1
+MAX_ANNOUNCEMENT_POLLS = 50
 
 
 @dataclass
@@ -230,6 +234,30 @@ class ServerLinesTest(LobbyTestCase):
         for client in (alice, bob):
             line = ChatCommandAnswer.decode(client.receive_next(MessageType.CHAT_COMMAND_ANSWER))
             self.assertEqual((line.group_id, line.lines), (ANNOUNCEMENT_GROUP_ID, ("Server restart at 22:00",)))
+
+    def test_a_line_for_one_player_reaches_only_them(self) -> None:
+        """An admin's message from the web goes to one player as a server line; the others get
+        nothing, and the database notes that it arrived (the Announcements page shows it)."""
+        alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE)
+        bob, _ = self.player_in_room("Bob", 42, GAME_ZONE)
+        self.database.queue_announcement("Please rename your game", account_id=alice_id)
+        line = ChatCommandAnswer.decode(alice.receive_next(MessageType.CHAT_COMMAND_ANSWER))
+        self.assertEqual(line.lines, ("Please rename your game",))
+        bob.assert_nothing_arrives(MessageType.CHAT_COMMAND_ANSWER)
+        [record] = self.database.list_recent_announcements(limit=1)
+        self.assertEqual((record.recipient_name, record.reached_count), ("Alice", 1))
+
+    def test_a_line_for_a_player_who_is_offline_is_noted_as_not_delivered(self) -> None:
+        """The line is not kept for a later logon: an admin's remark is about now."""
+        carol_id = self.database.find_account("Carol").account_id
+        self.player_in_room("Alice", 17, GAME_ZONE)
+        self.database.queue_announcement("Are you there?", account_id=carol_id)
+        for _ in range(MAX_ANNOUNCEMENT_POLLS):
+            [record] = self.database.list_recent_announcements(limit=1)
+            if record.reached_count is not None:
+                break
+            time.sleep(ANNOUNCEMENT_POLL_SECONDS)
+        self.assertEqual(record.reached_count, 0)
 
     def test_welcome_line_follows_the_logon(self) -> None:
         """The welcome message an admin set reaches each player right after the logon."""

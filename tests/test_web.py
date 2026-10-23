@@ -135,6 +135,25 @@ class LiveLobbyTest(WebInterfaceTestCase):
         self.assertIn("Random map", page)
         self.assertIn(">ladder</span>", page)
 
+    def test_admins_message_kick_and_ban_from_the_live_lobby(self) -> None:
+        """Each player in the admins' lobby has Message, Kick (confirmed in a dialog first) and Ban;
+        a message is queued for that player alone."""
+        self.database.write_live_state(LIVE_STATE)
+        self.log_on()
+        page = self.client.get("/admin/lobby/state").get_data(as_text=True)
+        self.assertIn(f'data-confirm="Remove {PLAYER_NAME} from the lobby? They may log on again."', page)
+        self.assertIn(f"/admin/accounts/{self.player.account_id}#ban", page)
+        self.post("/admin/lobby/message", name=PLAYER_NAME, text="Please rename your game")
+        [record] = self.database.list_recent_announcements(limit=1)
+        self.assertEqual((record.text, record.recipient_name), ("Please rename your game", PLAYER_NAME))
+
+    def test_the_lobby_search_narrows_the_players(self) -> None:
+        """With a hundred players online the list needs a search; the count still shows everyone."""
+        self.database.write_live_state(LIVE_STATE)
+        page = self.client.get("/live/state?q=nobody").get_data(as_text=True)
+        self.assertNotIn("192.0.2.7", page)
+        self.assertIn('0 of 1 match "nobody"', page)
+
     def test_admins_see_addresses_in_the_admin_area_only(self) -> None:
         """Admins see each player's address and whether the reachability probe found them blocked, to help
         players with their network; on their own lobby page, while the public one stays the same for

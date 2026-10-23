@@ -85,13 +85,13 @@
           <td class="cell-actions">
             {% if row.state.value == "disputed" %}
               {% for team, members in teams_by_game.get(row.game_id, []) %}
-                {{ action_button(url_for('ladder_admin.decide_game', game_id=row.game_id), members ~ " won", "btn--primary", {"winner": team}) }}
+                {{ action_button(url_for('ladder_admin.decide_game', game_id=row.game_id), members ~ " won", "btn--primary", {"winner": team}, confirm="Count " ~ row.game_name ~ " as won by " ~ members ~ "? Every rating follows at once.") }}
               {% endfor %}
             {% endif %}
             {% if row.state.value != "void" %}
             <details class="row-details">
               <summary class="btn btn--outline btn--sm">Void</summary>
-              <form method="post" action="{{ url_for('ladder_admin.void_game', game_id=row.game_id) }}">
+              <form method="post" action="{{ url_for('ladder_admin.void_game', game_id=row.game_id) }}" data-confirm="Take {{ row.game_name }} out of every rating? Its reports stay." data-confirm-label="Void">
                 {{ csrf_field() }}
                 <label class="field"><span class="label">Reason</span><input class="input" type="text" name="reason" maxlength="200"></label>
                 <button class="btn btn--danger btn--sm" type="submit">Void this result</button>

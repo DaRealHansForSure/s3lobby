@@ -1,8 +1,40 @@
 {% extends "admin_base.html" %}
+{% from "_macros.html" import csrf_field with context %}
 {% set active_nav = "admin_lobby" %}
 {% block title %}Lobby (admin){% endblock %}
 {% block content %}
-<div id="live-state" data-state-url="{{ url_for('admin_home.admin_lobby_state') }}">
+{# The search and the message form stay outside the live part, which app.js replaces every few
+   seconds: what an admin types there must not be wiped by a refresh. #}
+{% set action = url_for('admin_home.admin_lobby') %}
+<form class="grid-12 toolbar" method="get" action="{{ action }}">
+  <label class="field col-6">
+    <span class="label">Find a player</span>
+    <input class="input" type="search" name="q" value="{{ search }}" placeholder="Name or clan">
+  </label>
+  <div class="form-actions col-3"><button class="btn btn--outline" type="submit">Find</button>{% if search %} <a class="btn btn--quiet" href="{{ action }}">Show all</a>{% endif %}</div>
+</form>
+<div id="live-state" data-state-url="{{ url_for('admin_home.admin_lobby_state', q=search or None) }}">
   {% include "_live_state.html" %}
 </div>
+
+<section id="message">
+  <div class="section-head"><h2>Message a player</h2>
+  <p>A server line in one player's chat, within a second, if they are online. An announcement to
+  everyone is on the <a href="{{ url_for('server_settings.show_announcements') }}">Announcements</a> page.</p></div>
+  <form class="card" method="post" action="{{ url_for('admin_home.message_player') }}">
+    {{ csrf_field() }}
+    <div class="form-grid form-grid--wide">
+      <label class="field">
+        <span class="label">To</span>
+        <input class="input" type="text" name="name" value="{{ message_to }}" list="online-players" maxlength="{{ max_name_length }}" required>
+      </label>
+      <label class="field">
+        <span class="label">Message</span>
+        <input class="input" type="text" name="text" maxlength="{{ max_announcement_length }}" required>
+      </label>
+    </div>
+    <datalist id="online-players">{% for player in page.players %}<option value="{{ player.name }}">{% endfor %}</datalist>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Send</button></div>
+  </form>
+</section>
 {% endblock %}

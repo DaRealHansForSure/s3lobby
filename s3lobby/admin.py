@@ -245,12 +245,17 @@ def remove_board_message(database: LobbyDatabase, options: argparse.Namespace) -
 
 
 def queue_announcement(database: LobbyDatabase, options: argparse.Namespace) -> None:
-    """Queue a line for every player in the running lobby.
+    """Queue a line for every player in the running lobby, or with --to for one player only.
 
     The server polls the queue and sends it within a second; lines queued while no server runs
-    are dropped at its next start."""
-    database.queue_announcement(options.text)
-    print("Queued; a running server sends it to every player in the lobby within a second.")
+    are dropped at its next start. A line for one player reaches them only if they are online then."""
+    if not options.to:
+        database.queue_announcement(options.text)
+        print("Queued; a running server sends it to every player in the lobby within a second.")
+        return
+    account = require_account(database, options.to)
+    database.queue_announcement(options.text, account_id=account.account_id)
+    print(f"Queued; a running server sends it to {account.name} within a second, if online.")
 
 
 # Settings.

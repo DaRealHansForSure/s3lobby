@@ -555,7 +555,8 @@ The order of the themes is the game's own: a group keeps its visible groups in a
 operator< at 0x5db570 compares +4, the id). So the game lists the groups inside any parent by
 ascending group id, whatever order the server sends them in (seen in a run: themes sent Liga
 first came out Test first, Test having the lower id). s3lobby therefore gives each board theme a
-group id that holds its place on the board (`board_theme_group_id`). A theme's text id list
+group id that holds its place on the board (`board_theme_group_id`); seen in a run: with ids in
+the board's order, the ladder's theme came first as on the board. A theme's text id list
 (0x14) is copied as it arrives (CGroup.SetIdList 0x5dbe30), so messages keep the server's order
 (*inferred*: not yet seen with several messages).
 

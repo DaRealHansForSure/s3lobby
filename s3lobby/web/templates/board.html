@@ -37,7 +37,7 @@
         <div class="board-actions">
           {{ order_buttons(url_for('content.move_board_theme', theme_id=entry.theme.theme_id)) }}
           {{ hide_toggle(url_for('content.set_board_theme_hidden', theme_id=entry.theme.theme_id), entry.theme.is_hidden) }}
-          {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove", "btn--outline") }}{% endif %}
+          {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove", "btn--outline", confirm="Remove the theme " ~ entry.theme.name ~ " with all its messages?") }}{% endif %}
         </div>
       </div>
       {% if entry.theme.description %}<p>{{ entry.theme.description }}</p>{% endif %}
@@ -60,7 +60,7 @@
               <td class="cell-actions">
                 {{ order_buttons(url_for('content.move_board_message', message_id=message.message_id)) }}
                 {{ hide_toggle(url_for('content.set_board_message_hidden', message_id=message.message_id), message.is_hidden) }}
-                {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--outline") }}{% endif %}
+                {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--outline", confirm="Remove the message " ~ message.title ~ "?") }}{% endif %}
               </td>
             </tr>
             {% endfor %}
