@@ -6,6 +6,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+### Fixed
+
+- A game's reports no longer call a ladder game "unranked here": the ladder ranks it, and the
+  game's page shows the result.
+
 ## [0.11.0] - 2026-10-24
 
 ### Added
