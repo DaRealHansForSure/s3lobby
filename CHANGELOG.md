@@ -8,6 +8,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- The game's "Create Player" button can make accounts: setting `allow_create_player`, off by
+  default (Settings, Logons). The password typed in the game becomes the account's access code
+  (at least 8 characters, any case); each address creates at most three accounts at once, then
+  one an hour. A taken name is never reported as taken (the game's Result 2): every refusal is
+  the wrong password one, and a player's own password on their own name simply logs on.
 - A ladder for Liga and Clanliga ([docs/ladder.md](docs/ladder.md)). The server evaluates every
   ladder game once its reports are in: it counts when the players' reports agree, the match lasted
   long enough (`ladder_minimum_minutes`) and the players joined it in the lobby; disagreeing
@@ -62,6 +67,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   dialog (seen in a run). The others still see the player leave at once.
 - The kick and ban lines name the admin's reason as "Reason: ...", or say "No reason given."
   when there is none; a bare colon after the ban's end date was easy to miss.
+- A logon whose password holds one of the five bytes Windows-1252 leaves undefined (such as 0x81)
+  is refused like any wrong code; hashing it raised an error before.
 
 ### Removed
 

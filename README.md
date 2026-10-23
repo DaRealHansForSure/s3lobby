@@ -250,8 +250,10 @@ s3lobby database copy --database s3lobby.sqlite3 --to mysql://s3lobby@db.example
 ## Accounts and lobby content
 
 Players log on with an account created on the server. The game's own "create player" button is
-refused. Creating an account prints an access code, which the player types into the game's
-password field:
+refused unless the setting `allow_create_player` is on (off by default; Settings, Logons in the
+web interface); then it makes an account with the name and the password typed in the game, at
+least 8 characters. Creating an account here prints an access code, which the player types into
+the game's password field:
 
 ```sh
 s3lobby account add Alice

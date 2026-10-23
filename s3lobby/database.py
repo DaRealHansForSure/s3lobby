@@ -136,6 +136,9 @@ class Setting(Enum):
     # The original refused a second logon with the same serial number as an illegal copy. Off by
     # default: on a LAN, one household's copies often share a serial.
     UNIQUE_SERIAL_NUMBERS = "unique_serial_numbers"
+    # The game's "Create Player" button makes an account with the name and password typed in the
+    # game. Off by default: accounts are made by admins, who hand out access codes.
+    ALLOW_CREATE_PLAYER = "allow_create_player"
     # Shown in the chat as [Server] right after a player enters the lobby; empty for none.
     WELCOME_MESSAGE = "welcome_message"
     # The advert banner on the Home tab: the game downloads banner_url by anonymous FTP whenever the
@@ -187,6 +190,7 @@ class Setting(Enum):
 SETTING_DEFAULTS = {
     Setting.MAX_PLAYERS: "0",
     Setting.UNIQUE_SERIAL_NUMBERS: "false",
+    Setting.ALLOW_CREATE_PLAYER: "false",
     Setting.WELCOME_MESSAGE: "",
     Setting.BANNER_URL: "",
     Setting.BANNER_ID: "0",
@@ -214,6 +218,8 @@ SETTING_DEFAULTS = {
 # a player who is online when banned, and kept as a note for admins.
 MAX_ACCESS_CODE_LABEL_LENGTH = 64
 MAX_BAN_REASON_LENGTH = 200
+# The label of the access code that holds a password chosen in the game's create dialog.
+CHOSEN_IN_GAME_LABEL = "chosen in the game"
 # How a kick or ban line names the admin's reason (with_reason).
 REASON_LABEL = "Reason"
 NO_REASON_TEXT = "No reason given."
@@ -231,6 +237,7 @@ INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BA
 BOOLEAN_SETTINGS = frozenset(
     {
         Setting.UNIQUE_SERIAL_NUMBERS,
+        Setting.ALLOW_CREATE_PLAYER,
         Setting.MARK_ADMINS,
         Setting.CHECK_REACHABILITY,
         Setting.LADDER_ENABLED,
@@ -644,8 +651,11 @@ def scrypt_digest(access_code: str, salt: bytes, cost: int, block_size: int, par
     """The scrypt digest of a normalized access code; used both for storing a hash and for
     checking a code against one."""
     # Normalizing here, where both storing and checking pass, keeps the two from ever disagreeing.
+    # Bytes Windows-1252 leaves undefined arrive from the game as surrogates (wire.read_string),
+    # which plain UTF-8 refuses to encode; surrogateescape turns them back into their bytes, so
+    # such a password hashes instead of raising.
     return hashlib.scrypt(
-        normalize_access_code(access_code).encode("utf-8"),
+        normalize_access_code(access_code).encode("utf-8", errors="surrogateescape"),
         salt=salt,
         n=cost,
         r=block_size,
