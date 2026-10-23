@@ -7,6 +7,19 @@ machines.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-23
+
+### Added
+
+- Players of ladder games ("Liga", "Clanliga") are told these games are not ranked, and the game
+  shows "Game not valid for ladder." for their match reports.
+- The live lobby shows each game's map, team count and ladder flag.
+- The Games page decodes match reports: map, outcome, players, teams and races.
+
+### Changed
+
+- The protocol notes are corrected, and their open questions trimmed.
+
 ## [0.5.0] - 2026-10-23
 
 ### Added
@@ -92,7 +105,8 @@ machines.
 - `docs/protocol.md`: the protocol with the address in the game's executable for every fact.
 - README, packaging and CLAUDE.md.
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.2.0...v0.3.0
