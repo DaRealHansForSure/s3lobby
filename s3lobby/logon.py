@@ -149,8 +149,11 @@ class LogonCheck:
 
         if account.name.casefold() in occupancy.casefolded_player_names:
             return RefusedLogon(ResultCode.ALREADY_LOGGED_ON, "already logged on from elsewhere")
+        # Development mode lets several copies of one game installation, which all send the same
+        # serial, log on with different accounts for testing on one machine.
         is_serial_in_use = (
-            self._database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS)
+            not self._is_development_mode
+            and self._database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS)
             and logon.serial_number in occupancy.serial_numbers
         )
         if is_serial_in_use:
