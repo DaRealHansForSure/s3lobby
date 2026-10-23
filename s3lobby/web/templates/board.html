@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, action_button with context %}
+{% set active_nav = "board" %}
+{% block title %}Message board{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Message board</h1>
+    <p>The MessageZone tab: themes per game language, each with its messages. Games in a language
+    without themes see the English ones.</p>
+  </div>
+  {% for entry in themes %}
+  <div class="card stack">
+    <div class="row">
+      <h3>{{ entry.theme.name }}</h3>
+      <span class="badge">{{ entry.theme.language }}</span>
+      {{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove theme", "btn--danger") }}
+    </div>
+    {% if entry.theme.description %}<p>{{ entry.theme.description }}</p>{% endif %}
+    {% if entry.messages %}
+    <div class="scroll-x">
+      <table class="table">
+        <thead><tr><th>Message</th><th>Author</th><th>Posted</th><th></th></tr></thead>
+        <tbody>
+          {% for message in entry.messages %}
+          <tr>
+            <td>
+              <details>
+                <summary>{{ message.title }}</summary>
+                <p class="message-text">{{ message.body }}</p>
+              </details>
+            </td>
+            <td>{{ message.author or "-" }}</td>
+            <td>{{ message.posted_at | moment }}</td>
+            <td>{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--danger") }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No messages in this theme.</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="empty-state">No board themes yet.</p>
+  {% endfor %}
+</section>
+
+{% if themes %}
+<section>
+  <div class="section-head"><h2>New message</h2></div>
+  <form method="post" action="{{ url_for('content.post_board_message') }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field">
+        <span class="label">Theme</span>
+        <select class="select" name="theme_id" required>
+          {% for entry in themes %}
+          <option value="{{ entry.theme.theme_id }}">{{ entry.theme.language }}: {{ entry.theme.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">Author</span>
+        <input class="input" type="text" name="author" maxlength="{{ max_name_length }}" value="{{ default_author }}">
+      </label>
+    </div>
+    <label class="field">
+      <span class="label">Title</span>
+      <input class="input" type="text" name="title" maxlength="{{ max_name_length }}" required>
+    </label>
+    <label class="field">
+      <span class="label">Text</span>
+      <textarea class="textarea" name="body" rows="8" maxlength="{{ max_text_length }}"></textarea>
+    </label>
+    <button class="btn btn--primary" type="submit">Post message</button>
+  </form>
+</section>
+{% endif %}
+
+<section>
+  <div class="section-head"><h2>New theme</h2></div>
+  <form method="post" action="{{ url_for('content.add_board_theme') }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field">
+        <span class="label">Language</span>
+        <select class="select" name="language" required>
+          {% for language in languages %}<option>{{ language }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">Name</span>
+        <input class="input" type="text" name="name" maxlength="{{ max_name_length }}" required>
+      </label>
+      <label class="field">
+        <span class="label">Description</span>
+        <input class="input" type="text" name="description" maxlength="{{ max_name_length }}">
+      </label>
+    </div>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Add theme</button></div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% block title %}Admin logon{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Admin logon</h1>
+    <p>Log on with your player name and one of your access codes, as in the game. Only accounts with
+    admin rights get in.</p>
+  </div>
+  <form method="post" action="{{ url_for('auth.log_on') }}">
+    {{ csrf_field() }}
+    <input type="hidden" name="next" value="{{ next_path }}">
+    <label class="field">
+      <span class="label">Player name</span>
+      <input class="input" type="text" name="name" value="{{ name }}" autocomplete="username" required autofocus>
+    </label>
+    <label class="field">
+      <span class="label">Access code</span>
+      <input class="input" type="password" name="access_code" autocomplete="current-password" required>
+      <span class="hint">Not case sensitive.</span>
+    </label>
+    <button class="btn btn--primary" type="submit">Log on</button>
+  </form>
+</section>
+{% endblock %}

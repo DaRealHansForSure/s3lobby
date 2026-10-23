@@ -1,0 +1,93 @@
+/* s3lobby's own rules on top of the UI kit (tokens.css, base.css, components.css). Colours, sizes
+   and spaces all come from the kit's tokens. */
+
+/* Navigation: a row of its own under the header, scrolling sideways on a phone instead of
+   disappearing like the kit's .site-nav does below 34rem. */
+.app-nav-bar {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding-inline: var(--space-5);
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Phones scroll the row by touch; on desktops a full scrollbar would sit under the links. */
+  scrollbar-width: thin;
+}
+.app-nav {
+  display: flex;
+  gap: var(--space-5);
+  font-size: var(--size-sm);
+}
+.app-nav a {
+  padding-block: var(--space-2);
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.app-nav a:hover { color: var(--text); }
+.app-nav a[aria-current="page"] {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.app-nav a:focus-visible { outline-offset: -2px; }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.page {
+  padding-block: var(--space-8);
+}
+.page > section:first-of-type { padding-top: 0; }
+
+/* A form whose button sits in a table cell or a row of buttons. */
+.inline-form { display: inline; margin: 0; }
+
+/* Fields side by side where there is room, stacked on a phone by the grid. */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-4);
+  align-items: end;
+}
+.form-grid .field { max-width: none; margin-bottom: 0; }
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* The number on a statistics card. */
+.stat-number {
+  font-size: var(--size-2xl);
+  font-weight: 700;
+  font-family: var(--font-code);
+}
+
+/* A new access code: large, spaced, and easy to copy by hand. */
+.access-code {
+  font-family: var(--font-code);
+  font-size: var(--size-2xl);
+  letter-spacing: 0.12em;
+  user-select: all;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.empty-state {
+  color: var(--text-muted);
+  font-size: var(--size-sm);
+}
+
+.message-text {
+  white-space: pre-wrap;
+  font-size: var(--size-sm);
+  max-width: var(--measure);
+}

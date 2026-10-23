@@ -1,0 +1,17 @@
+{# Pieces every page uses. #}
+
+{% macro csrf_field() -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}
+
+{# A form with a single button, for actions in a table row or a button row. #}
+{% macro action_button(action, label, style="btn--outline") -%}
+<form class="inline-form" method="post" action="{{ action }}">
+  {{ csrf_field() }}
+  <button class="btn {{ style }} btn--sm" type="submit">{{ label }}</button>
+</form>
+{%- endmacro %}
+
+{% macro names(list) -%}
+{% if list %}{{ list | join(", ") }}{% else %}<span class="muted">-</span>{% endif %}
+{%- endmacro %}

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}{% endblock %} - s3lobby</title>
+<script src="{{ url_for('static', filename='theme-early.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='components.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+{%- set nav_items = [("lobby", "lobby_view.live_lobby", "Lobby")] %}
+{%- if admin %}
+  {%- set nav_items = nav_items + [
+      ("accounts", "accounts.list_accounts", "Accounts"),
+      ("clans", "accounts.list_clans", "Clans"),
+      ("news", "content.show_news", "News"),
+      ("chat_themes", "content.list_chat_themes", "Chat themes"),
+      ("board", "content.show_board", "Board"),
+      ("announcements", "server_settings.show_announcements", "Announcements"),
+      ("settings", "server_settings.show_settings", "Settings"),
+      ("games", "games.list_games", "Games"),
+  ] %}
+{%- endif %}
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="{{ url_for('lobby_view.live_lobby') }}">s3lobby</a>
+    <div class="header-actions">
+      {% if admin %}
+        <span class="muted">{{ admin.name }}</span>
+        <form class="inline-form" method="post" action="{{ url_for('auth.log_out') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn--quiet btn--sm" type="submit">Log out</button>
+        </form>
+      {% else %}
+        <a class="btn btn--outline btn--sm" href="{{ url_for('auth.log_on') }}">Admin logon</a>
+      {% endif %}
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false" hidden>
+        <span id="theme-label">Dark</span>
+      </button>
+    </div>
+  </div>
+  {% if nav_items | length > 1 %}
+  <div class="app-nav-bar">
+    <nav class="app-nav" aria-label="Sections">
+      {% for key, endpoint, label in nav_items %}
+        <a href="{{ url_for(endpoint) }}"{% if active_nav == key %} aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </div>
+  {% endif %}
+</header>
+
+<main class="wrap page">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="note note--{{ category }}" role="status">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div>
+</footer>
+</body>
+</html>

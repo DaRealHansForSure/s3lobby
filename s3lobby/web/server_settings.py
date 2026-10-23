@@ -1,0 +1,147 @@
+"""Server settings and announcements.
+
+Settings are read by the running server when it needs them (at each logon, each visit to the Home
+tab), so a change applies from then on. An announcement is queued in the database; the running
+server sends it to every player in the lobby within a second (ANNOUNCEMENT_POLL_INTERVAL_SECONDS).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from flask import Blueprint, flash, redirect, render_template, url_for
+from werkzeug.wrappers import Response
+
+from s3lobby.database import DatabaseError, Setting, check_setting_value
+from s3lobby.web.auth import redirect_visitors_to_logon
+from s3lobby.web.lobby_view import read_live_lobby_page
+from s3lobby.web.storage import apply_change, get_database, sentence_from_error
+from s3lobby.web.texts import form_flag, form_text
+
+blueprint = Blueprint("server_settings", __name__)
+blueprint.before_request(redirect_visitors_to_logon)
+
+RECENT_ANNOUNCEMENT_COUNT = 50
+CHECKED_SETTING_VALUE = "true"
+UNCHECKED_SETTING_VALUE = "false"
+
+
+@dataclass(frozen=True)
+class SettingField:
+    """One setting as the form shows it. is_checkbox settings are true or false."""
+
+    setting: Setting
+    label: str
+    hint: str
+    is_checkbox: bool = False
+
+
+SETTING_FIELDS = (
+    SettingField(
+        Setting.MAX_PLAYERS,
+        "Player limit",
+        "Logons beyond this many players get the game's \"server full\" message. 0 for no limit.",
+    ),
+    SettingField(
+        Setting.UNIQUE_SERIAL_NUMBERS,
+        "One logon per serial number",
+        "Refuse a second player with the same serial number, as Blue Byte's server did. Copies in one "
+        "household often share a serial, so this is off by default.",
+        is_checkbox=True,
+    ),
+    SettingField(
+        Setting.WELCOME_MESSAGE,
+        "Welcome line",
+        "Shown in the chat as a [Server] line right after each logon. Empty for none.",
+    ),
+    SettingField(
+        Setting.BANNER_URL,
+        "Banner URL",
+        "ftp:// address of the advert banner on the Home tab; the game fetches it by anonymous FTP. "
+        "Empty for no banner.",
+    ),
+    SettingField(
+        Setting.BANNER_ID,
+        "Banner id",
+        "The game downloads the banner again only when this or the sub id changes: raise it after "
+        "replacing the picture.",
+    ),
+    SettingField(Setting.BANNER_SUB_ID, "Banner sub id", "Second half of the banner's version."),
+)
+
+
+@dataclass(frozen=True)
+class SettingRow:
+    field: SettingField
+    value: str
+
+    @property
+    def is_checked(self) -> bool:
+        return self.value.strip().lower() == CHECKED_SETTING_VALUE
+
+
+# Settings.
+
+
+@blueprint.get("/settings")
+def show_settings() -> str:
+    database = get_database()
+    rows = [SettingRow(field=field, value=database.get_setting(field.setting)) for field in SETTING_FIELDS]
+    return render_template("settings.html", rows=rows)
+
+
+@blueprint.post("/settings")
+def save_settings() -> Response:
+    """Check every value first and save only when all pass, so a typo in one field never leaves
+    the settings half changed."""
+    new_values = {field.setting: setting_value_from_form(field) for field in SETTING_FIELDS}
+    has_error = False
+    for setting, value in new_values.items():
+        try:
+            check_setting_value(setting, value)
+        except DatabaseError as error:
+            flash(sentence_from_error(error), "bad")
+            has_error = True
+    if has_error:
+        flash("Nothing was saved.", "warn")
+        return redirect(url_for("server_settings.show_settings"))
+
+    database = get_database()
+
+    def save_all() -> None:
+        for setting, value in new_values.items():
+            database.set_setting(setting, value)
+
+    apply_change(save_all, "Settings saved.")
+    return redirect(url_for("server_settings.show_settings"))
+
+
+def setting_value_from_form(field: SettingField) -> str:
+    if field.is_checkbox:
+        if form_flag(field.setting.key):
+            return CHECKED_SETTING_VALUE
+        return UNCHECKED_SETTING_VALUE
+    return form_text(field.setting.key)
+
+
+# Announcements.
+
+
+@blueprint.get("/announcements")
+def show_announcements() -> str:
+    return render_template(
+        "announcements.html",
+        announcements=get_database().list_recent_announcements(RECENT_ANNOUNCEMENT_COUNT),
+        is_server_running=read_live_lobby_page().is_running,
+    )
+
+
+@blueprint.post("/announcements")
+def queue_announcement() -> Response:
+    text = form_text("text")
+    is_server_running = read_live_lobby_page().is_running
+    success_text = "Queued. The server sends it to every player in the lobby within a second."
+    if not is_server_running:
+        success_text = "Queued. The server is not running; it sends the announcement when it starts."
+    apply_change(lambda: get_database().queue_announcement(text), success_text)
+    return redirect(url_for("server_settings.show_announcements"))
