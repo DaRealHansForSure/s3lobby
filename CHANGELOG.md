@@ -7,6 +7,22 @@ machines.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-23
+
+### Added
+
+- Kicks and bans of players who are online: `/kick` and `/ban` in the chat, `s3lobby account kick`,
+  and a button on the web interface, through a kick queue in the database (migration 0005).
+- The server closes connections cleanly when it removes a player and when it stops.
+- `/net` tells a player the address the server sees and what to forward on their router.
+- An optional check whether other players can reach a player directly (`check_reachability`).
+- Port forwarding on the router by UPnP (`--upnp`), with an outside port per LAN player.
+- Optional marking of admins in the member lists (`mark_admins`).
+
+### Fixed
+
+- Players on the server's machine or in its LAN are shown to others at addresses they can reach.
+
 ## [0.6.0] - 2026-10-23
 
 ### Added
@@ -105,7 +121,8 @@ machines.
 - `docs/protocol.md`: the protocol with the address in the game's executable for every fact.
 - README, packaging and CLAUDE.md.
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.3.0...v0.4.0
