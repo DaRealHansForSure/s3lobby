@@ -247,10 +247,12 @@ class Lobby:
     # Index server role.
 
     def _answer_patch_check(self, client_address: Address, message: RawMessage) -> None:
-        # Result NO_PATCH_NEEDED is the simplest answer the client accepts: its handler marks the
-        # answer as received and takes this server as its index server (0x5cff1c, 0x5cff27). The
-        # alternative, a patch information message, is easy to get wrong (every accessor asserts
-        # a minimum size) and only needed to offer an FTP patch.
+        # The server never says a patch is needed: there is none to offer, and a game told to fetch
+        # one stops before the logon. Every version check, whatever version, edition and language
+        # it reports, gets Result NO_PATCH_NEEDED: the client's handler marks the answer as received
+        # and takes this server as its index server (0x5cff1c, 0x5cff27). PATCH_INFORMATION (0x12)
+        # is never sent. Games of another version still cannot join each other's games: the game
+        # block carries a checksum of the game's program that the joining client compares.
         request = CheckFileVersion.decode(message)
         log.info(
             "%s: patch check, game version %d, edition %d, %s: no patch needed",

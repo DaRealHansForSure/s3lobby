@@ -194,8 +194,8 @@ Offsets count from the first byte after the header.
 - **Answer**: Result (below) with code 9 means "no patch" (0x5cffe1): the handler marks the answer
   as received and takes the sender as server (0x5cff1c, 0x5cff27); the patch flag stays 0.
 - **0x12 patch information** (0x5ccc50) is the alternative answer: u32 patch flag (0 = no patch),
-  then string lists for the FTP patch. Every accessor asserts `size > 16`, so it is easy to get
-  wrong; the server uses Result 9.
+  then string lists for the FTP patch. s3lobby never sends it and never says a patch is needed:
+  every version check, whatever it reports, gets Result 9.
 
 ### Lobby server list
 
