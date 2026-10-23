@@ -1082,6 +1082,14 @@ class LobbyDatabase:
             return None
         return clan_from_row(row)
 
+    def list_clan_memberships(self) -> dict[int, list[int]]:
+        """Every clan's member account ids, in one query (the ladder's clan strength needs them all)."""
+        rows = self._backend.fetch_all("SELECT clan_id, account_id FROM clan_members ORDER BY account_id")
+        members_by_clan: dict[int, list[int]] = {}
+        for row in rows:
+            members_by_clan.setdefault(row["clan_id"], []).append(row["account_id"])
+        return members_by_clan
+
     def list_clan_member_names(self, clan_id: int) -> list[str]:
         """The names of the clan's members, sorted."""
         rows = self._backend.fetch_all(

@@ -677,3 +677,6 @@ MAX_CLANLIGA_TEAM_SIZE = 4
 SECONDS_PER_MINUTE = 60
 SECONDS_PER_DAY = 86400
 MILLISECONDS_PER_SECOND = 1000
+# The version of the ladder's JSON output (`s3lobby ladder ... --format json`): raised whenever a
+# change would break a tool that reads it.
+LADDER_JSON_FORMAT = 1
