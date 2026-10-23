@@ -30,6 +30,7 @@ from s3lobby.ladder import (
     evaluate_game,
     exceeds_pair_limit,
     expected_score,
+    recent_form,
     standings,
 )
 from s3lobby.messages import GameStatus, MatchReportPlayer
@@ -312,6 +313,13 @@ class RatingTest(unittest.TestCase):
         self.assertIsNotNone(strength.strength)
         self.assertIsNone(clan_strength(AMAZONS, (ALICE, BOB), liga, now, SETTINGS).strength)
 
+
+    def test_form_shows_the_last_results_oldest_first(self) -> None:
+        """Won, lost by leaving, won: the last five at most, in the order they were played."""
+        results = [counted(1, ALICE, BOB, 1), counted(2, BOB, ALICE, 2, has_loser_left=True), counted(3, ALICE, BOB, 3)]
+        self.assertEqual(recent_form(results, ALICE, LadderType.INDIVIDUAL), "WXW")
+        self.assertEqual(recent_form(results, BOB, LadderType.INDIVIDUAL, count=2), "WL")
+        self.assertEqual(recent_form(results, CAROL, LadderType.INDIVIDUAL), "")
 
 if __name__ == "__main__":
     unittest.main()

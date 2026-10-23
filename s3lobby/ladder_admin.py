@@ -15,14 +15,23 @@ import csv
 import json
 import sys
 from dataclasses import asdict
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from s3lobby.admin import AdminError, require_account
 from s3lobby.constants import LADDER_JSON_FORMAT, LadderState, SeasonCounts
 from s3lobby.database import STORED_LADDER_STATES, LobbyDatabase
 from s3lobby.ladder import Season
-from s3lobby.ladder_book import CLANLIGA, LIGA, LadderBook, ResultRow, StandingRow
+from s3lobby.ladder_book import (
+    CLANLIGA,
+    LIGA,
+    LadderBook,
+    ResultRow,
+    StandingRow,
+    last_season_day,
+    parse_season_day,
+    parse_season_end,
+)
 
 TEXT_FORMAT = "text"
 JSON_FORMAT = "json"
@@ -175,38 +184,29 @@ def admin_account_id(database: LobbyDatabase, name: str | None) -> int | None:
 
 
 def parse_day(text: str) -> datetime:
-    """A date as YYYY-MM-DD (the start of that day, UTC) or a full ISO 8601 time."""
+    """A season's first day from the command line; raises AdminError for a malformed date."""
     try:
-        moment = datetime.fromisoformat(text)
+        return parse_season_day(text)
     except ValueError as error:
-        raise AdminError(f"{text!r} is not a date like 2026-10-01") from error
-    # A plain date or a time without a zone is taken as UTC, like every time the server shows.
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    return moment
+        raise AdminError(str(error)) from error
 
 
 def parse_end_day(text: str | None) -> datetime | None:
-    """The end of a season: a date means the season includes that whole day, so it ends at the
-    start of the next one."""
-    if text is None:
-        return None
-    moment = parse_day(text)
-    is_plain_date = len(text.strip()) == len("YYYY-MM-DD")
-    if is_plain_date:
-        return datetime.combine(moment.date() + timedelta(days=1), time(), tzinfo=timezone.utc)
-    return moment
+    """A season's last day from the command line; raises AdminError for a malformed date."""
+    try:
+        return parse_season_end(text)
+    except ValueError as error:
+        raise AdminError(str(error)) from error
 
 
 def describe_dates(season: Season) -> str:
     """A season's dates for a person: from the start, until the end or until an admin ends it."""
     start = f"{season.starts_at:%Y-%m-%d}" if season.starts_at else "the start"
-    if season.ends_at is None:
+    last_day = last_season_day(season)
+    if last_day is None:
         return f"from {start}, until an admin ends it"
-    # An end at midnight came from a last day: name that day, as it was typed.
-    is_end_of_day = season.ends_at.time() == time() and season.ends_at.utcoffset() == timedelta(0)
-    if is_end_of_day:
-        return f"from {start} to {season.ends_at - timedelta(days=1):%Y-%m-%d}"
+    if last_day != season.ends_at:
+        return f"from {start} to {last_day:%Y-%m-%d}"
     return f"from {start} until {season.ends_at:%Y-%m-%d %H:%M} UTC"
 
 

@@ -539,3 +539,38 @@ def clan_strength(
     if len(best) < CLAN_STRENGTH_MEMBER_COUNT:
         return ClanStrength(clan_id, None, best)
     return ClanStrength(clan_id, sum(rating for _, rating in best) / len(best), best)
+
+
+# The letters recent_form uses: won, lost, lost by leaving.
+FORM_WON = "W"
+FORM_LOST = "L"
+FORM_LEFT = "X"
+
+
+def recent_form(
+    results: Iterable[Evaluation], side_id: int, ladder_type: int, season: Season = INFINITE_SEASON, count: int = 5
+) -> str:
+    """A side's last counted results in a season, oldest first, one letter each: FORM_WON,
+    FORM_LOST, or FORM_LEFT for a loss by leaving. A side is an account in Liga and a clan in
+    Clanliga (a clan loses by leaving only when its whole team left)."""
+    counted = [
+        result
+        for result in results
+        if result.state == LadderState.COUNTED and result.ladder_type == ladder_type and season.includes(result)
+    ]
+    counted.sort(key=lambda result: (result.played_at, result.game_id))
+    letters = []
+    for result in counted:
+        if ladder_type == LadderType.CLANS:
+            side = [player for player in result.players if player.clan_id == side_id]
+        else:
+            side = [player for player in result.players if player.account_id == side_id]
+        if not side:
+            continue
+        if side[0].has_won:
+            letters.append(FORM_WON)
+        elif all(player.has_left for player in side):
+            letters.append(FORM_LEFT)
+        else:
+            letters.append(FORM_LOST)
+    return "".join(letters[-count:])

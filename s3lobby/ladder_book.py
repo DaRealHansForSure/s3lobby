@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, time, timedelta, timezone
 
 from s3lobby.constants import LadderState, LadderType, MessageType
 from s3lobby.database import DELETED_ACCOUNT_NAME, GameRecord, LadderResultRecord, LobbyDatabase
@@ -390,3 +390,38 @@ def result_row(record: LadderResultRecord, account_names: dict[int, str], clan_n
         left=left,
         decided_by=record.decided_by_name,
     )
+
+
+def parse_season_day(text: str) -> datetime:
+    """A season's first day as YYYY-MM-DD (the start of that day, UTC) or a full ISO 8601 time.
+    Raises ValueError for anything else."""
+    try:
+        moment = datetime.fromisoformat(text.strip())
+    except ValueError as error:
+        raise ValueError(f"{text!r} is not a date like 2026-10-01") from error
+    # A plain date or a time without a zone is taken as UTC, like every time the server shows.
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
+def parse_season_end(text: str | None) -> datetime | None:
+    """A season's end: None for none, a date means the season includes that whole day, so it ends
+    at the start of the next one. Raises ValueError for anything else."""
+    if text is None or not text.strip():
+        return None
+    moment = parse_season_day(text)
+    is_plain_date = len(text.strip()) == len("YYYY-MM-DD")
+    if is_plain_date:
+        return datetime.combine(moment.date() + timedelta(days=1), time(), tzinfo=timezone.utc)
+    return moment
+
+
+def last_season_day(season: Season) -> datetime | None:
+    """The last day a season includes, for forms and texts: the day before an end at midnight."""
+    if season.ends_at is None:
+        return None
+    is_end_of_day = season.ends_at.time() == time() and season.ends_at.utcoffset() == timedelta(0)
+    if is_end_of_day:
+        return season.ends_at - timedelta(days=1)
+    return season.ends_at
