@@ -559,7 +559,8 @@ Planned or wished for, roughly in order:
   reports but ranks nothing yet and answers "Game not valid for ladder." The plan: count the
   results per player and per clan, show the standings on the web interface and the Home tab, and
   confirm valid ladder results to the game (Result 0x6c) once the reports are trusted enough,
-  for example only when every player of a match sent a matching report.
+  for example only when every player of a match sent a matching report. The concept is in
+  [docs/ladder.md](docs/ladder.md).
 - **What a match tells the lobby** is all that a ranking can use: the game reports each match
   twice, at the start and when one team is left, with its slots, teams, races and the winning team
   (the only team that still has a finished military building). The match itself runs between the
