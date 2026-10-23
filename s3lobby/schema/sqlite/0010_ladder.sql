@@ -48,6 +48,9 @@ CREATE TABLE ladder_seasons (
     created_at TEXT NOT NULL,
     created_by_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL
 );
+-- A board theme the server writes itself (the ladder's season news and weekly summaries): admins
+-- may delete its messages, nobody may post into it.
+ALTER TABLE board_themes ADD COLUMN is_server_written INTEGER NOT NULL DEFAULT 0;
 -- Texts the server wrote on its own (board messages, announcements), one row per event, so a restart
 -- never writes one twice.
 CREATE TABLE ladder_events (

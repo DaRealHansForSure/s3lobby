@@ -301,12 +301,14 @@ class ChatTheme:
 @dataclass(frozen=True)
 class BoardTheme:
     """A theme of the MessageZone board. language is one of BOARD_LANGUAGES: the game shows the
-    themes of its own language, and the English ones when its language has none."""
+    themes of its own language, and the English ones when its language has none. A theme
+    is_server_written when the server fills it itself (the ladder's texts): nobody posts into it."""
 
     theme_id: int
     language: str
     name: str
     description: str
+    is_server_written: bool = False
 
 
 @dataclass(frozen=True)
@@ -1145,7 +1147,9 @@ class LobbyDatabase:
 
     # MessageZone board.
 
-    def add_board_theme(self, language: str, name: str, description: str = "") -> BoardTheme:
+    def add_board_theme(
+        self, language: str, name: str, description: str = "", is_server_written: bool = False
+    ) -> BoardTheme:
         """Add a theme to the MessageZone board of one language and return it. Raises
         DatabaseError for an unknown language, a text the game cannot show, or a name that language has
         already."""
@@ -1156,12 +1160,13 @@ class LobbyDatabase:
         try:
             with self._backend.transaction():
                 result = self._backend.execute(
-                    "INSERT INTO board_themes (language, name, description, created_at) VALUES (?, ?, ?, ?)",
-                    (language, name, description, to_stored_time(self._clock())),
+                    "INSERT INTO board_themes (language, name, description, created_at, is_server_written) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (language, name, description, to_stored_time(self._clock()), int(is_server_written)),
                 )
         except ConstraintViolation as error:
             raise DatabaseError(f"a {language} board theme named {name!r} already exists") from error
-        return BoardTheme(theme_id=result.last_row_id, language=language, name=name, description=description)
+        return BoardTheme(result.last_row_id, language, name, description, is_server_written)
 
     def list_board_themes(self) -> list[BoardTheme]:
         """Every board theme, by language and then in the order they were added."""
@@ -1173,9 +1178,16 @@ class LobbyDatabase:
         with self._backend.transaction():
             self._backend.execute("DELETE FROM board_themes WHERE id = ?", (theme_id,))
 
-    def post_board_message(self, theme_id: int, title: str, body: str, author: str = "") -> BoardMessage:
+    def post_board_message(
+        self, theme_id: int, title: str, body: str, author: str = "", is_by_server: bool = False
+    ) -> BoardMessage:
         """Post a message under a board theme and return it. Raises DatabaseError for a text the
-        game cannot show or a theme that does not exist."""
+        game cannot show, a theme that does not exist, or a theme the server writes itself when
+        is_by_server is not set: its texts are the server's alone."""
+        if not is_by_server:
+            theme = self._backend.fetch_one("SELECT is_server_written FROM board_themes WHERE id = ?", (theme_id,))
+            if theme is not None and theme["is_server_written"]:
+                raise DatabaseError("the server writes this board theme itself; nobody can post into it")
         check_title("message title", title)
         check_game_text("message text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
         check_game_text("author", author, MAX_GROUP_TEXT_LENGTH)
@@ -1202,6 +1214,16 @@ class LobbyDatabase:
         if row is None:
             return None
         return board_message_from_row(row)
+
+    def delete_board_messages_but_newest(self, theme_id: int, keep_count: int) -> int:
+        """Delete a theme's messages but its newest keep_count; returns how many went. The server
+        keeps its own themes short this way."""
+        messages = self.list_board_messages(theme_id)
+        surplus = messages[: max(0, len(messages) - keep_count)]
+        with self._backend.transaction():
+            for message in surplus:
+                self._backend.execute("DELETE FROM board_messages WHERE id = ?", (message.message_id,))
+        return len(surplus)
 
     def delete_board_message(self, message_id: int) -> None:
         """Remove a message from the board."""
@@ -1759,7 +1781,13 @@ def account_from_row(row: Row | None) -> Account | None:
 
 def board_theme_from_row(row: Row) -> BoardTheme:
     """The board theme a row of the board_themes table describes."""
-    return BoardTheme(theme_id=row["id"], language=row["language"], name=row["name"], description=row["description"])
+    return BoardTheme(
+        theme_id=row["id"],
+        language=row["language"],
+        name=row["name"],
+        description=row["description"],
+        is_server_written=bool(row["is_server_written"]),
+    )
 
 
 def board_message_from_row(row: Row) -> BoardMessage:
