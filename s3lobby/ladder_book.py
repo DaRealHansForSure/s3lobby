@@ -109,6 +109,11 @@ class LadderBook:
         """A book on this database."""
         self._database = database
         self._clock = database.now
+        # Ratings by season and settings, valid while the results do not change (see
+        # LobbyDatabase.ladder_results_version): a burst of /top in the chat replays nothing.
+        self._cached_version: tuple[int, int] | None = None
+        self._cached_results: list[LadderResultRecord] = []
+        self._cached_ratings: dict[tuple[Season, LadderSettings], Ratings] = {}
 
     def settings(self) -> LadderSettings:
         """The ladder's numbers as the admins set them."""
@@ -172,12 +177,24 @@ class LadderBook:
         )
 
     def results(self) -> list[LadderResultRecord]:
-        """Every stored result, in the order the matches were played."""
-        return self._database.list_ladder_results()
+        """Every stored result, in the order the matches were played; read again only when the
+        stored results changed."""
+        version = self._database.ladder_results_version()
+        if version != self._cached_version:
+            self._cached_results = self._database.list_ladder_results()
+            self._cached_ratings = {}
+            self._cached_version = version
+        return self._cached_results
 
     def ratings(self, season: Season = INFINITE_SEASON) -> Ratings:
-        """The ratings of a season, computed from the counted results."""
-        return compute_ratings((record.evaluation for record in self.results()), self.settings(), season)
+        """The ratings of a season, computed from the counted results, once per season and
+        settings while the results stay the same. Callers must not change what they get."""
+        results = self.results()
+        settings = self.settings()
+        key = (season, settings)
+        if key not in self._cached_ratings:
+            self._cached_ratings[key] = compute_ratings((record.evaluation for record in results), settings, season)
+        return self._cached_ratings[key]
 
     def decide(self, game_id: int, winning_team: int, admin_account_id: int | None) -> Evaluation:
         """An admin names the winner of a game the reports disagree on (or overrules any other

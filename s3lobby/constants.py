@@ -484,6 +484,12 @@ WRONG_GROUP_PASSWORDS_PER_SECOND = 1 / 60
 # up a game; each goes on to every player who sees the game in a zone.
 GROUP_UPDATE_BURST = 20
 GROUP_UPDATES_PER_SECOND = 2
+# Ladder questions in the chat (/rank, /top, /clanrank, /seasons) per player: plenty for a person,
+# while a client sending them in a loop cannot keep the server reading the database.
+LADDER_COMMAND_BURST = 5
+LADDER_COMMANDS_PER_SECOND = 0.5
+# How many places /top and the server's texts name.
+LADDER_TOP_COUNT = 5
 
 # Access code checks for game logons, all clients together. Each costs a scrypt hash of tens of
 # milliseconds on the event loop; beyond this budget a logon is refused rather than stalling every

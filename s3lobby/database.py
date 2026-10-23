@@ -1475,6 +1475,13 @@ class LobbyDatabase:
         "LEFT JOIN accounts ON accounts.id = ladder_results.decided_by_account_id "
     )
 
+    def ladder_results_version(self) -> tuple[int, int]:
+        """A cheap fingerprint of the stored results: their number and the newest row id. Every new,
+        decided or voided result is a new row (store_ladder_result replaces), so the fingerprint
+        changes with each and a cache of ratings knows when to compute them again."""
+        row = self._backend.fetch_one("SELECT COUNT(*) AS result_count, MAX(id) AS newest_id FROM ladder_results")
+        return row["result_count"], row["newest_id"] or 0
+
     def list_ladder_results(self) -> list[LadderResultRecord]:
         """Every ladder result in the order the matches were played, with its players. Two queries
         for all of them: a small lobby has a few thousand at most, and ratings need them all."""
