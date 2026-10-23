@@ -27,7 +27,9 @@ from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.messages import (
     AddPlayerToGroup,
     CheckFileVersion,
+    GetImageList,
     GetLobbyServerList,
+    GetTextMessage,
     Logon,
     MessageId,
     OpenConnection,
@@ -127,6 +129,27 @@ class ServerUnderAttackTest(unittest.TestCase):
         self.addCleanup(client.close_socket)
         client.send(CheckFileVersion(160, 4, 0))
         client.receive_next(MessageType.RESULT)
+
+    def test_home_texts_are_not_sent_before_a_logon(self) -> None:
+        """A request costs a few bytes, the answer a whole news text: sent before a logon, from a
+        forged sender address, it would multiply traffic onto someone else."""
+        client = FakeGameClient(self.server.address, "Alice", nonce=98)
+        self.addCleanup(client.close_socket)
+        client.send(GetTextMessage(0x92), GetImageList(1))
+        client.assert_nothing_arrives(MessageType.TEXT_MESSAGE)
+        client.assert_nothing_arrives(MessageType.IMAGE_LIST)
+
+    def test_connection_that_never_logs_on_ends(self) -> None:
+        """A forged sender could otherwise keep connection slots without ever logging on."""
+        with mock.patch("s3lobby.server.LOGON_DEADLINE_MS", 0):
+            client = FakeGameClient(self.server.address, "Alice", nonce=97)
+            self.addCleanup(client.close_socket)
+            client.send(CheckFileVersion(160, 4, 0))
+            client.receive_next(MessageType.RESULT)
+            # Waiting a moment gives the housekeeping time to end the connection.
+            client.assert_nothing_arrives(MessageType.LOBBY_SERVER_LIST)
+            client.send(GetLobbyServerList())
+            client.assert_nothing_arrives(MessageType.LOBBY_SERVER_LIST)
 
     def test_garbage_datagrams_do_not_stop_the_server(self) -> None:
         garbage = [

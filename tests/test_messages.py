@@ -53,6 +53,7 @@ from s3lobby.wire import (
     decode_socket_address,
     encode_block,
     encode_socket_address,
+    readable_text,
 )
 
 # Recorded from the GOG game: a host opening a game in zone 30 (AddGroupToGroup2, flags 0x840401).
@@ -98,6 +99,13 @@ class FieldTest(unittest.TestCase):
         reader = FieldReader(b"A\x81B\0")
         text = reader.read_string()
         self.assertEqual(group_announcement_named(text).encode().body[16:20], b"A\x81B\0")
+
+    def test_readable_text_replaces_bytes_the_code_page_leaves_undefined(self) -> None:
+        """Such bytes ride the wire as placeholders, which UTF-8 cannot store: the database and the
+        live lobby would fail on a game named with one."""
+        relayed = FieldReader(b"Game\x81X\x00").read_string()
+        self.assertEqual(readable_text(relayed), "Game\ufffdX")
+        self.assertEqual(readable_text("Römer"), "Römer")
 
     def test_reading_past_the_end_raises_protocol_error(self) -> None:
         with self.assertRaises(ProtocolError):

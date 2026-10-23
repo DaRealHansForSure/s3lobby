@@ -421,6 +421,11 @@ KEEPALIVE_INTERVAL_MS = 3_000
 # the server's own CloseConnection before it is forgotten.
 CLOSING_LINGER_MS = 10_000
 
+# Throttled log messages, all senders together: at most this many lines per second, with this
+# burst. Each forged sender address would otherwise get its own lines and could fill the disk.
+MAX_LOG_LINES_PER_SECOND = 20
+LOG_LINE_BURST = 200
+
 # How often the server looks for announcements queued in the database by another process.
 ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
 
@@ -486,6 +491,19 @@ MAX_MESSAGES_PER_BLOCK = 256
 # one by one and waits for acknowledgements, so it is never more than a few ahead; the window keeps
 # the memory for duplicate detection bounded.
 CLIENT_BLOCK_ID_WINDOW = 256
+
+# The most a client may raise its silence timeout to: the game asks for 600000 ms around a match
+# and 60000 ms after it (0x454d6f, 0x452072), never more.
+MAX_CLIENT_SILENCE_TIMEOUT_MS = 600_000
+
+# A connection without a logged on player ends after this. The game's index connection closes by
+# itself right after the server list, and its lobby connection logs on in its first block; only a
+# forged sender would keep one open, holding a connection slot.
+LOGON_DEADLINE_MS = 120_000
+
+# Lobby messages per server block, in bytes. A datagram cannot exceed 65507 bytes of UDP payload,
+# and large ones are fragmented and easily lost; a queue beyond this goes out in several blocks.
+MAX_BLOCK_LOBBY_BYTES = 32_768
 
 # A client that leaves this many of the server's blocks unacknowledged is not reading them; the
 # connection ends instead of queueing more.

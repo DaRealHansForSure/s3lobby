@@ -8,11 +8,19 @@ from __future__ import annotations
 
 import unittest
 
-from s3lobby.constants import DEFAULT_SILENCE_TIMEOUT_MS, KEEPALIVE_INTERVAL_MS, RETRY_INTERVALS_MS, MessageType
+from s3lobby.constants import (
+    CLIENT_BLOCK_ID_WINDOW,
+    DEFAULT_SILENCE_TIMEOUT_MS,
+    KEEPALIVE_INTERVAL_MS,
+    MAX_BLOCK_LOBBY_BYTES,
+    RETRY_INTERVALS_MS,
+    MessageType,
+)
 from s3lobby.connection import ReliableConnection
 from s3lobby.messages import (
     AcknowledgeMessages,
     AdjustConnectionTimeout,
+    ChatCommandAnswer,
     GetLobbyServerList,
     MessageId,
     MinMissingAcknowledge,
@@ -121,6 +129,38 @@ class ReliableConnectionTest(unittest.TestCase):
         self.connection.receive_block(client_block(2, AdjustConnectionTimeout(TEN_MINUTES_MS).encode()), START_MS)
         self.assertFalse(self.connection.is_finished(START_MS + DEFAULT_SILENCE_TIMEOUT_MS + 1))
         self.assertTrue(self.connection.is_finished(START_MS + TEN_MINUTES_MS + 1))
+
+
+    def test_timeout_a_client_asks_for_is_capped_at_what_the_game_sends(self) -> None:
+        """A forged sender asking for 49 days would hold a connection slot that long."""
+        self.open_connection()
+        self.connection.receive_block(client_block(2, AdjustConnectionTimeout(0xFFFFFFFF).encode()), START_MS)
+        self.assertTrue(self.connection.is_finished(START_MS + TEN_MINUTES_MS + 1))
+
+    def test_acknowledgements_stay_within_the_window_without_min_missing(self) -> None:
+        """A sender that never confirms would otherwise make every reply carry every id it sent."""
+        self.open_connection()
+        for block_id in range(2, 2 + 3 * CLIENT_BLOCK_ID_WINDOW):
+            self.connection.receive_block(client_block(block_id, GetLobbyServerList().encode()), START_MS)
+        [datagram] = self.connection.take_datagrams_to_send(START_MS + KEEPALIVE_INTERVAL_MS)
+        acknowledged = AcknowledgeMessages.decode(messages_of_type(datagram, MessageType.ACKNOWLEDGE_MESSAGES)[0])
+        self.assertLessEqual(len(acknowledged.block_ids), CLIENT_BLOCK_ID_WINDOW + 1)
+
+    def test_queue_too_large_for_one_block_goes_out_in_order(self) -> None:
+        """One datagram cannot hold everything; the rest follows only once the client has the
+        first part, since the game hands blocks on in the order they arrive."""
+        self.open_connection()
+        large_text = "x" * 1000
+        for line_number in range(2 * MAX_BLOCK_LOBBY_BYTES // len(large_text)):
+            self.connection.queue_lobby_message(ChatCommandAnswer(0, (f"{line_number} {large_text}",)))
+        [first] = self.connection.take_datagrams_to_send(START_MS)
+        self.assertLessEqual(len(first), MAX_BLOCK_LOBBY_BYTES + 1024)
+        self.assertEqual(self.connection.take_datagrams_to_send(START_MS), [], "held back until acknowledged")
+        first_block_id = MessageId.decode(decode_block(first)[0]).block_id
+        acknowledgement = client_block(1, AcknowledgeMessages((first_block_id,)).encode())
+        self.connection.receive_block(acknowledgement, START_MS)
+        [second] = self.connection.take_datagrams_to_send(START_MS)
+        self.assertEqual(MessageId.decode(decode_block(second)[0]).block_id, first_block_id + 1)
 
 
 if __name__ == "__main__":

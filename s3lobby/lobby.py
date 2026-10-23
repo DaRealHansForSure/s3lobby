@@ -107,7 +107,7 @@ from s3lobby.messages import (
     TextMessage,
 )
 from s3lobby.reachability import Reachability
-from s3lobby.wire import Address, ProtocolError, RawMessage
+from s3lobby.wire import Address, ProtocolError, RawMessage, readable_text
 
 log = logging.getLogger(__name__)
 
@@ -235,6 +235,9 @@ class Lobby:
         for text in self._database.take_pending_announcements():
             self.announce(text)
 
+    def is_logged_on(self, client_address: Address) -> bool:
+        return client_address in self._players_by_address
+
     def carry_out_pending_kicks(self) -> None:
         """Remove the players that another process, a ban or an account deletion asked to remove
         (LobbyDatabase.queue_kick). A kick for a player who is not online is simply dropped."""
@@ -270,7 +273,7 @@ class Lobby:
         live_group = LiveGroup(
             group_id=group.group_id,
             kind=group.kind.value,
-            name=group.announcement.name,
+            name=readable_text(group.announcement.name),
             max_players=group.announcement.max_players,
             is_full=group.is_full,
             has_password=bool(group.password),
@@ -283,7 +286,7 @@ class Lobby:
         description = game_description_of(group.announcement)
         if description is None:
             return live_group
-        return replace(live_group, map_name=description.map_name, team_count=description.team_count)
+        return replace(live_group, map_name=readable_text(description.map_name), team_count=description.team_count)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         """Let the per client warning and logon limits forget clients that went quiet."""
@@ -467,7 +470,7 @@ class Lobby:
             creator_player_id=player.player_id,
         )
         if group.kind == GroupKind.GAME:
-            group.game_record_id = self._database.record_game_opened(announcement.name, player.player_id)
+            group.game_record_id = self._database.record_game_opened(readable_text(announcement.name), player.player_id)
             self._send_statistics_to_home()
         self._groups[group_id] = group
         log.info(
@@ -546,12 +549,18 @@ class Lobby:
         player = self._find_logged_on_player(client_address)
         if player is None:
             return
-        log.info("player %d %r: %r", player.player_id, player.name, command.command)
-        lines = self._chat_commands.answer(player, command.command)
+        # Read as stored text: a ban reason typed here goes into the database.
+        command_text = readable_text(command.command)
+        log.info("player %d %r: %r", player.player_id, player.name, command_text)
+        lines = self._chat_commands.answer(player, command_text)
         self._outbox.send(client_address, ChatCommandAnswer(group_id=command.group_id, lines=lines))
 
     def _answer_image_list(self, client_address: Address, message: RawMessage) -> None:
-        # Only the Home tab shows an image: the banner, when one is configured.
+        # Only the Home tab shows an image: the banner, when one is configured. The game asks only
+        # for groups it joined, so only after its logon; answering anyone else would let a forged
+        # sender address turn a small request into a large answer to someone else.
+        if self._find_logged_on_player(client_address) is None:
+            return
         request = GetImageList.decode(message)
         images = ()
         banner = self._configured_banner()
@@ -560,6 +569,9 @@ class Lobby:
         self._outbox.send(client_address, ImageList(group_id=request.group_id, images=images))
 
     def _answer_text_message(self, client_address: Address, message: RawMessage) -> None:
+        # Asked for from the Home tab and the board, so only after the logon (see _answer_image_list).
+        if self._find_logged_on_player(client_address) is None:
+            return
         request = GetTextMessage.decode(message)
         self._outbox.send(client_address, self._text_message_for(request.text_id))
 
