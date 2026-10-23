@@ -563,10 +563,11 @@ on every start. Restoring GOG's value fixes it.
 Each needs a run of the real game (start S3 with `-netmon`, which writes traffic to `trace.lis`,
 and compare with the server's `--verbose` log):
 
-- Two real players on two machines: chat between clients and the game's own DirectPlay connection
-  across a network. Seen in a run on one machine (two copies under Wine, 2026-10-23): a second
-  player joins a game opened in a chat group, the host starts the match, both report it (start
-  and winner, the same slots), and both come back to the lobby while the server closes the game.
+- Two real players on two machines: the game's own DirectPlay connection across a network, which
+  needs the host address the server hands out to be reachable. Seen in a run on one machine (two
+  copies under Wine, 2026-10-23): chat between the two players in one chat group, a second player
+  joining a game opened in that chat group, the host starting the match, both reporting it (start
+  and winner, the same slots), and both coming back to the lobby while the server closes the game.
 - How long one tick of GameStatus's game time is.
 
 Not answerable from the game: what Blue Byte's server named the zone groups 30..38 and the rooms
