@@ -21,6 +21,7 @@ from s3lobby.constants import (
     GROUP_UPDATE_MESSAGE_TYPES,
     SOCKET_ADDRESS_SIZE,
     GroupFlag,
+    GroupUpdateMask,
     MessageType,
 )
 from s3lobby.wire import Address, FieldReader, FieldWriter, ProtocolError, RawMessage
@@ -334,6 +335,29 @@ class OwnPlayer:
         return cls(player_id=reader.read_u32())
 
 
+@dataclass(frozen=True)
+class OwnPlayerWithClan:
+    """0x24: like OwnPlayer, for a player who logged on as clan member (handler 0x5d7830).
+
+    The client keeps the clan for the games it creates or joins and hands it to the other players
+    over DirectPlay (0x470250, "CLAN-Pack"). Same rules as OwnPlayer: after the Result, once.
+    """
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.OWN_PLAYER_WITH_CLAN
+    player_id: int
+    clan_id: int
+    clan_name: str
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter().write_u32(self.player_id).write_u32(self.clan_id).write_string(self.clan_name)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> OwnPlayerWithClan:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        return cls(player_id=reader.read_u32(), clan_id=reader.read_u32(), clan_name=reader.read_string())
+
+
 # Groups: rooms, zones and games.
 
 
@@ -358,34 +382,39 @@ class GroupAnnouncement:
     Constructors 0x5e2d60 and 0x5e3b40. Seen by the receiver (handlers 0x5d2790, 0x5d3b50):
     parent JOINED_GROUP_PARENT_ID means "you are now in this group"; any other parent shows the
     group inside that parent, which the receiver must be in. The same message from a client asks
-    the server to open a game (with group id SERVER_ASSIGNS_GROUP_ID), or between two clients it is
-    a private chat invitation (group id PRIVATE_CHAT_GROUP_ID).
+    the server to open a game or chat group (with group id SERVER_ASSIGNS_GROUP_ID), or to list an
+    existing game in a zone; between two clients it is a private chat invitation (group id
+    PRIVATE_CHAT_GROUP_ID).
 
-    Layout: u32 parent, u32 group id, u32 flags, u32 unknown, three strings (the first is the
-    group's name), then the game block when the flags say so, then everything else (the
-    description when the flags say so) kept as raw bytes.
+    Layout: u32 parent, u32 group id, u32 flags, u32 maximum player count, three strings (name,
+    description column text, password when a player creates a chat group), then the game block
+    when flags has HAS_GAME_BLOCK, then the description (u32 length, that many bytes) when flags
+    has HAS_DESCRIPTION. Nothing may follow: unknown trailing bytes are refused rather than passed
+    on to other players.
     """
 
     message_type: MessageType
     parent_id: int
     group_id: int
     flags: int
-    unknown_value: int
+    max_players: int
     name: str
     second_text: str
     third_text: str
     game_block: GameBlock | None = None
-    trailing_bytes: bytes = field(default=b"", repr=False)
+    description: bytes = field(default=b"", repr=False)
 
     def encode(self) -> RawMessage:
         writer = FieldWriter()
         writer.write_u32(self.parent_id).write_u32(self.group_id)
-        writer.write_u32(self.flags).write_u32(self.unknown_value)
+        writer.write_u32(self.flags).write_u32(self.max_players)
         writer.write_string(self.name).write_string(self.second_text).write_string(self.third_text)
-        if self.game_block is not None:
-            writer.write_socket_address(self.game_block.host_address)
-            writer.write_bytes(self.game_block.remainder)
-        writer.write_bytes(self.trailing_bytes)
+        if self.flags & GroupFlag.HAS_GAME_BLOCK:
+            if self.game_block is None:
+                raise ValueError("flags announce a game block, but there is none")
+            write_game_block(writer, self.game_block)
+        if self.flags & GroupFlag.HAS_DESCRIPTION:
+            write_description(writer, self.description)
         return writer.to_message(self.message_type)
 
     @classmethod
@@ -395,26 +424,28 @@ class GroupAnnouncement:
         parent_id = reader.read_u32()
         group_id = reader.read_u32()
         flags = reader.read_u32()
-        unknown_value = reader.read_u32()
+        max_players = reader.read_u32()
         name = reader.read_string()
         second_text = reader.read_string()
         third_text = reader.read_string()
         game_block = None
         if flags & GroupFlag.HAS_GAME_BLOCK:
-            host_address = reader.read_socket_address()
-            remainder_size = GAME_BLOCK_SIZE_BY_MESSAGE_TYPE[message_type] - SOCKET_ADDRESS_SIZE
-            game_block = GameBlock(host_address=host_address, remainder=reader.read_bytes(remainder_size))
+            game_block = read_game_block(reader, message_type)
+        description = b""
+        if flags & GroupFlag.HAS_DESCRIPTION:
+            description = read_description(reader)
+        require_end_of_body(reader, message)
         return cls(
             message_type=message_type,
             parent_id=parent_id,
             group_id=group_id,
             flags=flags,
-            unknown_value=unknown_value,
+            max_players=max_players,
             name=name,
             second_text=second_text,
             third_text=third_text,
             game_block=game_block,
-            trailing_bytes=reader.read_remaining_bytes(),
+            description=description,
         )
 
     def under_parent(self, parent_id: int) -> GroupAnnouncement:
@@ -424,29 +455,126 @@ class GroupAnnouncement:
 
 @dataclass(frozen=True)
 class GroupUpdate:
-    """0x19 UpdateGroup and 0x21 UpdateGroup2: a group's settings changed.
+    """0x19 UpdateGroup and 0x21 UpdateGroup2: some settings of a group changed.
 
-    Layout: u32 group id, u32 update mask, u32 flags, u32 unknown, three strings, the game block
-    and the description, the last two always present (docs/protocol.md). The server only needs
-    the group id to know whom to tell; the rest is relayed exactly as received.
+    Built by the constructor 0x5ea320 in this order: u32 group id, u32 update mask (GroupUpdateMask:
+    which of the following fields count), u32 flags, u32 maximum player count, three strings, the
+    game block and the description, the last two always present. A host sends it while setting up
+    a game (mask 0x50: player count and description, 0x45506c). Receivers apply it only to groups
+    they see inside a parent, never to a group they are in (0x5d8de6).
     """
 
     message_type: MessageType
     group_id: int
-    rest_of_body: bytes = field(repr=False)
+    update_mask: int
+    flags: int
+    max_players: int
+    name: str
+    second_text: str
+    third_text: str
+    game_block: GameBlock
+    description: bytes = field(repr=False)
 
     def encode(self) -> RawMessage:
-        writer = FieldWriter().write_u32(self.group_id).write_bytes(self.rest_of_body)
+        writer = FieldWriter()
+        writer.write_u32(self.group_id).write_u32(self.update_mask)
+        writer.write_u32(self.flags).write_u32(self.max_players)
+        writer.write_string(self.name).write_string(self.second_text).write_string(self.third_text)
+        write_game_block(writer, self.game_block)
+        write_description(writer, self.description)
         return writer.to_message(self.message_type)
 
     @classmethod
     def decode(cls, message: RawMessage) -> GroupUpdate:
         reader = open_message_body(message, GROUP_UPDATE_MESSAGE_TYPES)
-        return cls(
-            message_type=MessageType(message.message_type),
+        message_type = MessageType(message.message_type)
+        update = cls(
+            message_type=message_type,
             group_id=reader.read_u32(),
-            rest_of_body=reader.read_remaining_bytes(),
+            update_mask=reader.read_u32(),
+            flags=reader.read_u32(),
+            max_players=reader.read_u32(),
+            name=reader.read_string(),
+            second_text=reader.read_string(),
+            third_text=reader.read_string(),
+            game_block=read_game_block(reader, message_type),
+            description=read_description(reader),
         )
+        require_end_of_body(reader, message)
+        return update
+
+    def applied_to(self, announcement: GroupAnnouncement) -> GroupAnnouncement:
+        """The announcement with the fields this update's mask names taken over."""
+        changes = {}
+        if self.update_mask & GroupUpdateMask.NAME:
+            changes["name"] = self.name
+        if self.update_mask & GroupUpdateMask.SECOND_TEXT:
+            changes["second_text"] = self.second_text
+        if self.update_mask & GroupUpdateMask.THIRD_TEXT:
+            changes["third_text"] = self.third_text
+        if self.update_mask & GroupUpdateMask.FLAGS:
+            changes["flags"] = self.flags
+        if self.update_mask & GroupUpdateMask.MAX_PLAYERS:
+            changes["max_players"] = self.max_players
+        if self.update_mask & GroupUpdateMask.GAME_BLOCK:
+            changes["game_block"] = self.game_block
+        if self.update_mask & GroupUpdateMask.DESCRIPTION:
+            changes["description"] = self.description
+        return replace(announcement, **changes)
+
+
+@dataclass(frozen=True)
+class GroupCounters:
+    """0x1a: the counters of a group shown inside a group the receiver is in (handler 0x5d8580):
+    players in it, its maximum, and flags with bit 0 for full. The game list shows players/max
+    and marks a full game (0x44b635); joining a full group is refused by the client (0x4437c1)."""
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.GROUP_COUNTERS
+    group_id: int
+    player_count: int
+    max_players: int
+    status_flags: int
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter().write_u32(self.group_id).write_u32(self.player_count)
+        writer.write_u32(self.max_players).write_u32(self.status_flags)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> GroupCounters:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        return cls(
+            group_id=reader.read_u32(),
+            player_count=reader.read_u32(),
+            max_players=reader.read_u32(),
+            status_flags=reader.read_u32(),
+        )
+
+
+def write_game_block(writer: FieldWriter, game_block: GameBlock) -> None:
+    writer.write_socket_address(game_block.host_address).write_bytes(game_block.remainder)
+
+
+def read_game_block(reader: FieldReader, message_type: MessageType) -> GameBlock:
+    host_address = reader.read_socket_address()
+    remainder_size = GAME_BLOCK_SIZE_BY_MESSAGE_TYPE[message_type] - SOCKET_ADDRESS_SIZE
+    return GameBlock(host_address=host_address, remainder=reader.read_bytes(remainder_size))
+
+
+def write_description(writer: FieldWriter, description: bytes) -> None:
+    writer.write_u32(len(description)).write_bytes(description)
+
+
+def read_description(reader: FieldReader) -> bytes:
+    """u32 length, then that many bytes. The client stores a whole serialized game description
+    message there (teams, map name); the server keeps it as bytes and passes it on."""
+    length = reader.read_u32()
+    return reader.read_bytes(length)
+
+
+def require_end_of_body(reader: FieldReader, message: RawMessage) -> None:
+    if reader.remaining_size:
+        raise ProtocolError(f"{reader.remaining_size} unexpected bytes after {message.type_name}")
 
 
 @dataclass(frozen=True)
@@ -502,6 +630,42 @@ class AddPlayerToGroup:
             player_address=reader.read_socket_address(),
             player_name=reader.read_string(),
             extra_text=reader.read_string(),
+        )
+
+
+@dataclass(frozen=True)
+class AddPlayerToGroupWithClan:
+    """0x25: AddPlayerToGroup for a clan member, with the clan after the two texts (handler
+    0x5d5f60, readers 0x5e6550 and 0x5e6740). The member list shows the clan name in its second
+    column (0x449d34). With clan id 0 and an empty name it behaves exactly like 0x0c (0x5d5ea5)."""
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN
+    group_id: int
+    player_id: int
+    player_address: Address
+    player_name: str
+    clan_id: int
+    clan_name: str
+    extra_text: str = ""
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter()
+        writer.write_u32(self.group_id).write_u32(self.player_id).write_socket_address(self.player_address)
+        writer.write_string(self.player_name).write_string(self.extra_text)
+        writer.write_u32(self.clan_id).write_string(self.clan_name)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> AddPlayerToGroupWithClan:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        return cls(
+            group_id=reader.read_u32(),
+            player_id=reader.read_u32(),
+            player_address=reader.read_socket_address(),
+            player_name=reader.read_string(),
+            extra_text=reader.read_string(),
+            clan_id=reader.read_u32(),
+            clan_name=reader.read_string(),
         )
 
 

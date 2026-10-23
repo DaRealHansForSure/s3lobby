@@ -11,13 +11,16 @@ unmodified copy of the game can use its lobby again, on a LAN or over the intern
 
 Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine 10 on Linux:
 
-- patch check, lobby server list and logon (any name, password and serial are accepted)
+- patch check, lobby server list and logon with accounts made on the server
 - the lobby rooms and the game zones, switching between them
 - opening a game, playing it, and coming back to the lobby
 
+Implemented from the game's code, not yet tried with the real game: joining another player's game,
+games listed in several zones, full games, game settings updated during setup, chat groups with
+passwords, clans.
+
 Not tested yet with two real players on two machines: chat between players, joining another
-player's game, and the game's own DirectPlay connection between them. Clans and server messages
-in the lobby are not implemented yet.
+player's game, and the game's own DirectPlay connection between them.
 
 ## Requirements
 
@@ -29,24 +32,62 @@ in the lobby are not implemented yet.
 From this folder:
 
 ```
-python3 -m s3lobby
+python3 -m s3lobby serve
 ```
 
 or install it and use the `s3lobby` command:
 
 ```
 pip install .
-s3lobby --name "Our LAN" --verbose --log-file lobby.log
+s3lobby serve --name "Our LAN" --verbose --log-file lobby.log
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
+| `--database` | `s3lobby.sqlite3` | SQLite file with accounts and lobby content |
 | `--host` | all interfaces | address to listen on |
 | `--port` | 3344 | UDP port |
 | `--name` | `LAN Lobby` | server name shown in the game |
 | `--public-host` | none | host name or IP that players from the internet log on to |
-| `--verbose` | off | log every datagram with its bytes |
+| `--verbose` | off | log every datagram with its bytes, secrets removed |
 | `--log-file` | none | also write the log to this file |
+
+## Accounts and lobby content
+
+Players log on with an account created on the server. The game's own "create player" button is
+refused. Creating an account prints an access code, which the player types into the game's
+password field:
+
+```
+s3lobby account add Alice
+s3lobby account code Alice --label "laptop"     another code, e.g. for a second PC
+s3lobby account revoke-codes Alice
+s3lobby account ban Alice --hours 24 --reason "spam"
+s3lobby account admin Alice                      may use the admin chat commands
+```
+
+Player names follow the game's own rule: letters A to Z and single spaces. The server stores only
+a salted hash of each access code. A refused logon shows the game's own dialog text: unknown name
+or wrong code, banned, server full, already logged on, or "no clan member" when the player ticked
+the logon dialog's Clan box without being in a clan. Clan members who tick the box are shown with
+their clan in the room member lists. After ten failed attempts from one IP or for one name, further
+attempts are refused for a while.
+
+Clans, the Home tab news, the ChatZone themes, the MessageZone board and the settings live in the
+same database:
+
+```
+s3lobby clan add Romans
+s3lobby clan join Romans Alice
+s3lobby news set --audience german --title "Willkommen" --file news-de.txt
+s3lobby news set --audience other --title "Welcome" --file news-en.txt
+s3lobby chat-theme add "General" --description "Talk about anything"
+s3lobby board add-theme English "Tournaments"
+s3lobby board post 1 --title "Saturday cup" --text "8 pm, 1 vs 1"
+s3lobby setting list
+```
+
+Every command takes `--database` and works while the server runs.
 
 ## Pointing the game at the server
 
@@ -105,6 +146,9 @@ original game clients it talks to were written in 1998. So:
   connection whose first answer is never acknowledged (a forged sender) ends after 15 seconds.
 - The state kept per client is bounded: duplicate detection works within a window of block ids, and
   a client that stops acknowledging is dropped instead of queueing more for it.
+- Whatever a client sends for other players to see (group names, descriptions) is decoded fully,
+  checked against length limits and for control characters, and passed on re-encoded from the
+  checked fields, never as the raw bytes received. Chat group passwords are never passed on.
 - A malformed message is refused with a warning; warnings about one sender are throttled so they
   cannot flood the log. A bug triggered by a crafted message is logged with its traceback and the
   server keeps serving everyone else.

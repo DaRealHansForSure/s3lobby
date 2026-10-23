@@ -29,6 +29,10 @@ class TokenBucket:
         self.tokens -= 1.0
         return True
 
+    def has_token_at(self, now_seconds: float) -> bool:
+        elapsed_seconds = max(0.0, now_seconds - self.last_refill_seconds)
+        return self.tokens + elapsed_seconds * self.refill_per_second >= 1.0
+
     def is_full_at(self, now_seconds: float) -> bool:
         """True when the bucket would be full again: the key has been quiet long enough to forget."""
         elapsed_seconds = now_seconds - self.last_refill_seconds
@@ -44,11 +48,26 @@ class RateLimiter:
         self._buckets: dict[Hashable, TokenBucket] = {}
 
     def allows(self, key: Hashable, now_seconds: float) -> bool:
+        """Take one event from the key's bucket; False when the bucket is empty."""
+        return self._bucket_for(key, now_seconds).try_take(now_seconds)
+
+    def is_exhausted(self, key: Hashable, now_seconds: float) -> bool:
+        """True when the key has no event left, without using one up. Together with
+        record_event this limits only some events, for example failed logons."""
+        bucket = self._buckets.get(key)
+        if bucket is None:
+            return False
+        return not bucket.has_token_at(now_seconds)
+
+    def record_event(self, key: Hashable, now_seconds: float) -> None:
+        self._bucket_for(key, now_seconds).try_take(now_seconds)
+
+    def _bucket_for(self, key: Hashable, now_seconds: float) -> TokenBucket:
         bucket = self._buckets.get(key)
         if bucket is None:
             bucket = TokenBucket(self._burst, self._events_per_second, self._burst, now_seconds)
             self._buckets[key] = bucket
-        return bucket.try_take(now_seconds)
+        return bucket
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         quiet_keys = [key for key, bucket in self._buckets.items() if bucket.is_full_at(now_seconds)]

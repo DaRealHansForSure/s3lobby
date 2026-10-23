@@ -6,118 +6,47 @@ game when the server gets it wrong.
 
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
 
 from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
-    SERVER_ASSIGNS_GROUP_ID,
-    GroupFlag,
+    LogonFlag,
     MessageType,
     ResultCode,
 )
 from s3lobby.messages import (
-    AddPlayerToGroup,
+    AddPlayerToGroupWithClan,
     CheckFileVersion,
-    GameBlock,
     GetLobbyServerList,
     GroupAnnouncement,
     LobbyServerList,
     Logon,
-    OwnPlayer,
+    OwnPlayerWithClan,
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
     Result,
 )
-from s3lobby.wire import RawMessage
-from tests.support import BackgroundServer, FakeGameClient
-
-GAME_VERSION = 160
-EDITION_MISSION_AND_GOLD = 4
-LOBBY_ROOM_ID = 3
-GAME_ZONE_ID = 30
-UNKNOWN_HOST_ADDRESS = ("0.0.0.0", 3343)
-# AddGroupToGroup2's game block after the host address: a 16-byte session id and 5 u32 values.
-GAME_BLOCK_REMAINDER_SIZE = 16 + 5 * 4
-
-
-def log_on(client: FakeGameClient) -> int:
-    """Run the patch check, the server list and the logon like the game; returns the player id."""
-    client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
-    Result.decode(client.receive_next(MessageType.RESULT))
-    client.send(GetLobbyServerList())
-    LobbyServerList.decode(client.receive_next(MessageType.LOBBY_SERVER_LIST))
-    client.close_connection()
-
-    logon = Logon(
-        protocol_version=LOGON_PROTOCOL_VERSION,
-        player_name=client.player_name,
-        password="secret",
-        flags=0,
-        serial_number="0000-0000-0000-0000-0000",
-    )
-    client.send(logon)
-    Result.decode(client.receive_next(MessageType.RESULT))
-    return OwnPlayer.decode(client.receive_next(MessageType.OWN_PLAYER)).player_id
+from tests.support import (
+    ACCESS_CODE,
+    EDITION_MISSION_AND_GOLD,
+    GAME_VERSION,
+    GAME_ZONE_ID,
+    LOBBY_ROOM_ID,
+    SERIAL_NUMBER,
+    UNKNOWN_HOST_ADDRESS,
+    LobbyTestCase,
+    go_to_lobby_server,
+    join_group,
+    log_on,
+    open_game,
+    receive_member_entry,
+    send_logon,
+)
 
 
-def join_group(client: FakeGameClient, group_id: int, player_id: int) -> None:
-    """Join a group the way the game asks: its own address unknown, its name left empty."""
-    client.send(AddPlayerToGroup(group_id, player_id, player_address=("0.0.0.0", 0), player_name=""))
-    announcement = GroupAnnouncement.decode(client.receive_next(MessageType.ADD_GROUP_TO_GROUP))
-    if (announcement.parent_id, announcement.group_id) != (JOINED_GROUP_PARENT_ID, group_id):
-        raise AssertionError(f"expected group {group_id} announced with parent 0, got {announcement}")
-
-
-def receive_member_entry(client: FakeGameClient, group_id: int) -> AddPlayerToGroup:
-    """The next member entry for one group; entries for other groups stay unread."""
-
-    def is_entry_for_group(message: RawMessage) -> bool:
-        is_member_entry = message.message_type == MessageType.ADD_PLAYER_TO_GROUP
-        return is_member_entry and AddPlayerToGroup.decode(message).group_id == group_id
-
-    return AddPlayerToGroup.decode(client.receive_matching(is_entry_for_group))
-
-
-def open_game(client: FakeGameClient, zone_id: int) -> GroupAnnouncement:
-    game_block = GameBlock(host_address=UNKNOWN_HOST_ADDRESS, remainder=bytes(GAME_BLOCK_REMAINDER_SIZE))
-    request = GroupAnnouncement(
-        message_type=MessageType.ADD_GROUP_TO_GROUP_2,
-        parent_id=zone_id,
-        group_id=SERVER_ASSIGNS_GROUP_ID,
-        flags=GroupFlag.HAS_GAME_BLOCK,
-        unknown_value=2,
-        name=f"{client.player_name}'s game",
-        second_text="",
-        third_text="",
-        game_block=game_block,
-    )
-    client.send(request)
-    return request
-
-
-class LobbySessionTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.database_folder = tempfile.TemporaryDirectory()
-        self.database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
-        self.server = BackgroundServer(self.database_path)
-        self.server.__enter__()
-        self.clients: list[FakeGameClient] = []
-
-    def tearDown(self) -> None:
-        for client in self.clients:
-            client.close_socket()
-        self.server.__exit__(None, None, None)
-        self.database_folder.cleanup()
-
-    def new_client(self, player_name: str, nonce: int) -> FakeGameClient:
-        client = FakeGameClient(self.server.address, player_name, nonce)
-        self.clients.append(client)
-        return client
-
+class LobbySessionTest(LobbyTestCase):
     def test_patch_check_says_no_patch_and_the_list_names_this_server(self) -> None:
         """Without Result NO_PATCH_NEEDED the client stops with "patch check failed"; an empty
         server list stops it with error 0x1e."""
@@ -140,11 +69,38 @@ class LobbySessionTest(unittest.TestCase):
         client.receive_next(MessageType.RESULT)
         client.close_connection()
 
-        client.send(Logon(LOGON_PROTOCOL_VERSION, "Alice", "secret", 0, "0000-0000-0000-0000-0000"))
+        client.send(Logon(LOGON_PROTOCOL_VERSION, "Alice", ACCESS_CODE, 0, SERIAL_NUMBER))
         first = client.receive_matching(lambda message: message.message_type in log_on_messages)
         second = client.receive_matching(lambda message: message.message_type in log_on_messages)
         self.assertEqual(Result.decode(first).code, ResultCode.LOGON_ACCEPTED)
         self.assertEqual(second.message_type, MessageType.OWN_PLAYER)
+
+    def test_refused_logon_gets_only_the_result_code(self) -> None:
+        """The game shows the dialog text for the code; nothing else may follow (no OwnPlayer)."""
+        client = self.new_client("Alice", nonce=17)
+        go_to_lobby_server(client)
+        result = send_logon(client, access_code="WRONGCODE")
+        self.assertEqual(result.code, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+        self.assertEqual(client.unread_messages_of_type(MessageType.OWN_PLAYER), [])
+
+    def test_clan_member_is_shown_with_the_clan_to_others(self) -> None:
+        """A player who ticked the clan box gets 0x24 instead of 0x0e, and the others see the
+        clan name in the member list through 0x25."""
+        romans = self.database.create_clan("Romans")
+        self.database.set_clan_of_account(self.database.find_account("Bob").account_id, romans.clan_id)
+        alice = self.new_client("Alice", nonce=17)
+        bob = self.new_client("Bob", nonce=42)
+        alice_id = log_on(alice)
+        join_group(alice, LOBBY_ROOM_ID, alice_id)
+
+        go_to_lobby_server(bob)
+        send_logon(bob, flags=LogonFlag.SHOW_AS_CLAN_MEMBER)
+        own_player = OwnPlayerWithClan.decode(bob.receive_next(MessageType.OWN_PLAYER_WITH_CLAN))
+        self.assertEqual((own_player.clan_id, own_player.clan_name), (romans.clan_id, "Romans"))
+        join_group(bob, LOBBY_ROOM_ID, own_player.player_id)
+
+        entry = AddPlayerToGroupWithClan.decode(alice.receive_next(MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN))
+        self.assertEqual((entry.player_name, entry.clan_name), ("Bob", "Romans"))
 
     def test_member_list_carries_the_address_the_server_saw(self) -> None:
         """Clients chat straight to each other's addresses and only know themselves as 0.0.0.0."""
