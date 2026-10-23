@@ -393,6 +393,16 @@ the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 
 stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
 Without any theme listed, players cannot open chat groups at all.
 
+### The MessageZone tab
+
+The MessageZone (group 4) is a message board. Inside it the client looks for a group named
+`MessageThemes` followed by its language (German, English, Italian, French, Polish, Spanish,
+Korean), falling back to `MessageThemesEnglish` (0x453831, 0x4539ce), and joins it. The groups
+listed in that language group are the themes; a theme's text id list (0x14) holds its messages
+(0x453bb8), which the client asks for one by one with 0x16 and shows with a header built from its
+own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
+theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
+
 ### Other
 
 - **0x1f GameStatus** (0x540500): u32 group id, 3 x u32 (flags with 1 = league game, winning team,

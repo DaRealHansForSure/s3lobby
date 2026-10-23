@@ -224,6 +224,9 @@ BOARD_LANGUAGE_GROUP_ID_BASE = 0x20000
 BOARD_THEME_GROUP_ID_BASE = 0x30000
 FIRST_GAME_GROUP_ID = 0x100000
 
+# Text ids of MessageZone messages: this base plus the message's database id, far from the news ids.
+BOARD_MESSAGE_TEXT_ID_BASE = 0x10000
+
 # Offered on the ChatZone tab when no chat theme is configured: without any theme players could not
 # open chat groups at all.
 DEFAULT_CHAT_THEME_NAME = "General"

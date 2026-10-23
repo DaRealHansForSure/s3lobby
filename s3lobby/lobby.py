@@ -28,6 +28,12 @@ from typing import Protocol
 
 from s3lobby.constants import (
     BANNER_URL_PREFIX,
+    BOARD_FALLBACK_LANGUAGE,
+    BOARD_LANGUAGE_GROUP_ID_BASE,
+    BOARD_LANGUAGE_GROUP_PREFIX,
+    BOARD_LANGUAGES,
+    BOARD_MESSAGE_TEXT_ID_BASE,
+    BOARD_THEME_GROUP_ID_BASE,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
     DEFAULT_CHAT_THEME_DESCRIPTION,
@@ -41,6 +47,7 @@ from s3lobby.constants import (
     MAX_CHAT_COMMAND_LENGTH,
     MAX_OPEN_GROUPS_PER_PLAYER,
     MAX_TEXT_MESSAGE_BYTES,
+    MESSAGE_ZONE_GROUP_ID,
     NEWS_TEXT_ID_BY_AUDIENCE,
     PRIVATE_CHAT_GROUP_ID,
     SERVER_ASSIGNS_GROUP_ID,
@@ -465,6 +472,11 @@ class Lobby:
             news = self._database.find_news(audience)
             if text_id == news_text_id and news is not None:
                 return text_message(text_id, news.title, news.body)
+        if text_id >= BOARD_MESSAGE_TEXT_ID_BASE:
+            board_message = self._database.find_board_message(text_id - BOARD_MESSAGE_TEXT_ID_BASE)
+            if board_message is not None:
+                byline = f"{board_message.author or self._server_name}, {board_message.posted_at:%Y-%m-%d}"
+                return text_message(text_id, board_message.title, f"{byline}\n\n{board_message.body}")
         return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
 
     def _log_game_status(self, client_address: Address, message: RawMessage) -> None:
@@ -482,6 +494,10 @@ class Lobby:
             group.announcement = replace(group.announcement, flags=self._home_flags())
         if group.group_id == CHAT_ZONE_GROUP_ID:
             self._sync_chat_themes()
+        if group.group_id == MESSAGE_ZONE_GROUP_ID:
+            self._sync_board_languages()
+        if is_board_language_group(group.group_id):
+            self._sync_board_themes(language_of_board_group(group.group_id))
         self._outbox.send(player.address, group.announcement.under_parent(JOINED_GROUP_PARENT_ID))
         for member in self._members_of(group):
             self._outbox.send(player.address, member_entry(group.group_id, member))
@@ -494,6 +510,8 @@ class Lobby:
         self._send_counters_to_viewers(group)
         if group.group_id == HOME_GROUP_ID:
             self._send_home_page(player)
+        if is_board_theme_group(group.group_id):
+            self._send_board_message_ids(player, group.group_id - BOARD_THEME_GROUP_ID_BASE)
 
     # The Home tab.
 
@@ -668,6 +686,50 @@ class Lobby:
             self._groups[group_id] = theme
             self._list_group_in(theme, chat_zone)
 
+    # The MessageZone tab.
+
+    def _sync_board_languages(self) -> None:
+        """List one group per language that has board themes, named as the client looks for them
+        ("MessageThemes" + language), and always the English one the client falls back to."""
+        message_zone = self._groups[MESSAGE_ZONE_GROUP_ID]
+        languages_with_themes = {theme.language for theme in self._database.list_board_themes()}
+        languages_with_themes.add(BOARD_FALLBACK_LANGUAGE)
+        for index, language in enumerate(BOARD_LANGUAGES):
+            group_id = BOARD_LANGUAGE_GROUP_ID_BASE + index
+            if language in languages_with_themes and group_id not in self._groups:
+                name = BOARD_LANGUAGE_GROUP_PREFIX + language
+                language_group = Group(announcement=room_announcement(group_id, name), kind=GroupKind.ROOM)
+                self._groups[group_id] = language_group
+                self._list_group_in(language_group, message_zone)
+
+    def _sync_board_themes(self, language: str) -> None:
+        """List the board themes of one language in its language group; themes removed from the
+        database disappear once nobody is in them."""
+        language_group_id = BOARD_LANGUAGE_GROUP_ID_BASE + BOARD_LANGUAGES.index(language)
+        language_group = self._groups[language_group_id]
+        wanted = {}
+        for theme in self._database.list_board_themes():
+            if theme.language == language:
+                wanted[BOARD_THEME_GROUP_ID_BASE + theme.theme_id] = theme
+        for group in self._groups_listed_in(language_group_id):
+            if group.group_id not in wanted and not group.member_ids:
+                self._unlist_group_from(group, language_group_id)
+                self._groups.pop(group.group_id, None)
+        for group_id, theme in wanted.items():
+            if group_id in self._groups:
+                continue
+            announcement = room_announcement(group_id, theme.name, description_text=theme.description)
+            theme_group = Group(announcement=announcement, kind=GroupKind.ROOM)
+            self._groups[group_id] = theme_group
+            self._list_group_in(theme_group, language_group)
+
+    def _send_board_message_ids(self, player: Player, theme_id: int) -> None:
+        """The ids of a theme's messages; the client asks for each text when it shows it."""
+        messages = self._database.list_board_messages(theme_id)
+        text_ids = tuple(BOARD_MESSAGE_TEXT_ID_BASE + message.message_id for message in messages)
+        group_id = BOARD_THEME_GROUP_ID_BASE + theme_id
+        self._outbox.send(player.address, TextIdList(group_id=group_id, text_ids=text_ids))
+
     # Built-in groups and lookups.
 
     def _open_built_in_rooms(self) -> None:
@@ -728,3 +790,15 @@ def text_message(text_id: int, title: str, body: str) -> TextMessage:
         lines.append(line)
         used_bytes += line_bytes
     return TextMessage(text_id=text_id, title=title, lines=tuple(lines))
+
+
+def is_board_language_group(group_id: int) -> bool:
+    return BOARD_LANGUAGE_GROUP_ID_BASE <= group_id < BOARD_LANGUAGE_GROUP_ID_BASE + len(BOARD_LANGUAGES)
+
+
+def language_of_board_group(group_id: int) -> str:
+    return BOARD_LANGUAGES[group_id - BOARD_LANGUAGE_GROUP_ID_BASE]
+
+
+def is_board_theme_group(group_id: int) -> bool:
+    return BOARD_THEME_GROUP_ID_BASE <= group_id < FIRST_GAME_GROUP_ID
