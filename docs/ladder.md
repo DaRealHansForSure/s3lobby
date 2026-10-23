@@ -213,6 +213,7 @@ out, and the match line and the web page already carry it.
   | `ladder_board_messages` | 20 | how many messages the server keeps in its board theme |
   | `ladder_news_standings` | true | append the top five and running seasons to the news |
   | `ladder_logon_line` | false | a line with rating and place at logon, for ladder players only |
+  | `ladder_max_custom_seasons` | 50 | how many custom seasons may exist |
 
 ### Edge cases
 
@@ -237,6 +238,73 @@ out, and the match line and the web page already carry it.
   yet (in the run list below); the server checks the rules either way.
 - **Later, if wanted:** statistics per race and per map (who wins with which race, which maps are
   played), and an export of all results as CSV for other tools.
+
+### Security
+
+The ladder adds no new way in: it reads reports the server already accepts, and everything else is
+admin pages and server output. What it must keep, following the network and web rules of the
+project:
+
+- **Reports.** Only from a logged on player's numbered blocks, as today. New: a report counts for
+  the ladder only for a game its sender joined in the lobby (`game_players`); today the server
+  stores a report for any game id a logged on player names, which is fine for statistics but not
+  for a ranking. A forged datagram that guesses the next block number could still send a report in
+  a player's name (SECURITY.md); the agreement rule turns such a report into a dispute, never into
+  a result, as long as the real players' reports disagree with it. The admins' decision is the
+  backstop.
+- **Bounds.** Report slots are already bounded by the decoder; results per game, seasons (at most
+  `ladder_max_custom_seasons`, default 50) and generated texts (1200 bytes, the newest 20 board
+  messages) are bounded too, so no player and no admin action can grow them without limit.
+- **Generated texts** are built only from text checked when it was stored: player names, clan and
+  season names (`check_game_text`), numbers and dates; nothing a client typed into the chat. The
+  whole text passes `check_game_text` again before it is stored or sent; one that fails is logged
+  and dropped. Too long texts lose whole lines from their end. A board text leaves room for the
+  byline the server puts in front of every board message when it sends it (author and date); the
+  server's `text_message` would otherwise drop the last lines to stay within 1200 bytes.
+- **Once per event:** each board message and announcement is stored with its event, so a restart
+  never posts it twice and a crash in the middle never posts half.
+- **Chat commands** (`/rank`, `/top`, `/clanrank`, `/seasons`) get a rate limit per player, their
+  arguments are cut to `MAX_GROUP_TEXT_LENGTH`, and the answers go through `fit_answer`. Ratings are
+  computed once per change and cached, so a burst of commands costs no recomputation.
+- **Housekeeping** (the report timeout, the weekly summary, season ends) runs guarded like the
+  other housekeeping steps, so a database failure in one cannot stop the rest.
+- **Web:** the public `/ladder` page shows only names, clans, ratings and results, all of which the
+  live lobby already shows; addresses, access codes and reports' raw bytes stay on admin pages.
+  Every admin form carries `csrf_field()`, every admin blueprint redirects visitors, and the pages
+  use no inline script or style.
+
+### Without the web interface
+
+The lobby runs with and without the web interface, and the ladder must too. Anyone with the code
+should be able to build their own pages, bots or tools on it. So:
+
+- **The logic is a module of its own,** `s3lobby/ladder.py`, standard library only like the server:
+  evaluating a game into a result, computing ratings from results (`compute_ratings(results,
+  settings)`, a pure function), standings per season, clan strength, and building the generated
+  texts. The server, the command line and the web interface all call it; none of them holds
+  ladder rules of its own.
+- **Players need no web page:** results, standings and seasons reach them in the game through the
+  match line, the chat commands, the board and the news.
+- **Every admin action has a command,** the web pages are only a second way to the same functions:
+
+  ```sh
+  s3lobby ladder games [--state disputed|waiting|counted|void] [--season NAME]
+  s3lobby ladder show GAME_ID
+  s3lobby ladder decide GAME_ID --winner TEAM
+  s3lobby ladder void GAME_ID [--reason TEXT]
+  s3lobby ladder standings [--season NAME] [--ladder liga|clanliga|clans]
+  s3lobby ladder season list|add|edit|end|delete ...
+  s3lobby ladder texts [--preview weekly|news]
+  s3lobby setting set ladder_minimum_minutes 15
+  ```
+
+- **Machine readable output for other tools:** `ladder standings` and `ladder results` take
+  `--format text|json|csv`. The JSON is documented in `docs/ladder.md` once built and versioned
+  with a `format` number, so a change that would break a reader gets a new number.
+- **The data is plain tables** (`ladder_results`, `ladder_result_players`, `ladder_seasons`, below)
+  in SQLite or MySQL, documented with their columns, so a tool may also read the database directly,
+  as the web interface does with the live lobby. Ratings are not stored; a tool computes them with
+  `compute_ratings` or takes them from the JSON.
 
 ## 5. Database (one migration, 0010, for every dialect)
 
@@ -266,6 +334,7 @@ styles, so the real pages can take them over into `app.css` as they are.
 | [Liga](mockups/ladder/ladder-liga-light.png) ([dark](mockups/ladder/ladder-liga-dark.png), [phone](mockups/ladder/ladder-liga-light-phone.png)) | the public `/ladder` page: tabs for Liga, Clanliga and clan strength, season and player filters, the top three as cards, the rating over the last weeks as a chart, the standings with form (last five results), win rate bars and losses by leaving, and the last results |
 | [Clanliga](mockups/ladder/ladder-clanliga-light.png) ([dark](mockups/ladder/ladder-clanliga-dark.png)) | the clans as cards with rating, form, usual team size and members, and their strength from Liga as a bar chart |
 | [Ladder games](mockups/ladder/ladder-admin-light.png) ([dark](mockups/ladder/ladder-admin-dark.png)) | for admins: games filtered by state with counts, the decision dialog for a disputed game, the infinite and custom seasons as cards with progress, a form for a new custom season, and the ladder settings |
+| [Ladder texts](mockups/ladder/ladder-texts-light.png) ([dark](mockups/ladder/ladder-texts-dark.png)) | for admins: the board theme the server writes with its messages and their size, the weekly summary in German and English, season start and end, the news with the ladder block, the server lines, and the checks every generated text passes |
 | [Game page](mockups/ladder/ladder-game-light.png) ([dark](mockups/ladder/ladder-game-dark.png)) | the ladder part of a game's page: both end reports side by side, the verdict, the rating changes per season, and what the players read in the game |
 
 ## Building it in steps
