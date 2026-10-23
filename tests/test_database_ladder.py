@@ -10,7 +10,7 @@ import unittest
 from datetime import timedelta
 
 from s3lobby.constants import LadderState, LadderType, SeasonCounts
-from s3lobby.database import DELETED_ACCOUNT_ID, DatabaseError, LobbyDatabase, Setting
+from s3lobby.database import DatabaseError, LobbyDatabase, Setting
 from s3lobby.ladder import Evaluation, ResultPlayer
 from s3lobby.ladder_book import LadderBook, count_same_day_results
 from tests.databases import database_location_for_test
@@ -85,11 +85,12 @@ class LadderDatabaseTest(LadderTestCase):
         self.assertEqual(self.database.list_unresolved_ladder_games(), [])
 
     def test_a_deleted_account_keeps_its_results_for_the_others(self) -> None:
-        """Bob's account goes; Alice's win over him stays, Bob shows as account 0."""
+        """Bob's account goes; Alice's win over him stays with Bob's id, so the ratings replay as
+        they were played (two deleted players never merge into one)."""
         self.database.store_ladder_result(self.evaluation())
         self.database.delete_account(self.bob)
         [record] = self.database.list_ladder_results()
-        self.assertEqual([player.account_id for player in record.evaluation.players], [self.alice, DELETED_ACCOUNT_ID])
+        self.assertEqual([player.account_id for player in record.evaluation.players], [self.alice, self.bob])
 
     def test_a_game_player_keeps_the_clan_and_since_when(self) -> None:
         """The clan a player showed and the date they joined it are kept with the game."""

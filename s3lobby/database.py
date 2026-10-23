@@ -83,8 +83,6 @@ TABLES_IN_DEPENDENCY_ORDER = (
 
 # Shown for a game's player whose account was deleted since.
 DELETED_ACCOUNT_NAME = "(deleted account)"
-# A ladder result's player whose account was deleted since; no account has id 0.
-DELETED_ACCOUNT_ID = 0
 # The ladder states a result is stored in; WAITING is not a result.
 STORED_LADDER_STATES = frozenset({LadderState.COUNTED, LadderState.DISPUTED, LadderState.VOID})
 # Lengths of the ladder's columns that hold text the server writes (VARCHAR in MySQL).
@@ -1506,11 +1504,9 @@ class LobbyDatabase:
         )
         players_by_result: dict[int, list[ResultPlayer]] = {}
         for row in player_rows:
-            # A deleted account leaves 0 behind: the ratings of everyone else stay as they were, and 0
-            # is never an account id.
             players_by_result.setdefault(row["result_id"], []).append(
                 ResultPlayer(
-                    account_id=row["account_id"] or DELETED_ACCOUNT_ID,
+                    account_id=row["account_id"],
                     clan_id=row["clan_id"],
                     team=row["team"],
                     race=row["race"],

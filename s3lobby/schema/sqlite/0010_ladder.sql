@@ -23,10 +23,12 @@ CREATE TABLE ladder_results (
     decided_by_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL
 );
 CREATE INDEX ladder_results_by_time ON ladder_results(played_at);
+-- account_id has no foreign key on purpose: a deleted account keeps its id here, so its opponents'
+-- ratings are replayed exactly as they were played (the account only loses its name).
 CREATE TABLE ladder_result_players (
     id INTEGER PRIMARY KEY,
     result_id INTEGER NOT NULL REFERENCES ladder_results(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+    account_id INTEGER NOT NULL,
     clan_id INTEGER REFERENCES clans(id) ON DELETE SET NULL,
     team INTEGER NOT NULL,
     race INTEGER NOT NULL,

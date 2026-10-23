@@ -28,10 +28,12 @@ CREATE TABLE ladder_results (
     FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
     FOREIGN KEY (decided_by_account_id) REFERENCES accounts(id) ON DELETE SET NULL
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_bin;
+-- account_id has no foreign key on purpose: a deleted account keeps its id here, so its opponents'
+-- ratings are replayed exactly as they were played (the account only loses its name).
 CREATE TABLE ladder_result_players (
     id INTEGER PRIMARY KEY AUTO_INCREMENT,
     result_id INTEGER NOT NULL,
-    account_id INTEGER,
+    account_id INTEGER NOT NULL,
     clan_id INTEGER,
     team INTEGER NOT NULL,
     race INTEGER NOT NULL,
@@ -41,7 +43,6 @@ CREATE TABLE ladder_result_players (
     INDEX ladder_result_players_by_result (result_id),
     INDEX ladder_result_players_by_account (account_id),
     FOREIGN KEY (result_id) REFERENCES ladder_results(id) ON DELETE CASCADE,
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL,
     FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE SET NULL
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_bin;
 -- Custom seasons admins create; the infinite season is not a row, it is every counted result.
