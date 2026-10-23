@@ -293,6 +293,15 @@ GAME_ZONE_NAMES = {
     38: "Other games",
 }
 
+# A chat group with a password is opened under this group, not under the chat theme: CreateChatGroup
+# (0x4542c0) compares the password with the empty text (0x454315) and, when one is set, joins group
+# 5 (a group it builds with id 5 and empty texts, 0x454516, switched to at 0x452120), opens the chat
+# group under it, and leaves it again, all in one block (seen in a run). Blue Byte's server must
+# have had this group; s3lobby keeps it hidden (listed nowhere) and lists such a chat group in the
+# chat theme its creator just left as well, so other players can find it (inferred: how the
+# original server showed them is unknown).
+PASSWORD_CHAT_GROUP_PARENT_ID = 5
+
 # A host opens its game with this group id and leaves the choice of the real id to the server
 # (seen in a run: CreateGame 0x5ca7d0 sends 0xffffffff).
 SERVER_ASSIGNS_GROUP_ID = 0xFFFFFFFF

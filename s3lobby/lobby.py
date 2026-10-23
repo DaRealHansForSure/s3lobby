@@ -58,6 +58,7 @@ from s3lobby.constants import (
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
     NEWS_TEXT_ID_BY_AUDIENCE,
+    PASSWORD_CHAT_GROUP_PARENT_ID,
     PRIVATE_CHAT_GROUP_ID,
     SERVER_ASSIGNS_GROUP_ID,
     TEXT_ENCODING,
@@ -168,6 +169,8 @@ class Player:
     logged_on_at: datetime = field(default_factory=utc_now)
     group_ids: set[int] = field(default_factory=set)
     visible_groups: set[VisibleGroup] = field(default_factory=set)
+    # The chat theme the player was in last; a chat group with a password is listed there.
+    last_chat_theme_id: int | None = None
     has_heard_board_chat_hint: bool = False
 
 
@@ -539,7 +542,20 @@ class Lobby:
         # working chat, whisper or new game until leaving and joining again (seen in a run).
         self._outbox.send(player.address, Result(ResultCode.GROUP_OPENED, value=group_id))
         self._list_group_in(group, parent)
+        if parent.group_id == PASSWORD_CHAT_GROUP_PARENT_ID and group.kind == GroupKind.CHAT_GROUP:
+            self._list_in_creators_chat_theme(group, player)
         self._tell_about_ladder(group, [player])
+
+    def _list_in_creators_chat_theme(self, group: Group, creator: Player) -> None:
+        """List a chat group with a password, opened under the hidden group 5, in the chat theme
+        its creator just left, or in the first theme when there is none, so others can find it."""
+        theme = self._groups.get(creator.last_chat_theme_id) if creator.last_chat_theme_id is not None else None
+        if theme is None:
+            themes = self._groups_listed_in(CHAT_ZONE_GROUP_ID)
+            if not themes:
+                return
+            theme = themes[0]
+        self._list_group_in(group, theme)
 
     def _list_existing_game(self, player: Player, group: Group, zone: Group) -> None:
         if player.player_id not in group.member_ids or group.kind != GroupKind.GAME:
@@ -734,6 +750,8 @@ class Lobby:
         group.member_ids.append(player.player_id)
         group.empty_since_seconds = None
         player.group_ids.add(group.group_id)
+        if is_chat_theme_group(group.group_id):
+            player.last_chat_theme_id = group.group_id
         self._record_game_player(group, player)
         for child in self._groups_listed_in(group.group_id):
             self._show_group(player, child, group.group_id)
@@ -1020,6 +1038,10 @@ class Lobby:
         gives them. The client does not show these names, but they make logs and lists readable."""
         for group_id, name in {**LOBBY_TAB_GROUP_NAMES, **GAME_ZONE_NAMES}.items():
             self._groups[group_id] = Group(announcement=room_announcement(group_id, name), kind=GroupKind.ROOM)
+        # Listed nowhere, with empty texts like the client's own copy (see PASSWORD_CHAT_GROUP_PARENT_ID).
+        self._groups[PASSWORD_CHAT_GROUP_PARENT_ID] = Group(
+            announcement=room_announcement(PASSWORD_CHAT_GROUP_PARENT_ID, ""), kind=GroupKind.ROOM
+        )
 
     def _members_of(self, group: Group) -> list[Player]:
         return [self._players_by_id[member_id] for member_id in group.member_ids if member_id in self._players_by_id]
@@ -1119,6 +1141,10 @@ def is_board_language_group(group_id: int) -> bool:
 
 def language_of_board_group(group_id: int) -> str:
     return BOARD_LANGUAGES[group_id - BOARD_LANGUAGE_GROUP_ID_BASE]
+
+
+def is_chat_theme_group(group_id: int) -> bool:
+    return CHAT_THEME_GROUP_ID_BASE <= group_id < BOARD_LANGUAGE_GROUP_ID_BASE
 
 
 def is_board_theme_group(group_id: int) -> bool:
