@@ -205,6 +205,20 @@ and a new nonce from an active player's address is ignored (keepalive every 5 s,
 remains is inherent: the game's datagrams carry no secret, so a forger who guesses the next block
 number can still slip in an ordinary action; admin commands are safe through /confirm.
 
+## Unexplained, left for later
+
+Seen in runs, not understood, not worked on (owner's decision, 2026-10-23):
+
+- After a server restart while the game (Wine, Bob) stayed logged on and was then logged on
+  again, its join of the MessageZone (block 2, AddPlayerToGroup 4) was resent every half second
+  although every server datagram acknowledged it (ACKNOWLEDGE_MESSAGES 2, MIN_MISSING 3); the
+  server's answer was byte for byte the one that worked minutes before. A freshly started game
+  was fine. lobby.log 23:25:45 onwards. Next step: restart the server while a game stays logged on,
+  and compare the client's acknowledgement handling (send 0x606ff0, resend timer).
+- Windows 10 at 19:34:24: right after its join of MessageThemesGerman the game went silent (no
+  acknowledgement, no keepalive, no Logout) and the server dropped it 60 s later. The same steps
+  worked afterwards; the owner may have clicked away fast. Never reproduced.
+
 ## Future work
 
 - A run with the real game for the ladder: a Liga match between two machines played to the end and
