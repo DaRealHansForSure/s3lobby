@@ -135,6 +135,10 @@ class Setting(Enum):
     # After each logon from the internet, probe whether other players can reach the player
     # directly (reachability.py). Off by default: no run with the real game has seen the probe.
     CHECK_REACHABILITY = "check_reachability"
+    # Tell a player who opens the MessageZone once per logon that chat typed there reaches nobody (a
+    # bug of the game, 0x452455). Off by default: no run with the real game has seen a server line
+    # on that tab yet.
+    BOARD_CHAT_HINT = "board_chat_hint"
 
     @property
     def key(self) -> str:
@@ -153,6 +157,7 @@ SETTING_DEFAULTS = {
     Setting.BANNER_ID: "0",
     Setting.BANNER_SUB_ID: "0",
     Setting.MARK_ADMINS: "false",
+    Setting.BOARD_CHAT_HINT: "false",
     Setting.CHECK_REACHABILITY: "false",
 }
 
@@ -171,7 +176,9 @@ TRUE_SETTING_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
 # The numeric settings travel to the game as u32 fields.
 INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BANNER_SUB_ID})
-BOOLEAN_SETTINGS = frozenset({Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS, Setting.CHECK_REACHABILITY})
+BOOLEAN_SETTINGS = frozenset(
+    {Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS, Setting.CHECK_REACHABILITY, Setting.BOARD_CHAT_HINT}
+)
 MAX_INTEGER_SETTING = 0xFFFFFFFF
 
 LINE_BREAK = "\n"
