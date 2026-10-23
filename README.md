@@ -240,7 +240,8 @@ s3lobby setting set mark_admins true    # admins' rows in another colour; not ye
 ```
 
 In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
-`/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces).
+`/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces);
+each waits for `/confirm CODE` with a code the server shows only to the admin.
 Answers and announcements show as `[Server]` lines. Match reports the game sends after a game are
 stored in the database.
 

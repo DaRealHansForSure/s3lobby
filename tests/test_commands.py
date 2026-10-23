@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from dataclasses import dataclass
 
 from s3lobby.commands import MAX_ANSWER_LINE_LENGTH, MAX_ANSWER_LINES, ChatCommands, fit_answer, split_command
-from s3lobby.constants import ANNOUNCEMENT_GROUP_ID, GameStatusFlag, MessageType, ResultCode
+from s3lobby.constants import ANNOUNCEMENT_GROUP_ID, CONFIRMATION_SECONDS, GameStatusFlag, MessageType, ResultCode
 from s3lobby.database import LobbyDatabase, Setting
 from s3lobby.messages import ChatCommand, ChatCommandAnswer, GameStatus, Result
 from s3lobby.reachability import Reachability
@@ -31,8 +32,14 @@ class ChatCommandsTest(unittest.TestCase):
         self.announced: list[str] = []
         self.kicked: list[tuple[int, str]] = []
         self.reachability = Reachability.NOT_CHECKED
+        self.clock_seconds = 1000.0
         self.commands = ChatCommands(
-            self.database, lambda: self.online, self.record_announcement, self.record_kick, lambda address: self.reachability
+            self.database,
+            lambda: self.online,
+            self.record_announcement,
+            self.record_kick,
+            lambda address: self.reachability,
+            clock_seconds=lambda: self.clock_seconds,
         )
 
     def tearDown(self) -> None:
@@ -41,6 +48,11 @@ class ChatCommandsTest(unittest.TestCase):
     def record_announcement(self, text: str) -> int:
         self.announced.append(text)
         return len(self.online)
+
+    def confirm(self, sender: Sender, answer: tuple[str, ...]) -> tuple[str, ...]:
+        """Confirm an admin command with the code its answer showed."""
+        code = re.search(r"/confirm (\d+)", answer[0]).group(1)
+        return self.commands.answer(sender, f"/confirm {code}")
 
     def record_kick(self, player_id: int, reason: str) -> bool:
         self.kicked.append((player_id, reason))
@@ -64,7 +76,8 @@ class ChatCommandsTest(unittest.TestCase):
         self.assertEqual(self.commands.answer(Sender(1, "Alice"), "/announce hello"), ("Only admins may announce.",))
         self.assertEqual(self.announced, [])
         self.database.set_admin(self.alice.account_id, True)
-        answer = self.commands.answer(Sender(self.alice.account_id, "Alice"), "/announce hello")
+        alice = Sender(self.alice.account_id, "Alice")
+        answer = self.confirm(alice, self.commands.answer(alice, "/announce hello"))
         self.assertEqual((answer, self.announced), (("Announced to 2 player(s).",), ["hello"]))
 
     def test_only_admins_kick_and_ban(self) -> None:
@@ -81,9 +94,29 @@ class ChatCommandsTest(unittest.TestCase):
     def test_kick_takes_a_name_with_spaces_and_a_reason(self) -> None:
         legion = self.database.create_account("Roman Legion")
         self.online.append("Roman Legion")
-        answer = self.commands.answer(Sender(self.boss.account_id, "Boss"), "/kick roman legion spamming the chat")
+        boss = Sender(self.boss.account_id, "Boss")
+        answer = self.confirm(boss, self.commands.answer(boss, "/kick roman legion spamming the chat"))
         self.assertEqual(answer, ("Removed Roman Legion from the lobby.",))
         self.assertEqual(self.kicked, [(legion.account_id, "An admin removed you from the lobby: spamming the chat")])
+
+    def test_admin_command_waits_for_its_code(self) -> None:
+        """A datagram forged from an admin's address is sent blind; without the code it does nothing."""
+        boss = Sender(self.boss.account_id, "Boss")
+        answer = self.commands.answer(boss, "/kick Alice")
+        self.assertEqual(self.kicked, [], "nothing happens before the confirmation")
+        code = re.search(r"/confirm (\d+)", answer[0]).group(1)
+        wrong_digit = (int(code[-1]) + 1) % 10
+        wrong_code = f"{code[:-1]}{wrong_digit}"
+        self.assertEqual(self.commands.answer(boss, f"/confirm {wrong_code}"), ("Wrong code: the command was cancelled.",))
+        self.assertEqual(self.commands.answer(boss, f"/confirm {code}"), ("There is nothing to confirm.",))
+        self.assertEqual(self.kicked, [])
+
+    def test_confirmation_runs_out(self) -> None:
+        boss = Sender(self.boss.account_id, "Boss")
+        answer = self.commands.answer(boss, "/kick Alice")
+        self.clock_seconds += CONFIRMATION_SECONDS + 1
+        self.assertEqual(self.confirm(boss, answer), ("That command ran out; give it again.",))
+        self.assertEqual(self.kicked, [])
 
     def test_kick_needs_a_player_who_is_online(self) -> None:
         answer = self.commands.answer(Sender(self.boss.account_id, "Boss"), "/kick Carol")
@@ -94,7 +127,8 @@ class ChatCommandsTest(unittest.TestCase):
 
     def test_ban_bars_an_account_online_or_not_and_queues_its_removal(self) -> None:
         carol = self.database.create_account("Carol")
-        answer = self.commands.answer(Sender(self.boss.account_id, "Boss"), "/ban Carol 48 cheating")
+        boss = Sender(self.boss.account_id, "Boss")
+        answer = self.confirm(boss, self.commands.answer(boss, "/ban Carol 48 cheating"))
         self.assertEqual(answer, ("Carol is banned for 48 hour(s).",))
         banned = self.database.find_account("Carol")
         self.assertEqual(banned.ban_reason, "cheating")

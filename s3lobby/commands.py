@@ -12,6 +12,11 @@ Commands:
     /announce TEXT      (admins) a line for every player in the lobby
     /kick NAME [REASON]          (admins) remove a player from the lobby; they may log on again
     /ban NAME HOURS [REASON]     (admins) bar an account, online or not; an online player is removed
+    /confirm CODE                (admins) carry out the last /announce, /kick or /ban
+
+The admin commands wait for /confirm with a code shown only to the admin: on a network that lets
+datagrams carry a forged sender address, a forger could send a command as an admin, but never sees
+the code.
 
 Player names may hold spaces ("Roman Legion"), so the name is the longest run of words at the
 start of the argument that names a player.
@@ -19,19 +24,25 @@ start of the argument that names a player.
 
 from __future__ import annotations
 
+import hmac
 import ipaddress
+import secrets
 import textwrap
+import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Protocol
 
 from s3lobby.constants import (
+    CONFIRMATION_CODE_DIGITS,
+    CONFIRMATION_SECONDS,
     DIRECTPLAY_ENUMERATION_PORT,
     DIRECTPLAY_FIRST_GAME_PORT,
     DIRECTPLAY_LAST_GAME_PORT,
     GAME_CLIENT_FIRST_PORT,
 )
-from s3lobby.database import LobbyDatabase, is_whole_number_text, utc_now
+from s3lobby.database import DatabaseError, LobbyDatabase, is_whole_number_text, utc_now
 from s3lobby.reachability import Reachability
 from s3lobby.wire import Address
 
@@ -60,6 +71,15 @@ class CommandSender(Protocol):
     address: Address
 
 
+@dataclass(frozen=True)
+class PendingConfirmation:
+    """An admin command waiting for /confirm: its code, what it does, and until when it waits."""
+
+    code: str
+    action: Callable[[], list[str]]
+    expires_at: float
+
+
 class ChatCommands:
     """Answers chat commands. online_player_names lists who is in the lobby right now; announce
     sends a line to every player and returns how many it reached; kick removes the player with
@@ -73,12 +93,16 @@ class ChatCommands:
         announce: Callable[[str], int],
         kick: Callable[[int, str], bool],
         reachability_of: Callable[[Address], Reachability],
+        clock_seconds: Callable[[], float] = time.monotonic,
     ) -> None:
         self._database = database
         self._online_player_names = online_player_names
         self._announce = announce
         self._kick = kick
         self._reachability_of = reachability_of
+        self._clock_seconds = clock_seconds
+        # The admin command each admin still has to confirm, by player id.
+        self._pending_confirmations: dict[int, PendingConfirmation] = {}
 
     def answer(self, sender: CommandSender, command_text: str) -> tuple[str, ...]:
         """The lines that answer one command."""
@@ -98,6 +122,8 @@ class ChatCommands:
                 lines = self._kick_for(sender, argument)
             case "ban":
                 lines = self._ban_for(sender, argument)
+            case "confirm":
+                lines = self._confirm(sender, argument)
             case _:
                 lines = [f"Unknown command {COMMAND_PREFIX}{command_name}. Type {COMMAND_PREFIX}help for the list."]
         return fit_answer(lines)
@@ -112,7 +138,29 @@ class ChatCommands:
             lines.append("/announce TEXT: a line for every player in the lobby")
             lines.append("/kick NAME [REASON]: remove a player from the lobby")
             lines.append("/ban NAME HOURS [REASON]: bar an account, online or not")
+            lines.append("/confirm CODE: carry out the command you just gave")
         return lines
+
+    def _ask_for_confirmation(self, sender: CommandSender, description: str, action: Callable[[], list[str]]) -> list[str]:
+        """Hold an admin command until the admin confirms it with a random code. A datagram forged
+        from an admin's address is sent blind: its sender never sees the code, and a wrong one
+        cancels the command, so guessing does not work either."""
+        code = f"{secrets.randbelow(10 ** CONFIRMATION_CODE_DIGITS):0{CONFIRMATION_CODE_DIGITS}d}"
+        expires_at = self._clock_seconds() + CONFIRMATION_SECONDS
+        self._pending_confirmations[sender.player_id] = PendingConfirmation(code, action, expires_at)
+        return [f"To {description}, type {COMMAND_PREFIX}confirm {code} within {CONFIRMATION_SECONDS} seconds."]
+
+    def _confirm(self, sender: CommandSender, code: str) -> list[str]:
+        pending = self._pending_confirmations.pop(sender.player_id, None)
+        if pending is None:
+            return ["There is nothing to confirm."]
+        if self._clock_seconds() > pending.expires_at:
+            return ["That command ran out; give it again."]
+        if not hmac.compare_digest(code.encode("utf-8"), pending.code.encode("utf-8")):
+            return ["Wrong code: the command was cancelled."]
+        if not self._is_admin_now(sender):
+            return ["You are no admin any more."]
+        return pending.action()
 
     def _is_admin_now(self, sender: CommandSender) -> bool:
         """Admin rights as the database has them now: an admin whose rights were taken away while
@@ -138,8 +186,12 @@ class ChatCommands:
             return ["Only admins may announce."]
         if not text:
             return [f"Usage: {COMMAND_PREFIX}announce TEXT"]
-        reached_count = self._announce(text)
-        return [f"Announced to {reached_count} player(s)."]
+
+        def announce() -> list[str]:
+            reached_count = self._announce(text)
+            return [f"Announced to {reached_count} player(s)."]
+
+        return self._ask_for_confirmation(sender, "announce this to everyone", announce)
 
     def _kick_for(self, sender: CommandSender, argument: str) -> list[str]:
         if not self._is_admin_now(sender):
@@ -153,9 +205,13 @@ class ChatCommands:
             return [f"There is no account named {name}."]
         if account.account_id == sender.player_id:
             return ["You cannot kick yourself."]
-        if not self._kick(account.account_id, kick_reason(reason)):
-            return [f"{account.name} is not online."]
-        return [f"Removed {account.name} from the lobby."]
+
+        def kick() -> list[str]:
+            if not self._kick(account.account_id, kick_reason(reason)):
+                return [f"{account.name} is not online."]
+            return [f"Removed {account.name} from the lobby."]
+
+        return self._ask_for_confirmation(sender, f"remove {account.name} from the lobby", kick)
 
     def _ban_for(self, sender: CommandSender, argument: str) -> list[str]:
         """The ban is stored like one from the command line; the running server then removes the
@@ -173,9 +229,16 @@ class ChatCommands:
         account = self._database.find_account(name)
         if account.account_id == sender.player_id:
             return ["You cannot ban yourself."]
-        until = utc_now() + timedelta(hours=hours)
-        self._database.ban_account(account.account_id, until, reason.strip())
-        return [f"{account.name} is banned for {hours} hour(s)."]
+
+        def ban() -> list[str]:
+            until = utc_now() + timedelta(hours=hours)
+            try:
+                self._database.ban_account(account.account_id, until, reason.strip())
+            except DatabaseError as error:
+                return [f"Not banned: {error}."]
+            return [f"{account.name} is banned for {hours} hour(s)."]
+
+        return self._ask_for_confirmation(sender, f"ban {account.name} for {hours} hour(s)", ban)
 
 
 def split_command(command_text: str) -> tuple[str, str]:

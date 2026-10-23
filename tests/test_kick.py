@@ -8,6 +8,7 @@ their own, and a stopped server would leave every player waiting a minute for a 
 
 from __future__ import annotations
 
+import re
 import unittest
 from datetime import timedelta
 
@@ -28,6 +29,9 @@ class KickTest(LobbyTestCase):
 
     def test_admin_kicks_from_the_chat_and_the_others_see_the_player_leave(self) -> None:
         self.alice.send(ChatCommand(group_id=GAME_ZONE_ID, unknown_value=0, command="/kick Bob spamming"))
+        request = ChatCommandAnswer.decode(self.alice.receive_next(MessageType.CHAT_COMMAND_ANSWER))
+        code = re.search(r"/confirm (\d+)", request.lines[0]).group(1)
+        self.alice.send(ChatCommand(group_id=GAME_ZONE_ID, unknown_value=0, command=f"/confirm {code}"))
         reason = ChatCommandAnswer.decode(self.bob.receive_next(MessageType.CHAT_COMMAND_ANSWER))
         self.assertEqual(reason.group_id, ANNOUNCEMENT_GROUP_ID)
         self.assertEqual(reason.lines, ("An admin removed you from the lobby: spamming",))

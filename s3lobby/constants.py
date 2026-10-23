@@ -407,6 +407,10 @@ BANNER_URL_PREFIX = "ftp://"
 LOGON_FAILURE_BURST = 10
 LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
 
+# Admin chat commands wait this long for /confirm with a code of this many digits.
+CONFIRMATION_SECONDS = 60
+CONFIRMATION_CODE_DIGITS = 4
+
 # Wrong chat group passwords per player: a few typing mistakes at once, then one every few minutes.
 WRONG_GROUP_PASSWORD_BURST = 5
 WRONG_GROUP_PASSWORDS_PER_SECOND = 1 / 60
