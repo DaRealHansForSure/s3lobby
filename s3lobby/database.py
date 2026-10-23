@@ -214,6 +214,9 @@ SETTING_DEFAULTS = {
 # a player who is online when banned, and kept as a note for admins.
 MAX_ACCESS_CODE_LABEL_LENGTH = 64
 MAX_BAN_REASON_LENGTH = 200
+# How a kick or ban line names the admin's reason (with_reason).
+REASON_LABEL = "Reason"
+NO_REASON_TEXT = "No reason given."
 
 # What a player is told when their account is deleted while they are online.
 ACCOUNT_REMOVED_KICK_REASON = "Your account was removed."
@@ -554,10 +557,15 @@ def check_banner_url(url: str) -> None:
 
 def ban_kick_reason(until: datetime, reason: str) -> str:
     """What a banned player who is online is told as they are removed."""
-    text = f"You are banned until {until.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC"
+    return with_reason(f"You are banned until {until.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC", reason)
+
+
+def with_reason(text: str, reason: str) -> str:
+    """A kick or ban line with the admin's reason labelled as such, or a note that none was given:
+    in one chat line, a reason after a bare colon was read as part of the date or the sentence."""
     if reason:
-        return f"{text}: {reason}"
-    return f"{text}."
+        return f"{text}. {REASON_LABEL}: {reason}"
+    return f"{text}. {NO_REASON_TEXT}"
 
 
 def utc_now() -> datetime:

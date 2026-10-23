@@ -52,7 +52,7 @@ class KickTest(LobbyTestCase):
         self.alice.send(ChatCommand(group_id=GAME_ZONE_ID, unknown_value=0, command=f"/confirm {code}"))
         reason = ChatCommandAnswer.decode(self.bob.receive_next(MessageType.CHAT_COMMAND_ANSWER))
         self.assertEqual(reason.group_id, ANNOUNCEMENT_GROUP_ID)
-        self.assertEqual(reason.lines, ("An admin removed you from the lobby: spamming",))
+        self.assertEqual(reason.lines, ("An admin removed you from the lobby. Reason: spamming",))
         self.bob.receive_next(MessageType.CLOSE_CONNECTION)
 
         departure = RemovePlayerFromGroup.decode(self.alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP))
