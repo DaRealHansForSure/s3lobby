@@ -196,6 +196,18 @@ in the database.
 The raw reports stay in `game_reports` as they are; a result can always be evaluated again from
 them.
 
+## Mockups
+
+Static pages on the web interface's own stylesheets, with made up names and numbers
+(`docs/mockups/ladder/`, each page as HTML and in light and dark):
+
+| Page | What it shows |
+|---|---|
+| [Liga](mockups/ladder/ladder-liga-light.png) ([dark](mockups/ladder/ladder-liga-dark.png)) | the public `/ladder` page: season choice, standings with rating, last change, won, lost, left, provisional players, and the last results |
+| [Clanliga](mockups/ladder/ladder-clanliga-light.png) ([dark](mockups/ladder/ladder-clanliga-dark.png)) | the clans' Clanliga ratings and their strength from Liga |
+| [Ladder games](mockups/ladder/ladder-admin-light.png) ([dark](mockups/ladder/ladder-admin-dark.png)) | for admins: every evaluated game with its state and reason, deciding and voiding, the seasons and their champions |
+| [Game page](mockups/ladder/ladder-game-light.png) ([dark](mockups/ladder/ladder-game-dark.png)) | the ladder part of a game's page, and the server lines and chat command answers the players read in the game |
+
 ## Building it in steps
 
 1. **Evaluate silently.** With `ladder_enabled` off the server keeps answering 0x6a and sending the

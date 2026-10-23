@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ladder games - s3lobby (mockup)</title>
+<link rel="stylesheet" href="../../../s3lobby/web/static/tokens.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">s3lobby</a>
+    <div class="header-actions"><span class="muted">Greta</span> <button class="btn btn--quiet btn--sm" type="button">Log out</button></div>
+  </div>
+  <div class="app-nav-bar"><nav class="app-nav" aria-label="Sections"><a href="#">Lobby</a>
+<a href="#">Ladder</a>
+<a href="#">Accounts</a>
+<a href="#">Clans</a>
+<a href="#">News</a>
+<a href="#">Chat themes</a>
+<a href="#">Board</a>
+<a href="#">Announcements</a>
+<a href="#">Settings</a>
+<a href="#">Games</a>
+<a href="#" aria-current="page">Ladder games</a></nav></div>
+</header>
+<main class="wrap page">
+<div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
+<section>
+  <div class="section-head">
+    <h1>Ladder games</h1>
+    <p>Every ladder game the server evaluated. A disputed game counts for nobody until an admin
+    decides it; deciding or voiding a game recomputes every rating at once.</p>
+  </div>
+  <div class="grid">
+    <div class="card"><h3>Counted</h3><div class="stat-number">147</div></div>
+    <div class="card"><h3>Disputed</h3><div class="stat-number">1</div></div>
+    <div class="card"><h3>Void</h3><div class="stat-number">19</div></div>
+  </div>
+</section>
+<section>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Closed</th><th>Game</th><th class="num">Played</th><th>Result</th><th></th></tr></thead>
+      <tbody><tr><td class="cell-time">today 19:42</td><td><a href="#">Greta's ladder</a><div class="muted">Liga: Greta vs Ole</div></td><td class="num">27:41</td><td><span class="badge badge--good">counted</span> Greta won</td><td><div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void</button></div></td></tr><tr><td class="cell-time">today 17:20</td><td><a href="#">Revenge</a><div class="muted">Liga: Pavel vs Tomas</div></td><td class="num">35:12</td><td><span class="badge badge--warn">disputed</span> the reports name different winners: Pavel says team 0, Tomas says team 1</td><td><div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Pavel won</button><button class="btn btn--outline btn--sm" type="button">Tomas won</button><button class="btn btn--outline btn--sm" type="button">Void</button></div></td></tr><tr><td class="cell-time">today 16:30</td><td><a href="#">quick one</a><div class="muted">Liga: Ivo vs Tomas</div></td><td class="num">18:02</td><td><span class="badge badge--good">counted</span> Ivo won, Tomas left after the minimum time</td><td><div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void</button></div></td></tr><tr><td class="cell-time">today 15:58</td><td><a href="#">test</a><div class="muted">Liga: Sanna vs Jin</div></td><td class="num">03:40</td><td><span class="badge badge--bad">void</span> shorter than 10 minutes</td><td></td></tr><tr><td class="cell-time">today 14:11</td><td><a href="#">Clan war</a><div class="muted">Clanliga: Romans vs Amazons (2 on 2)</div></td><td class="num">48:30</td><td><span class="badge badge--good">counted</span> Romans won</td><td><div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void</button></div></td></tr><tr><td class="cell-time">yesterday 23:40</td><td><a href="#">Clan war 2</a><div class="muted">Clanliga: BB vs Romans (2 on 2)</div></td><td class="num">22:05</td><td><span class="badge badge--bad">void</span> Ole joined Romans 1 day before the match (needs 3)</td><td></td></tr><tr><td class="cell-time">yesterday 22:59</td><td><a href="#">Liga again</a><div class="muted">Liga: Thalia vs Jin</div></td><td class="num">-</td><td><span class="badge badge--accent">waiting</span> no end report yet, void in 6 minutes</td><td></td></tr></tbody>
+    </table>
+  </div>
+</section>
+<section>
+  <div class="section-head"><h2>Seasons</h2></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Season</th><th>From</th><th>To</th><th>Liga champion</th><th>Clanliga champion</th></tr></thead>
+      <tbody>
+        <tr><td>Season 4 <span class="badge badge--good">current</span></td><td class="cell-time">2026-10-01</td><td class="cell-time">2026-12-31</td><td class="muted">-</td><td class="muted">-</td></tr>
+        <tr><td>Season 3</td><td class="cell-time">2026-07-01</td><td class="cell-time">2026-09-30</td><td>Jin (1302)</td><td>Amazons (1144)</td></tr>
+        <tr><td>Season 2</td><td class="cell-time">2026-04-01</td><td class="cell-time">2026-06-30</td><td>Thalia (1265)</td><td>Romans (1120)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="meta">The next season is proposed for 3 months when the current one ends (setting <code>ladder_season_months</code>).</p>
+</section>
+</main>
+<footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ladder - s3lobby (mockup)</title>
+<link rel="stylesheet" href="../../../s3lobby/web/static/tokens.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">s3lobby</a>
+    <div class="header-actions"><a class="btn btn--outline btn--sm" href="#">Admin logon</a></div>
+  </div>
+  <div class="app-nav-bar"><nav class="app-nav" aria-label="Sections"><a href="#">Lobby</a>
+<a href="#" aria-current="page">Ladder</a></nav></div>
+</header>
+<main class="wrap page">
+<div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
+<section>
+  <div class="section-head">
+    <h1>Ladder</h1>
+    <p>Liga is 1 on 1 between two players; Clanliga is team against team between two clans. Ratings are Elo, everyone starts at 1000. A match counts when every player's game reports the same winner and it lasted at least 10 minutes.</p>
+  </div>
+  <div class="grid">
+    <div class="card"><h3>Days left in Season 4</h3><div class="stat-number">68</div></div>
+    <div class="card"><h3>Ranked players</h3><div class="stat-number">23</div></div>
+    <div class="card"><h3>Matches this season</h3><div class="stat-number">147</div></div>
+  </div>
+</section>
+
+<div class="tabs" role="tablist" aria-label="Ladder"><button class="tab" type="button" role="tab" aria-selected="true">Liga</button><button class="tab" type="button" role="tab" aria-selected="false">Clanliga</button><button class="tab" type="button" role="tab" aria-selected="false">Clan strength</button></div>
+<div class="form-grid">
+  <label class="field">
+    <span class="label">Season</span>
+    <select class="select"><option selected>Season 4: Oct to Dec 2026 (current)</option><option>Season 3: Jul to Sep 2026</option><option>Season 2: Apr to Jun 2026</option><option>All time</option></select>
+  </label>
+</div>
+<section>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th class="num">#</th><th>Player</th><th>Clan</th><th class="num">Rating</th><th>Last match</th><th class="num">Won</th><th class="num">Lost</th><th class="num" title="Matches lost by leaving after the minimum time">Left</th><th class="num">Win rate</th></tr></thead>
+      <tbody><tr><td class="num">1</td><td>Thalia</td><td>Amazons</td><td class="num"><strong>1284</strong></td><td><span class="badge badge--good">+14</span></td><td class="num">31</td><td class="num">9</td><td class="num"><span class="muted">0</span></td><td class="num">78 %</td></tr><tr><td class="num">2</td><td><span class="game-row game-row--blue">Jin</span></td><td><span class="game-row game-row--blue">BB</span></td><td class="num"><strong>1236</strong></td><td><span class="badge badge--bad">-14</span></td><td class="num">28</td><td class="num">12</td><td class="num">1</td><td class="num">70 %</td></tr><tr><td class="num">3</td><td><span class="game-row game-row--green">Marcus</span></td><td><span class="game-row game-row--green">Romans</span></td><td class="num"><strong>1179</strong></td><td><span class="badge badge--good">+9</span></td><td class="num">22</td><td class="num">13</td><td class="num"><span class="muted">0</span></td><td class="num">63 %</td></tr><tr><td class="num">4</td><td><span class="game-row game-row--green">Lena</span></td><td><span class="game-row game-row--green">Romans</span></td><td class="num"><strong>1121</strong></td><td><span class="badge badge--good">+16</span></td><td class="num">17</td><td class="num">11</td><td class="num">2</td><td class="num">61 %</td></tr><tr><td class="num">5</td><td>Pavel</td><td>-</td><td class="num"><strong>1088</strong></td><td><span class="badge badge--bad">-9</span></td><td class="num">14</td><td class="num">12</td><td class="num"><span class="muted">0</span></td><td class="num">54 %</td></tr><tr><td class="num">6</td><td><span class="game-row game-row--green">Greta</span></td><td>-</td><td class="num"><strong>1043</strong></td><td><span class="badge badge--good">+21</span></td><td class="num">9</td><td class="num">7</td><td class="num"><span class="muted">0</span></td><td class="num">56 %</td></tr><tr><td class="num">7</td><td>Ivo <span class="badge" title="Fewer than 10 results: the rating still moves fast">provisional</span></td><td>Amazons</td><td class="num"><strong>1017</strong></td><td><span class="badge badge--good">+30</span></td><td class="num">5</td><td class="num">2</td><td class="num"><span class="muted">0</span></td><td class="num">71 %</td></tr><tr><td class="num">8</td><td><span class="game-row game-row--blue">Sanna</span></td><td><span class="game-row game-row--blue">BB</span></td><td class="num"><strong>976</strong></td><td><span class="badge badge--bad">-16</span></td><td class="num">8</td><td class="num">11</td><td class="num">3</td><td class="num">42 %</td></tr><tr><td class="num">9</td><td><span class="game-row game-row--green">Ole</span> <span class="badge" title="Fewer than 10 results: the rating still moves fast">provisional</span></td><td><span class="game-row game-row--green">Romans</span></td><td class="num"><strong>931</strong></td><td><span class="badge badge--bad">-30</span></td><td class="num">3</td><td class="num">5</td><td class="num">1</td><td class="num">38 %</td></tr><tr><td class="num">10</td><td>Tomas</td><td>-</td><td class="num"><strong>902</strong></td><td><span class="badge badge--bad">-12</span></td><td class="num">6</td><td class="num">14</td><td class="num"><span class="muted">0</span></td><td class="num">30 %</td></tr></tbody>
+    </table>
+  </div>
+  <p class="meta">Players with fewer than 10 results are provisional. In the game: <code>/rank NAME</code> and <code>/top</code>.</p>
+</section>
+<section>
+  <div class="section-head"><h2>Last results</h2></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>When</th><th>Winner</th><th>Loser</th><th>Map</th><th class="num">Played</th><th>Note</th><th></th></tr></thead>
+      <tbody><tr><td class="cell-time">today 19:42</td><td><strong>Greta</strong> <span class="badge badge--good">+21</span></td><td>Ole <span class="badge badge--bad">-21</span></td><td>Elbe</td><td class="num">27:41</td><td><span class="muted">-</span></td><td><a href="#">Game</a></td></tr><tr><td class="cell-time">today 18:05</td><td><strong>Thalia</strong> <span class="badge badge--good">+14</span></td><td>Jin <span class="badge badge--bad">-14</span></td><td>\Random</td><td class="num">52:10</td><td><span class="muted">-</span></td><td><a href="#">Game</a></td></tr><tr><td class="cell-time">today 16:30</td><td><strong>Ivo</strong> <span class="badge badge--good">+30</span></td><td>Tomas <span class="badge badge--bad">-30</span></td><td>Hochland</td><td class="num">18:02</td><td><span class="badge badge--warn">Tomas left</span></td><td><a href="#">Game</a></td></tr><tr><td class="cell-time">yesterday 22:12</td><td><strong>Lena</strong> <span class="badge badge--good">+16</span></td><td>Sanna <span class="badge badge--bad">-16</span></td><td>\Random</td><td class="num">41:55</td><td><span class="muted">-</span></td><td><a href="#">Game</a></td></tr><tr><td class="cell-time">yesterday 21:03</td><td><strong>Marcus</strong> <span class="badge badge--good">+9</span></td><td>Pavel <span class="badge badge--bad">-9</span></td><td>Elbe</td><td class="num">33:20</td><td><span class="muted">-</span></td><td><a href="#">Game</a></td></tr></tbody>
+    </table>
+  </div>
+</section>
+</main>
+<footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
+</body>
+</html>
