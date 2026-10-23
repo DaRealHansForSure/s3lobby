@@ -86,6 +86,7 @@ from s3lobby.groups import (
     check_client_group_texts,
     game_block_with_real_host,
     game_description_of,
+    game_row_colour,
     is_ladder_game,
     kind_of_new_group,
     room_announcement,
@@ -299,8 +300,9 @@ class Lobby:
 
     def live_state(self) -> LiveLobbyState:
         """Who is online and which groups exist, for the web interface (see live.py)."""
+        marks_admins = self._database.get_boolean_setting(Setting.MARK_ADMINS)
         players = tuple(
-            live_player(player, self._outbox.reachability_of(player.address))
+            live_player(player, self._outbox.reachability_of(player.address), marks_admins)
             for player in sorted(self._players_by_id.values(), key=lambda player: player.name)
         )
         groups = tuple(self._live_group(self._groups[group_id]) for group_id in sorted(self._groups))
@@ -1069,7 +1071,14 @@ def own_player_message(player: Player) -> EncodableMessage:
     return OwnPlayerWithClan(player.player_id, player.shown_clan.clan_id, player.shown_clan.name)
 
 
-def live_player(player: Player, reachability: Reachability) -> LivePlayer:
+def is_highlighted_member(player: Player, marks_admins: bool) -> bool:
+    """Whether the game draws the player's row in colour: shown with a clan an admin marked, or
+    an admin while the setting mark_admins is on."""
+    is_highlighted_clan = player.shown_clan is not None and player.shown_clan.is_highlighted
+    return is_highlighted_clan or (marks_admins and player.is_admin)
+
+
+def live_player(player: Player, reachability: Reachability, marks_admins: bool = False) -> LivePlayer:
     host, port = player.address
     clan_name = player.shown_clan.name if player.shown_clan is not None else ""
     return LivePlayer(
@@ -1081,6 +1090,7 @@ def live_player(player: Player, reachability: Reachability) -> LivePlayer:
         logged_on_at=to_stored_time(player.logged_on_at),
         group_ids=tuple(sorted(player.group_ids)),
         reachability=reachability.value,
+        row_colour=game_row_colour(is_highlighted_member(player, marks_admins), clan_name),
     )
 
 
@@ -1090,8 +1100,7 @@ def member_entry(group_id: int, player: Player, marks_admins: bool = False) -> E
     A player shown with a highlighted clan, and with marks_admins an admin, comes as 0x26 with the
     HIGHLIGHTED flag, so the member list colours their row green (0x449da1); the clan travels in it
     as well, with clan id 0 and no name for a player without one."""
-    is_highlighted_clan = player.shown_clan is not None and player.shown_clan.is_highlighted
-    if is_highlighted_clan or (marks_admins and player.is_admin):
+    if is_highlighted_member(player, marks_admins):
         clan_id = 0
         clan_name = ""
         if player.shown_clan is not None:

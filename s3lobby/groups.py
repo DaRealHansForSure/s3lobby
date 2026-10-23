@@ -21,7 +21,10 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from s3lobby.constants import (
+    BLUE_BYTE_CLAN_NAME,
     FIRST_PRINTABLE_CHARACTER,
+    GAME_ROW_BLUE,
+    GAME_ROW_GREEN,
     GROUP_COUNTERS_FULL,
     JOINED_GROUP_PARENT_ID,
     MAX_GROUP_DESCRIPTION_BYTES,
@@ -149,6 +152,16 @@ def with_real_host_address(announcement: GroupAnnouncement, host_client_address:
     if announcement.game_block is None:
         return announcement
     return replace(announcement, game_block=game_block_with_real_host(announcement.game_block, host_client_address))
+
+
+def game_row_colour(is_highlighted: bool, clan_name: str) -> str:
+    """The colour the game draws a member's row in: none without the HIGHLIGHTED flag, blue for
+    the clan BB, green otherwise (0x449da1, 0x449de2). Empty for the usual colour."""
+    if not is_highlighted:
+        return ""
+    if clan_name == BLUE_BYTE_CLAN_NAME:
+        return GAME_ROW_BLUE
+    return GAME_ROW_GREEN
 
 
 def stored_game_announcement(announcement: GroupAnnouncement) -> bytes:
