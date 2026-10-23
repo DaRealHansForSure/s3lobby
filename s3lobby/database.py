@@ -612,6 +612,10 @@ class LobbyDatabase:
 
     def check_access_code(self, account_id: int, access_code: str) -> bool:
         """True when the code matches one of the account's active codes; marks that code as used."""
+        return self.match_access_code(account_id, access_code) is not None
+
+    def match_access_code(self, account_id: int, access_code: str) -> int | None:
+        """The id of the account's active code that matches, marked as used; None for no match."""
         rows = self._connection.execute(
             "SELECT id, code_hash FROM access_codes WHERE account_id = ? AND revoked_at IS NULL",
             (account_id,),
@@ -623,8 +627,17 @@ class LobbyDatabase:
                         "UPDATE access_codes SET last_used_at = ? WHERE id = ?",
                         (to_stored_time(self._clock()), row["id"]),
                     )
-                return True
-        return False
+                return row["id"]
+        return None
+
+    def is_access_code_active(self, account_id: int, code_id: int) -> bool:
+        """True while the code exists, belongs to the account and is not revoked. A web session
+        remembers the code it logged on with and ends when this turns False."""
+        row = self._connection.execute(
+            "SELECT 1 FROM access_codes WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+            (code_id, account_id),
+        ).fetchone()
+        return row is not None
 
     def record_logon(self, account_id: int) -> int:
         """Note a logon for the statistics; returns the session id to close on logout."""

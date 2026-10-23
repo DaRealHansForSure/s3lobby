@@ -80,6 +80,19 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.database.add_access_code(account.account_id, "lowercode234")
         self.assertTrue(self.database.check_access_code(account.account_id, "LOWERCODE234"))
 
+    def test_matching_code_is_named_and_stays_active_until_revoked(self) -> None:
+        """A web session keeps the id of the code it logged on with and ends when it is revoked."""
+        alice = self.database.create_account("Alice")
+        bob = self.database.create_account("Bob")
+        self.database.add_access_code(alice.account_id, "FIRSTCODE234")
+        second_code_id = self.database.add_access_code(alice.account_id, "SECONDCODE23")
+        self.assertEqual(self.database.match_access_code(alice.account_id, "SECONDCODE23"), second_code_id)
+        self.assertIsNone(self.database.match_access_code(alice.account_id, "WRONGCODE234"))
+        self.assertTrue(self.database.is_access_code_active(alice.account_id, second_code_id))
+        self.assertFalse(self.database.is_access_code_active(bob.account_id, second_code_id), "only the owner's")
+        self.database.revoke_access_code(alice.account_id, second_code_id)
+        self.assertFalse(self.database.is_access_code_active(alice.account_id, second_code_id))
+
     def test_access_code_is_stored_only_as_a_salted_hash(self) -> None:
         account = self.database.create_account("Alice")
         self.database.add_access_code(account.account_id, "SAMECODE2345")
