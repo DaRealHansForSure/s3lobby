@@ -183,6 +183,14 @@ def remove_board_message(database: LobbyDatabase, options: argparse.Namespace) -
     print(f"Message {options.message_id} removed.")
 
 
+# Announcements.
+
+
+def queue_announcement(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    database.queue_announcement(options.text)
+    print("Queued; a running server sends it to every player in the lobby within a second.")
+
+
 # Settings.
 
 

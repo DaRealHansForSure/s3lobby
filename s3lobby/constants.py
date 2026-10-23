@@ -158,6 +158,9 @@ class ResultCode(IntEnum):
     # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
     WRONG_GROUP_PASSWORD = 0x62
 
+    # Answer to GameStatus: the game shows 0x90148 "Game status stored at the Lobby server." (0x540a3e).
+    GAME_STATUS_STORED = 0x6C
+
 
 class LogonFlag(IntFlag):
     """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
@@ -330,6 +333,13 @@ KEEPALIVE_INTERVAL_MS = 3_000
 # This server's choice: how long a connection closed by the client is kept for retransmissions of
 # the server's own CloseConnection before it is forgotten.
 CLOSING_LINGER_MS = 10_000
+
+# How often the server looks for announcements queued in the database by another process.
+ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
+
+# Group id of a server line sent to every player: the line shows in whatever room the player is
+# in; the id only names the group in the client's chat log file (0x5d2420).
+ANNOUNCEMENT_GROUP_ID = 0
 
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.

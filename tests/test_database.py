@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,7 @@ from pathlib import Path
 from s3lobby.database import (
     ACCESS_CODE_ALPHABET,
     ACCESS_CODE_LENGTH,
+    SCHEMA_UPGRADES,
     SCHEMA_VERSION,
     DatabaseError,
     LobbyDatabase,
@@ -144,6 +146,23 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.database.close_open_sessions_and_games()
         statistics = self.database.collect_statistics()
         self.assertEqual((statistics.players_online, statistics.games_open), (0, 0))
+
+    def test_database_of_an_older_version_is_upgraded_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "old.sqlite3"
+            old_database = sqlite3.connect(path)
+            old_database.executescript(SCHEMA_UPGRADES[1])
+            old_database.execute("INSERT INTO accounts (name, created_at) VALUES ('Alice', '2026-10-01T00:00:00+00:00')")
+            old_database.execute("PRAGMA user_version = 1")
+            old_database.commit()
+            old_database.close()
+
+            upgraded = LobbyDatabase(path)
+            self.assertEqual(upgraded.schema_version, SCHEMA_VERSION)
+            self.assertIsNotNone(upgraded.find_account("Alice"))
+            upgraded.queue_announcement("works")
+            self.assertEqual(upgraded.take_pending_announcements(), ["works"])
+            upgraded.close()
 
     def test_schema_version_is_stored_and_reopening_keeps_the_data(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

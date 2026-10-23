@@ -355,8 +355,16 @@ must fill in the address it sees datagrams come from.
 - **0x1e ChatMessage2**: u32 group id (0 = private), u32 sender player id, u32 kind (0 normal,
   1 whisper), string text. Client to client.
 - **0x0b**: u32 group id, u32 player id, string text (older form).
-- **0x22 ChatCommand**: u32 group id, u32 0, string command; unknown slash commands go to the
-  server. **0x23** answers with u32 group id, u32 unused, u32 n, n strings, shown as `[Server]`.
+- **0x22 ChatCommand**: u32 group id, u32 0, string command; the client handles /MSG, /WHISPER,
+  /IGNORE, /UNIGNORE and /CHATLOG itself (0x5c67a0) and sends every other slash command to the
+  server (0x5c859c). **0x23** answers with u32 group id, u32 unused, u32 n, n strings; the handler
+  (0x5d2420) only checks it comes from the server and turns each string into a chat line from
+  player 0, which passes the chat filter for any group (0x453f56) and shows as `[Server]: text` in
+  the chat room view (0x44a43c), or as an in-game message during a match (0x541042). The group id
+  only names the group in the client's chat log file, so one 0x23 per client reaches it wherever it
+  is: this is how a server makes announcements. 0x0b and 0x1e cannot be used for that: their
+  handlers require a sender who is a member of a joined group and drop the connection otherwise
+  (0x5d107e, 0x5d1e8e).
 
 ### The Home tab
 

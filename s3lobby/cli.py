@@ -5,6 +5,7 @@
     s3lobby clan add Romans
     s3lobby clan join Romans Alice
     s3lobby news set --audience german --title "Willkommen" --text "Viel Spass!"
+    s3lobby announce "Server restart at 22:00"
 
 Every subcommand takes --database to choose the SQLite file (default: s3lobby.sqlite3 in the
 current folder). python -m s3lobby works the same as the installed s3lobby command.
@@ -110,6 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_chat_theme_commands(commands, database_option)
     add_board_commands(commands, database_option)
     add_setting_commands(commands, database_option)
+    add_announce_command(commands, database_option)
     return parser
 
 
@@ -265,6 +267,14 @@ def add_setting_commands(commands: argparse._SubParsersAction, database_option: 
 
     listing = actions.add_parser("list", parents=[database_option], help="show every setting")
     listing.set_defaults(admin_function=admin.list_settings)
+
+
+def add_announce_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    announce = commands.add_parser(
+        "announce", parents=[database_option], help="send a line to every player in the running lobby"
+    )
+    announce.add_argument("text")
+    announce.set_defaults(admin_function=admin.queue_announcement)
 
 
 def add_text_source(parser: argparse.ArgumentParser) -> None:

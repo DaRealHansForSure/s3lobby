@@ -27,6 +27,7 @@ from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from s3lobby.constants import (
+    ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
     BOARD_FALLBACK_LANGUAGE,
     BOARD_LANGUAGE_GROUP_ID_BASE,
@@ -58,6 +59,7 @@ from s3lobby.constants import (
     MessageType,
     ResultCode,
 )
+from s3lobby.commands import ChatCommands, fit_answer
 from s3lobby.database import Clan, LobbyDatabase, Setting
 from s3lobby.groups import (
     Group,
@@ -143,6 +145,7 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database)
+        self._chat_commands = ChatCommands(database, self._online_player_names, self.announce)
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
@@ -167,7 +170,7 @@ class Lobby:
             MessageType.CHAT_COMMAND: self._answer_chat_command,
             MessageType.GET_IMAGE_LIST: self._answer_image_list,
             MessageType.GET_TEXT_MESSAGE: self._answer_text_message,
-            MessageType.GAME_STATUS: self._log_game_status,
+            MessageType.GAME_STATUS: self._store_game_status,
         }
         self._open_built_in_rooms()
 
@@ -200,6 +203,20 @@ class Lobby:
         for group_id in list(player.group_ids):
             self._remove_player_from_group(player, group_id, is_player_told=False)
         self._send_statistics_to_home()
+
+    def announce(self, text: str) -> int:
+        """Send a server line to every player in the lobby; returns how many it reached."""
+        message = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([text]))
+        players = list(self._players_by_id.values())
+        for player in players:
+            self._outbox.send(player.address, message)
+        log.info("announced to %d player(s): %r", len(players), text)
+        return len(players)
+
+    def send_pending_announcements(self) -> None:
+        """Send what another process (the command line, a web interface) queued in the database."""
+        for text in self._database.take_pending_announcements():
+            self.announce(text)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         """Let the per client warning and logon limits forget clients that went quiet."""
@@ -263,6 +280,9 @@ class Lobby:
         self._outbox.send(client_address, Result(ResultCode.LOGON_ACCEPTED))
         self._outbox.send(client_address, own_player_message(player))
         self._send_statistics_to_home()
+        welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
+        if welcome_message:
+            self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
 
     def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
         account = decision.account
@@ -449,8 +469,12 @@ class Lobby:
         command = ChatCommand.decode(message)
         if len(command.command) > MAX_CHAT_COMMAND_LENGTH:
             raise ProtocolError(f"chat command of {len(command.command)} characters")
-        answer = ChatCommandAnswer(group_id=command.group_id, lines=(f"Unknown command: {command.command}",))
-        self._outbox.send(client_address, answer)
+        player = self._find_logged_on_player(client_address)
+        if player is None:
+            return
+        log.info("player %d %r: %r", player.player_id, player.name, command.command)
+        lines = self._chat_commands.answer(player, command.command)
+        self._outbox.send(client_address, ChatCommandAnswer(group_id=command.group_id, lines=lines))
 
     def _answer_image_list(self, client_address: Address, message: RawMessage) -> None:
         # Only the Home tab shows an image: the banner, when one is configured.
@@ -479,9 +503,19 @@ class Lobby:
                 return text_message(text_id, board_message.title, f"{byline}\n\n{board_message.body}")
         return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
 
-    def _log_game_status(self, client_address: Address, message: RawMessage) -> None:
+    def _store_game_status(self, client_address: Address, message: RawMessage) -> None:
+        """A client reports how its match went (sent from 0x540500). The report is kept as the
+        client wrote it, for a ladder to read later, and the client is told it was stored."""
         status = GameStatus.decode(message)
-        log.info("%s: game status for group %d: %s", client_address, status.group_id, status.rest_of_body.hex())
+        player = self._find_logged_on_player(client_address)
+        if player is None:
+            return
+        self._database.store_game_report(player.player_id, status.group_id, message.body)
+        log.info("player %d %r reported the match of group %d", player.player_id, player.name, status.group_id)
+        self._outbox.send(client_address, Result(ResultCode.GAME_STATUS_STORED))
+
+    def _online_player_names(self) -> list[str]:
+        return [player.name for player in self._players_by_id.values()]
 
     # Membership.
 

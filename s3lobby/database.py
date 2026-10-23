@@ -36,7 +36,7 @@ IN_MEMORY_DATABASE = ":memory:"
 DATABASE_FILE_MODE = 0o600
 
 # Bump together with a new entry in SCHEMA_UPGRADES whenever the schema changes.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_UPGRADES = {
     1: """
@@ -121,6 +121,16 @@ SCHEMA_UPGRADES = {
         CREATE TABLE settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        );
+    """,
+    # Announcements written by another process (the command line, later a web interface) for the
+    # running server to send to every player.
+    2: """
+        CREATE TABLE pending_announcements (
+            id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            sent_at TEXT
         );
     """,
 }
@@ -636,6 +646,26 @@ class LobbyDatabase:
 
     def count_game_reports(self) -> int:
         return self._connection.execute("SELECT COUNT(*) FROM game_reports").fetchone()[0]
+
+    # Announcements from outside the server process.
+
+    def queue_announcement(self, text: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO pending_announcements (text, created_at) VALUES (?, ?)",
+                (text, to_stored_time(self._clock())),
+            )
+
+    def take_pending_announcements(self) -> list[str]:
+        """The announcements not sent yet, oldest first, marked as sent in the same step."""
+        with self._transaction() as connection:
+            rows = connection.execute(
+                "SELECT id, text FROM pending_announcements WHERE sent_at IS NULL ORDER BY id"
+            ).fetchall()
+            sent_at = to_stored_time(self._clock())
+            for row in rows:
+                connection.execute("UPDATE pending_announcements SET sent_at = ? WHERE id = ?", (sent_at, row["id"]))
+        return [row["text"] for row in rows]
 
     # Statistics for the Home tab.
 
