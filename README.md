@@ -131,9 +131,6 @@ Not tested yet with players on two machines: the game's own DirectPlay connectio
   still see them. Logging on again from the same PC works once the old connection has been quiet
   for 20 seconds, so the game's retries may take a few seconds longer. A server cannot tell a game
   that left this way from one that is only slow, so it waits.
-- **Chat typed on the MessageZone screen reaches nobody.** This is a bug of the game itself
-  (`docs/protocol.md`, "The MessageZone tab"), which only a patched S3.EXE could fix. The board's
-  messages work. The setting `board_chat_hint` tells players so once per logon.
 - **The ladder is not yet tried with the real game.** It ranks every ladder game, but the game
   is only told that a result was stored once an admin switches `ladder_enabled` on; until a run
   confirms that answer it stays off, and the game still shows "Game not valid for ladder."
@@ -306,7 +303,6 @@ A line for every player in the running lobby, and a welcome line after each logo
 s3lobby announce "Server restart at 22:00"
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
 s3lobby setting set mark_admins true    # admins' rows green in the game's member lists
-s3lobby setting set board_chat_hint true  # tell players chat on the message board reaches nobody (a game bug)
 ```
 
 In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have

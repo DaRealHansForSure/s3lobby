@@ -41,6 +41,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   The game sorts a list's groups by their id (0x5db570), so each board theme's group id now holds
   its place on the board.
 
+### Removed
+
+- The setting `board_chat_hint` and its server line: the MessageZone screen has no chat field
+  (seen in a run), so there is no chat there to warn about.
+
 ### Changed
 
 - The web interface is split: the live lobby and the ladder show everyone the same, and every admin
@@ -80,8 +85,6 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - Clans can be marked green: their members who show the clan get a green row in the game's member
   lists (the only colour the game has for this), switched on the Clans page or with
   `s3lobby clan highlight` (migration 0009). Off for every clan; not yet tried with the game.
-- Setting `board_chat_hint` (off by default): a player who opens the MessageZone hears once per
-  logon that chat typed there reaches nobody, a bug of the game itself.
 - `scripts/stop.sh` stops every running lobby server and web interface cleanly, `--force`
   kills what still runs after ten seconds.
 - `scripts/start.sh` starts the lobby server and the web interface together in the background,
