@@ -68,6 +68,7 @@ from s3lobby.groups import (
     GroupKind,
     check_client_group_texts,
     game_block_with_real_host,
+    game_description_of,
     is_ladder_game,
     kind_of_new_group,
     room_announcement,
@@ -230,7 +231,7 @@ class Lobby:
         return LiveLobbyState(server_name=self._server_name, players=players, groups=groups)
 
     def _live_group(self, group: Group) -> LiveGroup:
-        return LiveGroup(
+        live_group = LiveGroup(
             group_id=group.group_id,
             kind=group.kind.value,
             name=group.announcement.name,
@@ -240,6 +241,13 @@ class Lobby:
             member_names=[player.name for player in self._members_of(group)],
             listed_in_ids=sorted(group.listed_in_parent_ids),
         )
+        if group.kind != GroupKind.GAME:
+            return live_group
+        live_group = replace(live_group, is_ladder_game=is_ladder_game(group.announcement))
+        description = game_description_of(group.announcement)
+        if description is None:
+            return live_group
+        return replace(live_group, map_name=description.map_name, team_count=description.team_count)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         """Let the per client warning and logon limits forget clients that went quiet."""

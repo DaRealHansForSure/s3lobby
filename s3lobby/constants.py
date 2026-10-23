@@ -193,6 +193,16 @@ class MatchPlayerFlag(IntFlag):
 NO_WINNING_TEAM = 0xFFFFFFFF
 
 
+class Race(IntEnum):
+    """A slot's race in a match report (MatchReportPlayer.race). Inferred from the setup's race
+    choices (0x48c2a3..0x48c2df) and the per-race tables the game indexes with the value (0x4dd2fc)."""
+
+    ROMANS = 0
+    EGYPTIANS = 1
+    ASIANS = 2
+    AMAZONS = 3
+
+
 class LogonFlag(IntFlag):
     """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
 
