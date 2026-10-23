@@ -65,6 +65,7 @@ def run_server(options: argparse.Namespace) -> int:
         server_name=options.name,
         public_host=options.public_host,
         database_location=options.database,
+        use_upnp=options.upnp,
     )
     try:
         asyncio.run(serve_forever(settings))
@@ -164,6 +165,11 @@ def add_serve_command(commands: argparse._SubParsersAction, database_option: arg
         "--public-host",
         default="",
         help="host name or IP that players from the internet log on to, e.g. your router's public address",
+    )
+    serve.add_argument(
+        "--upnp",
+        action="store_true",
+        help="let the router forward the server's port and one port per player in this network (UPnP)",
     )
     serve.add_argument("--verbose", action="store_true", help="log every datagram (secrets removed)")
     serve.add_argument("--log-file", help="also write the log to this file")

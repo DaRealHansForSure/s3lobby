@@ -21,6 +21,13 @@ DEFAULT_SERVER_PORT = 3344
 # server never needs it: it always answers to the address a datagram came from.
 GAME_CLIENT_FIRST_PORT = 3343
 
+# DirectPlay's ports, which a game's host needs reachable for the match itself: the game hands the
+# match to DirectPlay (JoinLobbyGame 0x467e00), whose TCP/IP provider listens for session lookups on
+# TCP 47624 and runs sessions in TCP and UDP 2300 to 2400 (Microsoft's DirectPlay documentation).
+DIRECTPLAY_ENUMERATION_PORT = 47624
+DIRECTPLAY_FIRST_GAME_PORT = 2300
+DIRECTPLAY_LAST_GAME_PORT = 2400
+
 # Byte layout.
 
 # Every message starts with [type u8][always 0 u8][size u16], and the size counts these 4 bytes too.
@@ -417,6 +424,14 @@ CLOSING_LINGER_MS = 10_000
 # How often the server looks for announcements queued in the database by another process.
 ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
 
+# UPnP port forwarding (--upnp, forwarding.py): the outside UDP ports handed to players in the
+# server's network, one each, and how long a mapping lasts before the server renews it. Renewing at
+# half the lease keeps a mapping alive through one failed renewal.
+UPNP_FIRST_PLAYER_PORT = 33430
+UPNP_LAST_PLAYER_PORT = 33529
+UPNP_LEASE_SECONDS = 3600
+UPNP_RENEW_SECONDS = UPNP_LEASE_SECONDS / 2
+
 # How often the server looks up its public host name again: a home router's public address changes
 # now and then, and a dynamic DNS name follows it.
 PUBLIC_HOST_REFRESH_SECONDS = 300.0
@@ -443,6 +458,11 @@ HOUSEKEEPING_INTERVAL_SECONDS = 0.25
 # The client picks its connection nonce as rand() % 255 + 1 (0x604404); the server does the same.
 CONNECTION_NONCE_MIN = 1
 CONNECTION_NONCE_MAX = 255
+
+# The reachability probe (reachability.py): sent this many times, this far apart, before a player
+# who never answers counts as blocked. The game answers an OpenConnection at once.
+REACHABILITY_PROBE_ATTEMPTS = 3
+REACHABILITY_PROBE_INTERVAL_SECONDS = 1.0
 
 # Limits against hostile or broken senders. All of them are this server's choice: the game stays
 # far below each, and each keeps one sender from using up the server's memory or time, or from

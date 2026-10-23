@@ -14,10 +14,12 @@ throttled warning and the datagram dropped, never with the server stopping.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import math
 import socket
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass
 
 from s3lobby.addresses import ViewerAddresses
@@ -35,13 +37,16 @@ from s3lobby.constants import (
     MAX_CONNECTIONS_PER_IP,
     MAX_MESSAGES_PER_BLOCK,
     PUBLIC_HOST_REFRESH_SECONDS,
+    UPNP_RENEW_SECONDS,
     WARNING_INTERVAL_SECONDS,
     MessageType,
 )
-from s3lobby.database import LobbyDatabase
+from s3lobby.database import LobbyDatabase, Setting
+from s3lobby.forwarding import RouterForwarding
 from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.lobby import Lobby
 from s3lobby.messages import EncodableMessage, OpenConnection, describe_for_log
+from s3lobby.reachability import Reachability, ReachabilityProber
 from s3lobby.wire import Address, ProtocolError, RawMessage, decode_block
 
 log = logging.getLogger(__name__)
@@ -49,6 +54,7 @@ log = logging.getLogger(__name__)
 DEFAULT_SERVER_NAME = "LAN Lobby"
 DEFAULT_DATABASE_PATH = "s3lobby.sqlite3"
 ALL_INTERFACES = "0.0.0.0"
+ANY_FREE_PORT = 0
 
 
 def monotonic_ms() -> int:
@@ -70,6 +76,7 @@ class ServerSettings:
     server_name: str = DEFAULT_SERVER_NAME
     public_host: str = ""
     database_location: str = DEFAULT_DATABASE_PATH
+    use_upnp: bool = False
 
 
 class LobbyServer(asyncio.DatagramProtocol):
@@ -84,7 +91,14 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._lobby = Lobby(settings.server_name, outbox=self, database=database)
         # The public host's IP, looked up at start and again every PUBLIC_HOST_REFRESH_SECONDS.
         self._public_ip: str | None = None
-        self._addresses = ViewerAddresses(local_ip_facing, lambda: self._public_ip)
+        # The router's port mappings with --upnp; None without, or when no router answered.
+        self._forwarding: RouterForwarding | None = None
+        self._addresses = ViewerAddresses(local_ip_facing, lambda: self._public_ip, self._forwarded_port)
+        # Router calls run as tasks; keeping them here stops them being collected while they run.
+        self._background_tasks: set[asyncio.Task[None]] = set()
+        # Probes whether players on the internet can be reached directly, from a second socket.
+        self._prober: ReachabilityProber | None = None
+        self._reachability: dict[Address, Reachability] = {}
         self._datagram_rate = RateLimiter(DATAGRAMS_PER_SECOND_PER_ADDRESS, DATAGRAM_BURST_PER_ADDRESS)
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
         # Nothing written yet: the first check writes at once.
@@ -134,6 +148,48 @@ class LobbyServer(asyncio.DatagramProtocol):
             return
         connection.queue_lobby_message(self._addresses.message_for_viewer(message, client_address))
 
+    def player_logged_on(self, client_address: Address) -> None:
+        """A player from the internet may be probed (setting check_reachability); a player in
+        this network gets an outside port of their own when the router forwards them (--upnp)."""
+        is_on_the_internet = ipaddress.ip_address(client_address[0]).is_global
+        if is_on_the_internet and self._database.get_boolean_setting(Setting.CHECK_REACHABILITY):
+            self.check_reachability(client_address)
+        if not is_on_the_internet and self._forwarding is not None:
+            self._run_in_background(self._forwarding.forward_player(client_address))
+
+    def check_reachability(self, client_address: Address) -> None:
+        if self._prober is None:
+            return
+        self._reachability[client_address] = Reachability.CHECKING
+        self._prober.probe(client_address)
+
+    def reachability_of(self, client_address: Address) -> Reachability:
+        return self._reachability.get(client_address, Reachability.NOT_CHECKED)
+
+    def record_reachability(self, client_address: Address, reachability: Reachability) -> None:
+        if client_address in self._connections:
+            self._reachability[client_address] = reachability
+
+    def attach_prober(self, prober: ReachabilityProber) -> None:
+        self._prober = prober
+
+    def attach_forwarding(self, forwarding: RouterForwarding, external_ip: str) -> None:
+        """Use the router's forwarding; its external address is the public one unless
+        --public-host names another."""
+        self._forwarding = forwarding
+        if not self._settings.public_host:
+            self._public_ip = external_ip
+
+    def _forwarded_port(self, player_address: Address) -> int | None:
+        if self._forwarding is None:
+            return None
+        return self._forwarding.forwarded_port(player_address)
+
+    def _run_in_background(self, coroutine: Coroutine[object, object, None]) -> None:
+        task = asyncio.get_running_loop().create_task(coroutine)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     def close_connection(self, client_address: Address) -> None:
         """End the connection from the server's side: whatever is queued for the client goes out
         first, then CloseConnection in a block of its own, retried until the client acknowledges
@@ -153,6 +209,10 @@ class LobbyServer(asyncio.DatagramProtocol):
         bound_host, port = self.bound_address
         if self._settings.public_host:
             return f"{self._settings.public_host}:{port}"
+        # With --upnp alone the router's external address is the public one.
+        is_client_on_the_internet = ipaddress.ip_address(client_address[0]).is_global
+        if is_client_on_the_internet and self._public_ip is not None:
+            return f"{self._public_ip}:{port}"
         try:
             return f"{local_ip_facing(client_address)}:{port}"
         except OSError as error:
@@ -178,6 +238,11 @@ class LobbyServer(asyncio.DatagramProtocol):
             log.info("public host %r is at %s", self._settings.public_host, public_ip)
         self._public_ip = public_ip
 
+    async def _renew_forwarding(self) -> None:
+        external_ip = await self._forwarding.renew()
+        if external_ip is not None and not self._settings.public_host:
+            self._public_ip = external_ip
+
     def start_housekeeping(self) -> None:
         self._housekeeping_task = asyncio.get_running_loop().create_task(self._run_housekeeping())
 
@@ -187,6 +252,10 @@ class LobbyServer(asyncio.DatagramProtocol):
         silence a minute later. The CloseConnection goes out once, without waiting for answers:
         a client that misses it still times out as before."""
         self._close_every_connection()
+        if self._prober is not None:
+            self._prober.close()
+        if self._forwarding is not None:
+            await self._forwarding.stop()
         if self._housekeeping_task is not None:
             self._housekeeping_task.cancel()
             try:
@@ -202,8 +271,12 @@ class LobbyServer(asyncio.DatagramProtocol):
         last_announcement_poll_seconds = time.monotonic()
         last_live_state_check_seconds = time.monotonic()
         last_public_host_lookup_seconds = time.monotonic()
+        last_forwarding_renewal_seconds = time.monotonic()
         while True:
             await asyncio.sleep(HOUSEKEEPING_INTERVAL_SECONDS)
+            if self._forwarding is not None and time.monotonic() - last_forwarding_renewal_seconds >= UPNP_RENEW_SECONDS:
+                last_forwarding_renewal_seconds = time.monotonic()
+                self._run_in_background(self._renew_forwarding())
             if time.monotonic() - last_public_host_lookup_seconds >= PUBLIC_HOST_REFRESH_SECONDS:
                 last_public_host_lookup_seconds = time.monotonic()
                 await self.look_up_public_host()
@@ -302,6 +375,11 @@ class LobbyServer(asyncio.DatagramProtocol):
     def _end_connection(self, client_address: Address, reason: str) -> None:
         log.info("%s: connection ended, %s", client_address, reason)
         del self._connections[client_address]
+        self._reachability.pop(client_address, None)
+        if self._prober is not None:
+            self._prober.forget(client_address)
+        if self._forwarding is not None:
+            self._run_in_background(self._forwarding.release_player(client_address))
         self._lobby.forget_client(client_address)
 
     def _close_every_connection(self) -> None:
@@ -352,6 +430,18 @@ async def start_server(settings: ServerSettings) -> LobbyServer:
     except OSError:
         database.close()
         raise
+    # The probe socket only needs to be another port of this machine: any free one will do.
+    _, prober = await loop.create_datagram_endpoint(
+        lambda: ReachabilityProber(server.record_reachability), local_addr=(settings.bind_host, ANY_FREE_PORT)
+    )
+    server.attach_prober(prober)
+    if settings.use_upnp:
+        forwarding = RouterForwarding(server.bound_address[1])
+        external_ip = await forwarding.start()
+        if external_ip is None:
+            await forwarding.stop()
+        else:
+            server.attach_forwarding(forwarding, external_ip)
     await server.look_up_public_host()
     server.start_housekeeping()
     server.write_live_state_when_due(time.monotonic())
