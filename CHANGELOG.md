@@ -8,6 +8,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- Chat themes for one language: a theme can be shown only to games of that language (web form
+  "Shown to", `chat-theme add --language`). The lobby learns a game's language from its patch
+  check. A new lobby starts with the rooms the game's manual describes: Meeting Room, Beginners
+  and one per language (Deutsch, English, Français, Italiano, Polski, Español), each only for its
+  own language. Admins may remove them; General always stays.
 - The game's "Create Player" button can make accounts: setting `allow_create_player`, off by
   default (Settings, Logons). The password typed in the game becomes the account's access code
   (at least 8 characters, any case); each address creates at most three accounts at once, then

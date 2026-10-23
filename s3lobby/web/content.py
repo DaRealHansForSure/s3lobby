@@ -13,7 +13,7 @@ from http import HTTPStatus
 from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
-from s3lobby.constants import BOARD_LANGUAGES, NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER, NEWS_AUDIENCES
+from s3lobby.constants import BOARD_LANGUAGES, GAME_LANGUAGES, NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER, NEWS_AUDIENCES
 from s3lobby.database import BUILT_IN_CHAT_THEMES, BoardMessage, BoardTheme, News, is_whole_number_text
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.storage import apply_change, get_database
@@ -90,7 +90,10 @@ def set_news(audience: str) -> Response:
 def list_chat_themes() -> str:
     """The ChatZone themes page: the built-in themes, which cannot be changed, and the admins' own."""
     return render_template(
-        "chat_themes.html", built_in_themes=BUILT_IN_CHAT_THEMES, themes=get_database().list_chat_themes()
+        "chat_themes.html",
+        built_in_themes=BUILT_IN_CHAT_THEMES,
+        themes=get_database().list_chat_themes(),
+        languages=GAME_LANGUAGES,
     )
 
 
@@ -99,7 +102,10 @@ def add_chat_theme() -> Response:
     """Add a theme to the ChatZone tab's list."""
     name = form_text("name")
     description = form_text("description")
-    apply_change(lambda: get_database().add_chat_theme(name, description), f"Chat theme {name} added.")
+    # Not checked here: the database refuses a language outside GAME_LANGUAGES, for the command
+    # line and the web alike.
+    language = form_text("language")
+    apply_change(lambda: get_database().add_chat_theme(name, description, language), f"Chat theme {name} added.")
     return redirect(url_for("content.list_chat_themes"))
 
 

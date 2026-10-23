@@ -351,6 +351,12 @@ BOARD_MESSAGE_TEXT_ID_BASE = 0x10000
 # always had, the base itself; database themes take the base plus their id, which starts at 1.
 DEFAULT_CHAT_THEME_NAME = "General"
 DEFAULT_CHAT_THEME_DESCRIPTION = "Talk about anything"
+# A chat theme may be shown only to games of one language (a name from GAME_LANGUAGES); this
+# value shows it to every game. A game's language is known from its patch check, which comes on
+# the connection before the logon, from the same address (seen in a run); the lobby remembers it
+# for at most this many addresses, since anyone can send a patch check with a forged address.
+ALL_LANGUAGES = ""
+MAX_REMEMBERED_GAME_LANGUAGES = 1024
 
 
 class GroupFlag(IntFlag):

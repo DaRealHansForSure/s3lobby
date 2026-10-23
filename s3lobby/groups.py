@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from s3lobby.constants import (
+    ALL_LANGUAGES,
     BLUE_BYTE_CLAN_NAME,
     FIRST_PRINTABLE_CHARACTER,
     GAME_ROW_BLUE,
@@ -75,6 +76,8 @@ class Group:
     # the first time a player with it joins, so the ladder can tell two copies of one installation
     # apart without the serial numbers ever being stored.
     installation_by_serial: dict[str, int] = field(default_factory=dict)
+    # A chat theme for the games of one language is shown only to them; ALL_LANGUAGES for every game.
+    language: str = ALL_LANGUAGES
 
     def installation_of(self, serial_number: str) -> int:
         """The number of the game installation with this serial number within this game."""
