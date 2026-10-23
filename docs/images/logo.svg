@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="title">
+  <title id="title">s3lobby</title>
+  <!-- A shield with a watchtower: a settlement's meeting point. Colours from the web interface's
+       tokens: the accent navy, the warning gold and the dark theme's red. -->
+  <path d="M64 6 L114 22 V60 C114 92 92 112 64 122 C36 112 14 92 14 60 V22 Z"
+        fill="#1b3a6b" stroke="#dec470" stroke-width="4" stroke-linejoin="round"/>
+  <line x1="64" y1="49" x2="64" y2="24" stroke="#dec470" stroke-width="3" stroke-linecap="round"/>
+  <path d="M65.5 24 L84 30 L65.5 36 Z" fill="#d9564f"/>
+  <path d="M42 48 H52 V55 H58 V48 H70 V55 H76 V48 H86 V102 H42 Z" fill="#dec470"/>
+  <rect x="60" y="64" width="8" height="12" rx="4" fill="#1b3a6b"/>
+  <path d="M56 102 V90 A8 8 0 0 1 72 90 V102 Z" fill="#1b3a6b"/>
+  <line x1="42" y1="102" x2="86" y2="102" stroke="#dec470" stroke-width="3" stroke-linecap="round"/>
+</svg>
