@@ -18,6 +18,7 @@ import ipaddress
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import TypeVar
 
 from s3lobby.constants import (
     GAME_CLIENT_FIRST_PORT,
@@ -30,6 +31,8 @@ from s3lobby.upnp import PortMapper, UpnpError, discover_gateway
 from s3lobby.wire import Address
 
 log = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 UDP = "UDP"
 # Error 718 ConflictInMappingEntry: the outside port is forwarded elsewhere already.
@@ -154,7 +157,8 @@ class RouterForwarding:
                 log.debug("UPnP: removing the server's forwarding: %s", error)
         self._executor.shutdown(wait=False)
 
-    async def _run(self, function: Callable, *arguments: object):
+    async def _run(self, function: Callable[..., T], *arguments: object) -> T:
+        """Run one blocking router call on the worker thread and wait for its result."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, function, *arguments)
 

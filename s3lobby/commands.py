@@ -41,6 +41,8 @@ from s3lobby.constants import (
     DIRECTPLAY_FIRST_GAME_PORT,
     DIRECTPLAY_LAST_GAME_PORT,
     GAME_CLIENT_FIRST_PORT,
+    MAX_BAN_HOURS,
+    MIN_BAN_HOURS,
 )
 from s3lobby.database import DatabaseError, LobbyDatabase, is_whole_number_text, utc_now
 from s3lobby.reachability import Reachability
@@ -51,9 +53,6 @@ COMMAND_PREFIX = "/"
 # conversation off the screen.
 MAX_ANSWER_LINE_LENGTH = 100
 MAX_ANSWER_LINES = 12
-# A ban from the chat lasts from one hour up to ten years, the same range the web interface allows.
-MIN_BAN_HOURS = 1
-MAX_BAN_HOURS = 10 * 365 * 24
 KICK_REASON_PREFIX = "An admin removed you from the lobby"
 REACHABILITY_ANSWERS = {
     Reachability.CHECKING: "The check whether others can reach you is still running; ask again in a few seconds.",

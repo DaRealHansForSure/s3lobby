@@ -22,6 +22,7 @@ import socket
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from typing import cast
 
 from s3lobby.addresses import ViewerAddresses
 from s3lobby.backends import describe_location
@@ -113,12 +114,14 @@ class LobbyServer(asyncio.DatagramProtocol):
         """The address the socket is bound to; with port 0 in the settings this has the real port."""
         if self._transport is None:
             raise RuntimeError("the server has not started yet")
-        return self._transport.get_extra_info("sockname")
+        host, port = self._transport.get_extra_info("sockname")[:2]
+        return (host, port)
 
     # asyncio.DatagramProtocol
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        self._transport = transport
+        # A datagram endpoint always hands over a DatagramTransport.
+        self._transport = cast(asyncio.DatagramTransport, transport)
 
     def datagram_received(self, data: bytes, client_address: Address) -> None:
         now_seconds = time.monotonic()
@@ -448,6 +451,8 @@ class LobbyServer(asyncio.DatagramProtocol):
             self.close_connection(client_address)
 
     def _send_due_datagrams(self, connection: ReliableConnection) -> None:
+        if self._transport is None:
+            return
         for datagram in connection.take_datagrams_to_send(monotonic_ms()):
             if log.isEnabledFor(logging.DEBUG):
                 described = ", ".join(describe_for_log(m) for m in decode_block(datagram))

@@ -42,6 +42,7 @@ from s3lobby.backends import (
 from s3lobby.constants import (
     BANNER_URL_PREFIX,
     BOARD_LANGUAGES,
+    FIRST_PRINTABLE_CHARACTER,
     MAX_ANNOUNCEMENT_LENGTH,
     MAX_GROUP_TEXT_LENGTH,
     MAX_TEXT_MESSAGE_BYTES,
@@ -170,7 +171,6 @@ BOOLEAN_SETTINGS = frozenset({Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS
 MAX_INTEGER_SETTING = 0xFFFFFFFF
 
 LINE_BREAK = "\n"
-FIRST_PRINTABLE_CHARACTER = " "
 
 
 @dataclass(frozen=True)
@@ -370,10 +370,16 @@ def to_stored_time(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
-def from_stored_time(text: str | None) -> datetime | None:
+def from_stored_time(text: str) -> datetime:
+    """A time from a column that always holds one."""
+    return datetime.fromisoformat(text)
+
+
+def from_optional_stored_time(text: str | None) -> datetime | None:
+    """A time from a column that may be empty: a code never used, a game still open."""
     if text is None:
         return None
-    return datetime.fromisoformat(text)
+    return from_stored_time(text)
 
 
 def hash_access_code(access_code: str) -> str:
@@ -550,7 +556,10 @@ class LobbyDatabase:
                 )
         except ConstraintViolation as error:
             raise DatabaseError(f"an account named {name!r} already exists") from error
-        return self.find_account_by_id(result.last_row_id)
+        account = self.find_account_by_id(result.last_row_id)
+        if account is None:
+            raise DatabaseError(f"the account {name!r} was not found right after it was made")
+        return account
 
     def find_account(self, name: str) -> Account | None:
         row = self._backend.fetch_one("SELECT * FROM accounts WHERE name = ?", (name,))
@@ -660,8 +669,8 @@ class LobbyDatabase:
                 code_id=row["id"],
                 label=row["label"],
                 created_at=from_stored_time(row["created_at"]),
-                last_used_at=from_stored_time(row["last_used_at"]),
-                revoked_at=from_stored_time(row["revoked_at"]),
+                last_used_at=from_optional_stored_time(row["last_used_at"]),
+                revoked_at=from_optional_stored_time(row["revoked_at"]),
             )
             for row in rows
         ]
@@ -967,7 +976,7 @@ class LobbyDatabase:
                 name=row["name"],
                 host_name=row["host_name"] or "",
                 opened_at=from_stored_time(row["opened_at"]),
-                closed_at=from_stored_time(row["closed_at"]),
+                closed_at=from_optional_stored_time(row["closed_at"]),
             )
             for row in rows
         ]
@@ -1043,7 +1052,7 @@ class LobbyDatabase:
             AnnouncementRecord(
                 text=row["text"],
                 created_at=from_stored_time(row["created_at"]),
-                sent_at=from_stored_time(row["sent_at"]),
+                sent_at=from_optional_stored_time(row["sent_at"]),
             )
             for row in rows
         ]
@@ -1111,10 +1120,10 @@ def account_from_row(row: Row | None) -> Account | None:
         account_id=row["id"],
         name=row["name"],
         is_admin=bool(row["is_admin"]),
-        banned_until=from_stored_time(row["banned_until"]),
+        banned_until=from_optional_stored_time(row["banned_until"]),
         ban_reason=row["ban_reason"],
         created_at=from_stored_time(row["created_at"]),
-        last_logon_at=from_stored_time(row["last_logon_at"]),
+        last_logon_at=from_optional_stored_time(row["last_logon_at"]),
     )
 
 

@@ -407,6 +407,14 @@ BANNER_URL_PREFIX = "ftp://"
 LOGON_FAILURE_BURST = 10
 LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
 
+# Bans: whole hours from one hour up to ten years, one day unless said otherwise.
+MIN_BAN_HOURS = 1
+MAX_BAN_HOURS = 10 * 365 * 24
+DEFAULT_BAN_HOURS = 24
+
+# Characters below this are control characters, which no text for the game may hold.
+FIRST_PRINTABLE_CHARACTER = " "
+
 # Admin chat commands wait this long for /confirm with a code of this many digits.
 CONFIRMATION_SECONDS = 60
 CONFIRMATION_CODE_DIGITS = 4

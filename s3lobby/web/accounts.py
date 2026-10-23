@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from http import HTTPStatus
 
 from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
@@ -22,13 +23,11 @@ from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.lobby_view import online_player_names
 from s3lobby.web.storage import apply_change, get_database, sentence_from_error
 from s3lobby.web.texts import form_flag, form_text
+from s3lobby.constants import DEFAULT_BAN_HOURS, MAX_BAN_HOURS, MIN_BAN_HOURS
 
 blueprint = Blueprint("accounts", __name__)
 blueprint.before_request(redirect_visitors_to_logon)
 
-HTTP_NOT_FOUND = 404
-DEFAULT_BAN_HOURS = 24
-MAX_BAN_HOURS = 10 * 365 * 24
 NO_CLAN_VALUE = ""
 
 
@@ -156,7 +155,7 @@ def ban_account(account_id: int) -> Response:
         return redirect_to_account(account_id)
     ban_hours = ban_hours_from_form()
     if ban_hours is None:
-        flash(f"The ban needs a length from 1 to {MAX_BAN_HOURS} hours.", "bad")
+        flash(f"The ban needs a length from {MIN_BAN_HOURS} to {MAX_BAN_HOURS} hours.", "bad")
         return redirect_to_account(account_id)
     until = utc_now() + timedelta(hours=ban_hours)
     apply_change(
@@ -230,7 +229,7 @@ def delete_clan(clan_id: int) -> Response:
 def require_account(account_id: int) -> Account:
     account = get_database().find_account_by_id(account_id)
     if account is None:
-        abort(HTTP_NOT_FOUND)
+        abort(HTTPStatus.NOT_FOUND)
     return account
 
 
@@ -257,6 +256,6 @@ def ban_hours_from_form() -> int | None:
     if not is_whole_number_text(hours_text):
         return None
     hours = int(hours_text)
-    if hours < 1 or hours > MAX_BAN_HOURS:
+    if hours < MIN_BAN_HOURS or hours > MAX_BAN_HOURS:
         return None
     return hours

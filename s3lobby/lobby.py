@@ -41,6 +41,7 @@ from s3lobby.constants import (
     DEFAULT_CHAT_THEME_DESCRIPTION,
     DEFAULT_CHAT_THEME_NAME,
     FIRST_GAME_GROUP_ID,
+    FIRST_PRINTABLE_CHARACTER,
     GAME_ZONE_NAMES,
     GROUP_UPDATES_PER_SECOND,
     GROUP_UPDATE_BURST,
@@ -68,7 +69,6 @@ from s3lobby.constants import (
 )
 from s3lobby.commands import ChatCommands, fit_answer
 from s3lobby.database import (
-    FIRST_PRINTABLE_CHARACTER,
     Clan,
     DatabaseError,
     LobbyDatabase,
@@ -289,11 +289,11 @@ class Lobby:
 
     def live_state(self) -> LiveLobbyState:
         """Who is online and which groups exist, for the web interface (see live.py)."""
-        players = [
+        players = tuple(
             live_player(player, self._outbox.reachability_of(player.address))
             for player in sorted(self._players_by_id.values(), key=lambda player: player.name)
-        ]
-        groups = [self._live_group(self._groups[group_id]) for group_id in sorted(self._groups)]
+        )
+        groups = tuple(self._live_group(self._groups[group_id]) for group_id in sorted(self._groups))
         return LiveLobbyState(server_name=self._server_name, players=players, groups=groups)
 
     def _live_group(self, group: Group) -> LiveGroup:
@@ -304,8 +304,8 @@ class Lobby:
             max_players=group.announcement.max_players,
             is_full=group.is_full,
             has_password=bool(group.password),
-            member_names=[player.name for player in self._members_of(group)],
-            listed_in_ids=sorted(group.listed_in_parent_ids),
+            member_names=tuple(player.name for player in self._members_of(group)),
+            listed_in_ids=tuple(sorted(group.listed_in_parent_ids)),
         )
         if group.kind != GroupKind.GAME:
             return live_group
@@ -977,7 +977,7 @@ def live_player(player: Player, reachability: Reachability) -> LivePlayer:
         is_admin=player.is_admin,
         address=f"{host}:{port}",
         logged_on_at=to_stored_time(player.logged_on_at),
-        group_ids=sorted(player.group_ids),
+        group_ids=tuple(sorted(player.group_ids)),
         reachability=reachability.value,
     )
 

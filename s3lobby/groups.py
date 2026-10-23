@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from s3lobby.constants import (
+    FIRST_PRINTABLE_CHARACTER,
     GROUP_COUNTERS_FULL,
     JOINED_GROUP_PARENT_ID,
     MAX_GROUP_DESCRIPTION_BYTES,
@@ -35,7 +36,6 @@ from s3lobby.wire import Address, ProtocolError
 # What a host's game reports as its own address before the server fills in the real one: the
 # client binds its socket to INADDR_ANY and so only knows itself as 0.0.0.0.
 UNKNOWN_HOST = "0.0.0.0"
-FIRST_PRINTABLE_CHARACTER = " "
 
 
 class GroupKind(Enum):

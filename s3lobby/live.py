@@ -11,7 +11,7 @@ access codes never do.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 
 
@@ -26,7 +26,7 @@ class LivePlayer:
     is_admin: bool
     address: str
     logged_on_at: str
-    group_ids: list[int] = field(default_factory=list)
+    group_ids: tuple[int, ...] = ()
     # A Reachability value (reachability.py); the default keeps older states readable.
     reachability: str = "not checked"
 
@@ -47,8 +47,8 @@ class LiveGroup:
     max_players: int
     is_full: bool
     has_password: bool
-    member_names: list[str] = field(default_factory=list)
-    listed_in_ids: list[int] = field(default_factory=list)
+    member_names: tuple[str, ...] = ()
+    listed_in_ids: tuple[int, ...] = ()
     map_name: str = ""
     team_count: int = 0
     is_ladder_game: bool = False
@@ -60,8 +60,8 @@ class LiveLobbyState:
     gives the same JSON text: comparing the text then tells whether anything changed."""
 
     server_name: str
-    players: list[LivePlayer] = field(default_factory=list)
-    groups: list[LiveGroup] = field(default_factory=list)
+    players: tuple[LivePlayer, ...] = ()
+    groups: tuple[LiveGroup, ...] = ()
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True, ensure_ascii=False)
@@ -71,11 +71,9 @@ class LiveLobbyState:
         """Read what to_json wrote. Raises ValueError for text that is not such a state."""
         try:
             fields = json.loads(text)
-            return cls(
-                server_name=fields["server_name"],
-                players=[LivePlayer(**player) for player in fields["players"]],
-                groups=[LiveGroup(**group) for group in fields["groups"]],
-            )
+            players = tuple(live_player_from_fields(player) for player in fields["players"])
+            groups = tuple(live_group_from_fields(group) for group in fields["groups"])
+            return cls(server_name=fields["server_name"], players=players, groups=groups)
         except (KeyError, TypeError, json.JSONDecodeError) as error:
             raise ValueError(f"not a live lobby state: {error}") from error
 
@@ -84,6 +82,17 @@ class LiveLobbyState:
 
     def groups_of_kind(self, kind: str) -> list[LiveGroup]:
         return [group for group in self.groups if group.kind == kind]
+
+
+def live_player_from_fields(fields: dict) -> LivePlayer:
+    """JSON has lists where the state has tuples."""
+    player = LivePlayer(**fields)
+    return replace(player, group_ids=tuple(player.group_ids))
+
+
+def live_group_from_fields(fields: dict) -> LiveGroup:
+    group = LiveGroup(**fields)
+    return replace(group, member_names=tuple(group.member_names), listed_in_ids=tuple(group.listed_in_ids))
 
 
 @dataclass(frozen=True)
