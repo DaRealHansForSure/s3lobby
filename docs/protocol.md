@@ -333,8 +333,13 @@ and partly seen in runs:
 3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
    take an update only for a group they see in a parent, never for one they are in (0x5d8de6): the
    server keeps the new state and passes the update to the zone.
-4. "Show game in GameZone": AddGroupToGroup with the game's id, flags 0 and empty texts, then an
-   UpdateGroup clearing 0x1000. The server lists the game in that zone.
+4. "Show game in GameZone", the setup's middle button "Warp" (text 0x90052, built at 0x48bb44):
+   AddGroupToGroup with the game's id, flags 0 and empty texts, then an UpdateGroup clearing
+   0x1000. The server lists the game in that zone (seen in a run: zones 30 and 32). The button is
+   enabled (0x4552c0, polled at 0x48e2ac) in the game setup (zone 5) once the game slot LM+0x6e8
+   holds the game (Result 0xc) with a game block (0x400), while the game is not yet listed
+   (0x1000) or when it was opened from a chat group (LM+0x2de == 3). "Weiter" needs the same
+   game slot (0x455280, polled at 0x48e273).
 5. A joiner first connects DirectPlay to the host (0x443bc8), then leaves the GameZone groups and
    sends AddPlayerToGroup for the game (0x460c8b). It gets the game with parent 0 and every member.
 6. At the match start the host sends RemoveGroupFromGroup(zone, game) for every zone the game is
