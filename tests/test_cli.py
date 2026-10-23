@@ -73,6 +73,13 @@ class CommandLineTest(unittest.TestCase):
         self.addCleanup(target.close)
         self.assertIsNotNone(target.find_account("Alice"))
 
+    def test_development_mode_refuses_to_serve_the_internet(self) -> None:
+        """A password everybody knows must never meet a server that is open to the internet."""
+        for option in (["--public-host", "lobby.example.org"], ["--upnp"]):
+            with self.subTest(option=option):
+                exit_code, _, _ = self.run_command("serve", "--dev", *option)
+                self.assertEqual(exit_code, EXIT_FAILURE)
+
     def test_unknown_account_is_an_error_not_a_traceback(self) -> None:
         exit_code, _, errors = self.run_command("account", "ban", "Nobody")
         self.assertEqual(exit_code, EXIT_FAILURE)

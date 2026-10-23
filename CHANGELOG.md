@@ -10,6 +10,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 - `scripts/stop.sh` stops every running lobby server and web interface cleanly, `--force`
   kills what still runs after ten seconds.
+- `s3lobby serve --dev`: every account also logs on with the password `1234`, from this machine
+  and its LAN only, for testing with the game; it refuses to start with `--public-host` or `--upnp`.
 
 ## [0.9.0] - 2026-10-23
 

@@ -26,7 +26,7 @@ from collections.abc import Sequence
 
 from s3lobby import __version__, admin
 from s3lobby.backends import describe_location
-from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_BAN_HOURS, DEFAULT_SERVER_PORT, NEWS_AUDIENCES
+from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_BAN_HOURS, DEFAULT_SERVER_PORT, DEVELOPMENT_PASSWORD, NEWS_AUDIENCES
 from s3lobby.database import DatabaseError, LobbyDatabase
 from s3lobby.server import ALL_INTERFACES, DEFAULT_DATABASE_PATH, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
 
@@ -58,6 +58,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
 def run_server(options: argparse.Namespace) -> int:
     configure_logging(options.verbose, options.log_file)
+    is_reachable_from_the_internet = bool(options.public_host) or options.upnp
+    if options.dev and is_reachable_from_the_internet:
+        # A shared, well-known password must never meet a server that is open to the internet.
+        log.error("--dev cannot be combined with --public-host or --upnp")
+        return EXIT_FAILURE
     settings = ServerSettings(
         bind_host=options.host,
         port=options.port,
@@ -65,6 +70,7 @@ def run_server(options: argparse.Namespace) -> int:
         public_host=options.public_host,
         database_location=options.database,
         use_upnp=options.upnp,
+        is_development_mode=options.dev,
     )
     try:
         asyncio.run(serve_forever(settings))
@@ -170,6 +176,12 @@ def add_serve_command(commands: argparse._SubParsersAction, database_option: arg
         "--upnp",
         action="store_true",
         help="let the router forward the server's port and one port per player in this network (UPnP)",
+    )
+    serve.add_argument(
+        "--dev",
+        action="store_true",
+        help=f"development mode: every account also logs on with the password {DEVELOPMENT_PASSWORD}, "
+        "from this machine and its LAN only; never on a server others can reach",
     )
     serve.add_argument("--verbose", action="store_true", help="log every datagram (secrets removed)")
     serve.add_argument("--log-file", help="also write the log to this file")

@@ -169,11 +169,13 @@ class Player:
 class Lobby:
     """Keeps the lobby's state and answers every lobby message a client sends."""
 
-    def __init__(self, server_name: str, outbox: LobbyOutbox, database: LobbyDatabase) -> None:
+    def __init__(
+        self, server_name: str, outbox: LobbyOutbox, database: LobbyDatabase, is_development_mode: bool = False
+    ) -> None:
         self._server_name = server_name
         self._outbox = outbox
         self._database = database
-        self._logon_check = LogonCheck(database)
+        self._logon_check = LogonCheck(database, is_development_mode=is_development_mode)
         self._chat_commands = ChatCommands(
             database, self._online_player_names, self.announce, self.kick_player, outbox.reachability_of
         )

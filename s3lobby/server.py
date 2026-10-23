@@ -33,6 +33,7 @@ from s3lobby.constants import (
     LIVE_STATE_WRITE_INTERVAL_SECONDS,
     DATAGRAM_BURST_PER_ADDRESS,
     DATAGRAMS_PER_SECOND_PER_ADDRESS,
+    DEVELOPMENT_PASSWORD,
     DEFAULT_SERVER_PORT,
     HOUSEKEEPING_INTERVAL_SECONDS,
     MAX_CONNECTIONS,
@@ -80,6 +81,8 @@ class ServerSettings:
     public_host: str = ""
     database_location: str = DEFAULT_DATABASE_PATH
     use_upnp: bool = False
+    # s3lobby serve --dev: every account also logs on with DEVELOPMENT_PASSWORD from the LAN.
+    is_development_mode: bool = False
 
 
 class LobbyServer(asyncio.DatagramProtocol):
@@ -91,7 +94,9 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._connections: dict[Address, ReliableConnection] = {}
         self._transport: asyncio.DatagramTransport | None = None
         self._housekeeping_task: asyncio.Task[None] | None = None
-        self._lobby = Lobby(settings.server_name, outbox=self, database=database)
+        self._lobby = Lobby(
+            settings.server_name, outbox=self, database=database, is_development_mode=settings.is_development_mode
+        )
         # The public host's IP, looked up at start and again every PUBLIC_HOST_REFRESH_SECONDS.
         self._public_ip: str | None = None
         # The router's port mappings with --upnp; None without, or when no router answered.
@@ -533,6 +538,12 @@ async def serve_forever(settings: ServerSettings) -> None:
     host, port = server.bound_address
     log.info("Settlers III lobby server %r on UDP %s:%d", settings.server_name, host, port)
     log.info("database: %s", describe_location(settings.database_location))
+    if settings.is_development_mode:
+        log.warning(
+            "DEVELOPMENT MODE: every account also logs on with the password %r from this machine and "
+            "its LAN. Never run this on a server others can reach.",
+            DEVELOPMENT_PASSWORD,
+        )
     stop_requested = asyncio.Event()
     watch_for_stop_signal(stop_requested)
     try:

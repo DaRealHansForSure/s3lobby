@@ -138,6 +138,7 @@ s3lobby serve --name "Our LAN" --verbose --log-file lobby.log
 | `--name` | `LAN Lobby` | server name shown in the game |
 | `--public-host` | none | host name or IP that players from the internet log on to |
 | `--upnp` | off | let the router forward the server's port and one port per LAN player (UPnP) |
+| `--dev` | off | development mode: every account also logs on with the password `1234`, from this machine and its LAN only; refused together with `--public-host` or `--upnp` |
 | `--verbose` | off | log every datagram with its bytes, secrets removed |
 | `--log-file` | none | also write the log to this file |
 
