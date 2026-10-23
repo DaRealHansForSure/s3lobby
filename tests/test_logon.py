@@ -90,6 +90,13 @@ class LogonCheckTest(unittest.TestCase):
             self.check.decide(logon(access_code="WRONG"), CLIENT_IP, EMPTY_LOBBY), ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE
         )
 
+    def test_code_with_a_byte_windows_1252_leaves_undefined_is_refused_not_raised(self) -> None:
+        """The game sends any byte it was typed; 0x81 arrives as a surrogate, which once made the hash
+        raise instead of the logon being refused."""
+        undefined_byte_code = b"TEST\x81CODE".decode("cp1252", errors="surrogateescape")
+        decision = self.check.decide(logon(access_code=undefined_byte_code), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(decision, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+
     def test_create_player_from_the_game_is_refused_even_for_a_free_name(self) -> None:
         """The game's "create player" button is not offered: accounts are made on the server side, so the
         request is refused and no account is created."""

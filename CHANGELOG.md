@@ -62,6 +62,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   dialog (seen in a run). The others still see the player leave at once.
 - The kick and ban lines name the admin's reason as "Reason: ...", or say "No reason given."
   when there is none; a bare colon after the ban's end date was easy to miss.
+- A logon whose password holds one of the five bytes Windows-1252 leaves undefined (such as 0x81)
+  is refused like any wrong code; hashing it raised an error before.
 
 ### Removed
 

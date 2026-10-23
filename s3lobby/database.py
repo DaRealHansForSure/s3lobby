@@ -645,12 +645,15 @@ def scrypt_digest(access_code: str, salt: bytes, cost: int, block_size: int, par
     checking a code against one."""
     # Normalizing here, where both storing and checking pass, keeps the two from ever disagreeing.
     return hashlib.scrypt(
-        normalize_access_code(access_code).encode("utf-8"),
+        normalize_access_code(access_code).encode("utf-8", errors="surrogateescape"),
         salt=salt,
         n=cost,
         r=block_size,
         p=parallelism,
         dklen=SCRYPT_DIGEST_BYTES,
+    # Bytes Windows-1252 leaves undefined arrive from the game as surrogates (wire.read_string),
+    # which plain UTF-8 refuses to encode; surrogateescape turns them back into their bytes, so
+    # such a password hashes instead of raising.
     )
 
 
