@@ -13,6 +13,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - `s3lobby serve --dev`: every account also logs on with the password `1234`, from this machine
   and its LAN only, for testing with the game; it refuses to start with `--public-host` or `--upnp`.
 
+### Key commits
+
+- [`69a6a99`](https://github.com/DaRealHansForSure/s3lobby/commit/69a6a997bf857161582461c203671e4ea8516f75) feat(server): add a development mode with a fixed test password
+- [`9fcded5`](https://github.com/DaRealHansForSure/s3lobby/commit/9fcded5690ef4b77923513752ce058f4d6ef4014) feat(scripts): add a script that stops every server and web interface
+
 ## [0.9.0] - 2026-10-23
 
 ### Added
@@ -41,6 +46,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   only a public external address, and forwards only game ports of machines in the LAN.
 - The reachability probe goes only to confirmed connections.
 
+### Key commits
+
+- [`245accd`](https://github.com/DaRealHansForSure/s3lobby/commit/245accde1db5037fcb9c558599231b54f1617834) feat(commands): make admin chat commands wait for a confirmation code
+- [`41236a5`](https://github.com/DaRealHansForSure/s3lobby/commit/41236a519570ff9a577c089d96a71ab6c53e87b9) feat(database): encrypt and verify MySQL connections on request
+- [`d7683ba`](https://github.com/DaRealHansForSure/s3lobby/commit/d7683bafad2746be2a49db7faf47f7e3293c3912) refactor(database): give each database backend a file of its own
+
 ## [0.8.0] - 2026-10-23
 
 ### Added
@@ -66,6 +77,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - Game logon failures counted per address, a budget of code checks, and limits on wrong group
   passwords and group updates per player; admin rights read at each command.
 
+### Key commits
+
+- [`0010486`](https://github.com/DaRealHansForSure/s3lobby/commit/00104866fbcf6668a180c04da1a083bd767cda7b) fix(web): harden the web interface after a security review
+- [`7b9a086`](https://github.com/DaRealHansForSure/s3lobby/commit/7b9a086049d83ad707d264edb277836aa22795e3) fix(server): keep one client from stopping the server or flooding others
+- [`0dccb84`](https://github.com/DaRealHansForSure/s3lobby/commit/0dccb84fdbe24e52dd3c6384c91469f8ebaca921) docs(security): warn about the game's plain text password in SECURITY.md
+
 ## [0.7.0] - 2026-10-23
 
 ### Added
@@ -82,6 +99,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 - Players on the server's machine or in its LAN are shown to others at addresses they can reach.
 
+### Key commits
+
+- [`d2ec4a1`](https://github.com/DaRealHansForSure/s3lobby/commit/d2ec4a1b050c1d19aef207624cc9a626773c70cf) feat(lobby): remove kicked and banned players from the running lobby
+- [`83b6282`](https://github.com/DaRealHansForSure/s3lobby/commit/83b6282024b62982d8bd2210701f58d6cb1ce8dd) fix(server): show every player at an address the receiving client can reach
+- [`3ec5690`](https://github.com/DaRealHansForSure/s3lobby/commit/3ec5690925da0e31b7011df707390862548a2dad) feat(server): forward ports on the router by UPnP with --upnp
+
 ## [0.6.0] - 2026-10-23
 
 ### Added
@@ -94,6 +117,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 ### Changed
 
 - The protocol notes are corrected, and their open questions trimmed.
+
+### Key commits
+
+- [`a54db47`](https://github.com/DaRealHansForSure/s3lobby/commit/a54db477a30850f571c3dadd1050a2b1a89103ec) feat(lobby): tell players that ladder games are not supported
+- [`a3b8938`](https://github.com/DaRealHansForSure/s3lobby/commit/a3b8938aad6c5a508b48cb5b7c4c5d610fb11b23) feat(web): show map, teams and ladder games live, and decode match reports
+- [`b773839`](https://github.com/DaRealHansForSure/s3lobby/commit/b77383952b0ba73b6571a5db0da1a9305385c844) docs(protocol): correct and complete the protocol notes
 
 ## [0.5.0] - 2026-10-23
 
@@ -112,6 +141,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - The README is the project's front page, with a logo, a screenshot and guides.
 - The settings column is called `name` (migration 0004), as KEY is reserved in MySQL.
 
+### Key commits
+
+- [`09b3377`](https://github.com/DaRealHansForSure/s3lobby/commit/09b3377f1ffd13396fcc97d511d5dc00b1f752b3) feat(database): run on SQLite or MySQL, with migration files
+- [`23a9089`](https://github.com/DaRealHansForSure/s3lobby/commit/23a9089e9ddfc5b7738878a837b858f6a833b324) ci: run the tests on GitHub Actions
+- [`2dcd39a`](https://github.com/DaRealHansForSure/s3lobby/commit/2dcd39a1e9912a2c439459768210050a3fcf232e) chore: license s3lobby under MIT
+
 ## [0.4.0] - 2026-10-23
 
 ### Added
@@ -126,6 +161,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 ### Fixed
 
 - The server never tells the game that a patch is needed, whatever version it reports.
+
+### Key commits
+
+- [`d306cbb`](https://github.com/DaRealHansForSure/s3lobby/commit/d306cbb1743d04d9b74568596e9744009261bf8e) fix(protocol): never tell the game that a patch is needed
+- [`38892b1`](https://github.com/DaRealHansForSure/s3lobby/commit/38892b1e087e5236d526ca144a0ef493cd5b37b0) feat(protocol): decode game blocks and game descriptions
+- [`8d07390`](https://github.com/DaRealHansForSure/s3lobby/commit/8d07390290b8ff81c732feadebd4fbbb8a410aa1) feat(protocol): decode match reports in full
 
 ## [0.3.0] - 2026-10-23
 
@@ -143,6 +184,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 ### Fixed
 
 - Texts and settings the game cannot show are refused when they are stored.
+
+### Key commits
+
+- [`851ba04`](https://github.com/DaRealHansForSure/s3lobby/commit/851ba04dc754b67331297f3ef1ba99485f3f8016) feat(web): add a web interface for the live lobby and administration
+- [`c5aabf1`](https://github.com/DaRealHansForSure/s3lobby/commit/c5aabf17c22e9bd7d1bb34beee2a51899a7d379e) feat(live): write the running lobby to the database for other processes
+- [`ac13a8c`](https://github.com/DaRealHansForSure/s3lobby/commit/ac13a8cde0cdddbf7c4732066572e1015bbbd159) refactor(database): store every setting under its own key
 
 ## [0.2.0] - 2026-10-23
 
@@ -167,6 +214,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 - Rate limits, size checks and bounded state against hostile and broken datagrams.
 
+### Key commits
+
+- [`138c987`](https://github.com/DaRealHansForSure/s3lobby/commit/138c98755c477ac11c62a54fb4b179053cbc1b02) feat(database): add the SQLite database for accounts, clans and lobby content
+- [`3418f0a`](https://github.com/DaRealHansForSure/s3lobby/commit/3418f0a352aaa4902c2d1598f2c1bd9854fd56fb) feat(logon): log on with server-made accounts and show clans
+- [`492f16d`](https://github.com/DaRealHansForSure/s3lobby/commit/492f16d9134538135778d91a183a52755ef0e05e) fix(lobby): mirror what each client sees and handle games as the client expects
+
 ## [0.1.0] - 2026-10-23
 
 ### Added
@@ -179,6 +232,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   the game asserts.
 - `docs/protocol.md`: the protocol with the address in the game's executable for every fact.
 - README, packaging and CLAUDE.md.
+
+### Key commits
+
+- [`1b43d38`](https://github.com/DaRealHansForSure/s3lobby/commit/1b43d388ad3adb24a8fe037c4676323882c44916) feat(server): add a LAN lobby server for the original Settlers 3
+- [`b76d102`](https://github.com/DaRealHansForSure/s3lobby/commit/b76d102029ba440e065eb18e4bc253c65b3231e1) refactor: rework the lobby server into the s3lobby package
+- [`46582ce`](https://github.com/DaRealHansForSure/s3lobby/commit/46582ce334e11e36153f753a6057a579fa73684d) docs(protocol): move the lobby protocol document into the project
 
 [Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...v0.9.0
