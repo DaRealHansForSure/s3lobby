@@ -12,10 +12,10 @@ from collections.abc import Callable
 
 from s3lobby.commands import fit_answer
 from s3lobby.constants import (
-    EMPTY_CHAT_GROUP_KEEP_SECONDS,
     ANNOUNCEMENT_GROUP_ID,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
+    EMPTY_CHAT_GROUP_KEEP_SECONDS,
     FIRST_GAME_GROUP_ID,
     GAME_BLOCK_SIZE_BY_MESSAGE_TYPE,
     GROUP_COUNTERS_FULL,
@@ -23,6 +23,7 @@ from s3lobby.constants import (
     JOINED_GROUP_PARENT_ID,
     LADDER_NOT_SUPPORTED_TEXT,
     MAX_GROUP_TEXT_LENGTH,
+    PASSWORD_CHAT_GROUP_PARENT_ID,
     SERVER_ASSIGNS_GROUP_ID,
     UNLIMITED_PLAYERS,
     WRONG_GROUP_PASSWORD_BURST,
@@ -355,6 +356,42 @@ class GroupRulesTest(LobbyTestCase):
             announcement = receive_announcement(client)
             if announcement.parent_id == JOINED_GROUP_PARENT_ID and is_wanted(announcement.group_id):
                 return announcement.group_id
+
+    def test_chat_group_with_password_opens_under_group_five_and_shows_in_the_theme(self) -> None:
+        """With a password the game opens its chat group under group 5, joining and leaving that
+        group in the same block (0x454315, 0x454516; seen in a run). Without group 5 the join was
+        refused with "Wechsel hat nicht geklappt" and the chat group never opened."""
+        alice, alice_id = self.player_in_chat_theme("Alice", 17)
+        bob, bob_id = self.player_in_chat_theme("Bob", 42)
+        alice.send(
+            RemovePlayerFromGroup(CHAT_THEME_PARENT_ID, alice_id),
+            AddPlayerToGroup(PASSWORD_CHAT_GROUP_PARENT_ID, alice_id, ("0.0.0.0", 0), ""),
+            GroupAnnouncement(
+                message_type=MessageType.ADD_GROUP_TO_GROUP_2,
+                parent_id=PASSWORD_CHAT_GROUP_PARENT_ID,
+                group_id=SERVER_ASSIGNS_GROUP_ID,
+                flags=GroupFlag.HAS_PASSWORD,
+                max_players=UNLIMITED_PLAYERS,
+                name="secret",
+                second_text="(Alice) ",
+                third_text="hunter",
+            ),
+            RemovePlayerFromGroup(PASSWORD_CHAT_GROUP_PARENT_ID, alice_id),
+            RemovePlayerFromGroup(CHAT_ZONE_GROUP_ID, alice_id),
+        )
+        group_id = self.receive_joined_group(alice, lambda group_id: group_id not in (PASSWORD_CHAT_GROUP_PARENT_ID,))
+        opened = Result.decode(alice.receive_next(MessageType.RESULT))
+        self.assertEqual((opened.code, opened.value), (ResultCode.GROUP_OPENED, group_id))
+
+        shown_to_bob = receive_announcement(bob)
+        self.assertEqual((shown_to_bob.parent_id, shown_to_bob.group_id), (CHAT_THEME_PARENT_ID, group_id))
+        self.assertTrue(shown_to_bob.flags & GroupFlag.HAS_PASSWORD)
+        self.assertEqual(shown_to_bob.third_text, "")
+        bob.send(AddPlayerToGroup(group_id, bob_id, ("0.0.0.0", 0), "", extra_text="guess"))
+        refusal = Result.decode(bob.receive_next(MessageType.RESULT))
+        self.assertEqual(refusal.code, ResultCode.WRONG_GROUP_PASSWORD)
+        bob.send(AddPlayerToGroup(group_id, bob_id, ("0.0.0.0", 0), "", extra_text="hunter"))
+        self.assertEqual(self.receive_joined_group(bob, lambda joined_id: joined_id == group_id), group_id)
 
     def test_wrong_group_passwords_are_limited_per_player(self) -> None:
         """Each join carries one guess and a datagram holds hundreds: without a limit a password

@@ -8,6 +8,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
+- Chat groups with a password open again: the game opens them under group 5, which the server
+  did not have, so the creator got "Der Wechsel in die Gruppe hat nicht geklappt". Group 5 exists
+  now (hidden), and such a chat group is listed in the creator's chat theme for the others.
 - A player removed by a kick, a ban or a deleted account gets the server's CloseConnection only
   after acknowledging the block with the reason: a lost reason line no longer turns the clean close
   into a sync error in the game.

@@ -506,8 +506,18 @@ private address is shown to a receiver on the internet at the configured public 
 The ChatZone (group 2) lists chat themes: groups whose name and second text fill the theme list's
 name and "Description" columns (0x44711d, 0x447186). A player chooses a theme by joining it, and
 sees the chat groups listed inside. A player opens a chat group with AddGroupToGroup2 under the
-theme, group id 0xffffffff, flags 0x301073 (with 0x1000 when it has a password), maximum players
-0xffffffff (no limit) and the password as third text (0x4546cb). Joining one sends the password as
+theme, group id 0xffffffff, flags 0x300073, maximum players 0xffffffff (no limit).
+
+With a password it goes differently (CreateChatGroup 0x4542c0 compares the password with the empty
+text at 0x454315): the client joins **group 5**, a group it builds itself with id 5 and empty
+texts (0x454516, switched to at 0x452120), and opens the chat group under group 5 with flags
+0x301073 (0x1000: password), the creator's name in brackets as second text ("(Bob) ", format
+0x69a8ac) and the password as third text (0x4546cb); it leaves group 5 and the ChatZone in the same
+block (seen in a run). Blue Byte's server must have had group 5; without it the join is answered
+with Result 0xb ("Der Wechsel in die Gruppe hat nicht geklappt") and the chat group never opens
+(seen in a run). s3lobby keeps group 5 hidden (listed nowhere) and lists such a chat group in the
+chat theme its creator was in last as well, so the others find it there (*inferred*: how the
+original server showed them is unknown). Joining one sends the password as
 the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 ("Das Passwort
 stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
 The creator's lobby screen leaves the ChatZone with an empty channel (CreateChatGroup 0x4542c0
