@@ -14,11 +14,14 @@ thread, one after the other, while the event loop keeps serving players.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from s3lobby.constants import (
+    GAME_CLIENT_FIRST_PORT,
+    GAME_CLIENT_PORT_COUNT,
     UPNP_FIRST_PLAYER_PORT,
     UPNP_LAST_PLAYER_PORT,
     UPNP_LEASE_SECONDS,
@@ -44,6 +47,9 @@ class RouterForwarding:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="upnp")
         # Player address -> (outside port, the machine and port it is forwarded to).
         self._player_mappings: dict[Address, tuple[int, Address]] = {}
+        # Changes to the mappings run one at a time, in the order they were asked for: a player who
+        # leaves while their forwarding is still being made is released only after it exists.
+        self._changes = asyncio.Lock()
 
     @property
     def is_active(self) -> bool:
@@ -74,7 +80,14 @@ class RouterForwarding:
     async def forward_player(self, player_address: Address) -> None:
         """Give a player in this network an outside port of their own. A player on this machine
         (127.0.0.1) is forwarded to this machine's address on the router's side."""
+        async with self._changes:
+            await self._forward_player(player_address)
+
+    async def _forward_player(self, player_address: Address) -> None:
         if self._mapper is None or player_address in self._player_mappings:
+            return
+        if not is_game_in_this_network(player_address):
+            log.warning("UPnP: %s:%d is not a game in this network, nothing forwarded", *player_address)
             return
         host, port = player_address
         if host.startswith(LOOPBACK_PREFIX):
@@ -97,6 +110,10 @@ class RouterForwarding:
         log.warning("UPnP: no free outside port left for %s:%d", host, port)
 
     async def release_player(self, player_address: Address) -> None:
+        async with self._changes:
+            await self._release_player(player_address)
+
+    async def _release_player(self, player_address: Address) -> None:
         mapping = self._player_mappings.pop(player_address, None)
         if mapping is None or self._mapper is None:
             return
@@ -111,6 +128,10 @@ class RouterForwarding:
         changed since the start, or None when the router cannot be reached."""
         if self._mapper is None:
             return None
+        async with self._changes:
+            return await self._renew()
+
+    async def _renew(self) -> str | None:
         try:
             local_ip = self._mapper.gateway.local_ip
             await self._run(self._mapper.add, self._server_port, UDP, local_ip, self._server_port, UPNP_LEASE_SECONDS)
@@ -124,8 +145,9 @@ class RouterForwarding:
     async def stop(self) -> None:
         """Remove every mapping this server made."""
         if self._mapper is not None:
-            for player_address in list(self._player_mappings):
-                await self.release_player(player_address)
+            async with self._changes:
+                for player_address in list(self._player_mappings):
+                    await self._release_player(player_address)
             try:
                 await self._run(self._mapper.delete, self._server_port, UDP)
             except UpnpError as error:
@@ -135,6 +157,20 @@ class RouterForwarding:
     async def _run(self, function: Callable, *arguments: object):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, function, *arguments)
+
+
+def is_game_in_this_network(player_address: Address) -> bool:
+    """Only a game in this network is forwarded: a private or local address, and one of the ports
+    the game binds (3343, or the next free one when several games run on one machine). A forged
+    or odd address must not open some other machine's service to the internet."""
+    host, port = player_address
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    is_local_address = ip.is_loopback or (ip.is_private and not ip.is_link_local)
+    is_game_port = GAME_CLIENT_FIRST_PORT <= port < GAME_CLIENT_FIRST_PORT + GAME_CLIENT_PORT_COUNT
+    return is_local_address and is_game_port
 
 
 def default_mapper() -> PortMapper:

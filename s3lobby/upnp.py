@@ -22,6 +22,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -54,6 +55,17 @@ PERMANENT_LEASE = 0
 MAPPING_DESCRIPTION = "s3lobby"
 
 
+class RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """A router answers its own requests; a redirect elsewhere is refused, not followed."""
+
+    def redirect_request(self, *arguments: object) -> None:
+        return None
+
+
+# Router requests go straight to the router: no proxy from the environment, no redirects.
+ROUTER_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), RefuseRedirects())
+
+
 class UpnpError(Exception):
     """The router could not be found, or refused or failed an action."""
 
@@ -81,10 +93,15 @@ def discover_gateway(timeout_seconds: float = SSDP_DISCOVERY_SECONDS) -> Gateway
         f"ST: {SSDP_SEARCH_TARGET}\r\n"
         "\r\n"
     ).encode("ascii")
+    deadline = time.monotonic() + timeout_seconds
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as search:
-        search.settimeout(timeout_seconds)
         search.sendto(request, SSDP_GROUP)
         while True:
+            # One deadline for the whole search: answers from other devices must not keep it going.
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                raise UpnpError("no UPnP router answered; is UPnP switched on in the router?")
+            search.settimeout(remaining_seconds)
             try:
                 answer, sender = search.recvfrom(SSDP_ANSWER_BYTES)
             except socket.timeout as error:
@@ -119,6 +136,13 @@ def is_on_this_network(location: str, sender_ip: str) -> bool:
         return False
 
 
+def is_on_same_device(url: str, location: str) -> bool:
+    """A plain http URL on the host that served the description: a description must not send the
+    server's requests to another machine."""
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme == "http" and parts.hostname == urllib.parse.urlsplit(location).hostname
+
+
 def gateway_from_description(location: str) -> Gateway:
     """Read the device description at location and pick its port mapping service."""
     description, local_ip = fetch(location)
@@ -131,6 +155,8 @@ def gateway_from_description(location: str) -> Gateway:
         control_path = service.findtext(f"{{{DEVICE_NAMESPACE}}}controlURL", "").strip()
         if service_type in WAN_SERVICE_TYPES and control_path:
             control_url = urllib.parse.urljoin(location, control_path)
+            if not is_on_same_device(control_url, location):
+                raise UpnpError(f"the control URL {control_url} is not on the device that answered")
             return Gateway(control_url=control_url, service_type=service_type, local_ip=local_ip)
     raise UpnpError("the device offers no WANIPConnection or WANPPPConnection service")
 
@@ -145,9 +171,13 @@ class PortMapper:
         answer = self._call("GetExternalIPAddress", {})
         external_ip = answer.get("NewExternalIPAddress", "")
         try:
-            ipaddress.ip_address(external_ip)
+            is_public = ipaddress.ip_address(external_ip).is_global
         except ValueError as error:
             raise UpnpError(f"the router gave no external address ({external_ip!r})") from error
+        # Internet players are sent to this address to log on: a private one (a router behind
+        # another router) or a made-up one would send them nowhere, or somewhere else.
+        if not is_public:
+            raise UpnpError(f"the router's external address {external_ip} is not a public one")
         return external_ip
 
     def add(self, external_port: int, protocol: str, internal_ip: str, internal_port: int, lease_seconds: int) -> None:
@@ -189,7 +219,7 @@ class PortMapper:
         headers = {"Content-Type": 'text/xml; charset="utf-8"', "SOAPAction": f'"{service_type}#{action}"'}
         request = urllib.request.Request(self.gateway.control_url, data=body, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            with ROUTER_OPENER.open(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
                 answer = response.read(MAX_RESPONSE_BYTES)
         except urllib.error.HTTPError as error:
             # The router's SOAP fault comes as an HTTP error; its body says why.
@@ -204,7 +234,7 @@ class PortMapper:
 def fetch(url: str) -> tuple[bytes, str]:
     """GET url; returns the body and the local address the connection came from."""
     try:
-        with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        with ROUTER_OPENER.open(url, timeout=HTTP_TIMEOUT_SECONDS) as response:
             body = response.read(MAX_RESPONSE_BYTES)
             local_ip = local_ip_towards(urllib.parse.urlsplit(url).hostname)
     except OSError as error:

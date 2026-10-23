@@ -20,6 +20,8 @@ DEFAULT_SERVER_PORT = 3344
 # The game binds its own UDP socket to this port, or the next free one (0x5c4b55, 0x5c4bc8). The
 # server never needs it: it always answers to the address a datagram came from.
 GAME_CLIENT_FIRST_PORT = 3343
+# How many ports from there a game may end up on: one per game running on the same machine.
+GAME_CLIENT_PORT_COUNT = 16
 
 # DirectPlay's ports, which a game's host needs reachable for the match itself: the game hands the
 # match to DirectPlay (JoinLobbyGame 0x467e00), whose TCP/IP provider listens for session lookups on

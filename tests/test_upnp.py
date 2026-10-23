@@ -7,6 +7,7 @@ to be forwarded by hand.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +22,7 @@ from s3lobby.upnp import (
     PortMapper,
     UpnpError,
     gateway_from_description,
+    is_on_same_device,
     is_on_this_network,
     location_from_ssdp_answer,
 )
@@ -28,7 +30,8 @@ from s3lobby.upnp import (
 LOOPBACK = "127.0.0.1"
 ANY_FREE_PORT = 0
 SERVICE_TYPE = "urn:schemas-upnp-org:service:WANIPConnection:1"
-EXTERNAL_IP = "203.0.113.7"
+# A public address: documentation ranges such as 203.0.113.0/24 do not count as public.
+EXTERNAL_IP = "84.75.20.9"
 SERVER_PORT = 3344
 SERVER_LAN_IP = "192.168.1.10"
 DESCRIPTION = f"""<?xml version="1.0"?>
@@ -74,6 +77,7 @@ class FakeRouter:
     def __init__(self) -> None:
         self.mappings: dict[tuple[int, str], tuple[str, int, int]] = {}
         self.only_permanent_leases = False
+        self.external_ip = EXTERNAL_IP
         router = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -107,7 +111,7 @@ class FakeRouter:
 
     def handle(self, action: str, arguments: dict[str, str]) -> tuple[int, bytes]:
         if action == "GetExternalIPAddress":
-            return 200, soap_answer(action, {"NewExternalIPAddress": EXTERNAL_IP})
+            return 200, soap_answer(action, {"NewExternalIPAddress": self.external_ip})
         key = (int(arguments["NewExternalPort"]), arguments["NewProtocol"])
         if action == "DeletePortMapping":
             self.mappings.pop(key, None)
@@ -141,6 +145,18 @@ class UpnpClientTest(unittest.TestCase):
         self.assertEqual(self.router.mappings[(33430, "UDP")], ("192.168.1.20", 3343, 3600))
         self.mapper.delete(33430, "UDP")
         self.assertEqual(self.router.mappings, {})
+
+    def test_private_external_address_is_refused(self) -> None:
+        """Internet players are sent to this address: a router behind another router knows only
+        a private one, which would send them nowhere."""
+        self.router.external_ip = "10.0.0.1"
+        with self.assertRaises(UpnpError):
+            self.mapper.external_ip()
+
+    def test_control_url_on_another_machine_is_refused(self) -> None:
+        self.assertFalse(is_on_same_device("http://169.254.169.254/latest", "http://192.168.1.1:5000/desc.xml"))
+        self.assertFalse(is_on_same_device("https://192.168.1.1/ctl", "http://192.168.1.1:5000/desc.xml"))
+        self.assertTrue(is_on_same_device("http://192.168.1.1:5000/ctl/IPConn", "http://192.168.1.1:5000/desc.xml"))
 
     def test_router_with_permanent_leases_only_gets_one(self) -> None:
         self.router.only_permanent_leases = True
@@ -210,6 +226,28 @@ class RouterForwardingTest(unittest.IsolatedAsyncioTestCase):
         forwarding = await self.start(mapper)
         await forwarding.forward_player(("192.168.1.20", 3343))
         self.assertEqual(forwarding.forwarded_port(("192.168.1.20", 3343)), UPNP_FIRST_PLAYER_PORT + 1)
+        await forwarding.stop()
+
+    async def test_only_games_in_this_network_are_forwarded(self) -> None:
+        """A forged or odd address must not open another machine's service to the internet."""
+        mapper = FakeMapper()
+        forwarding = await self.start(mapper)
+        for address in (("192.168.1.20", 161), ("84.75.10.4", 3343), ("169.254.1.2", 3343)):
+            with self.subTest(address=address):
+                await forwarding.forward_player(address)
+                self.assertIsNone(forwarding.forwarded_port(address))
+        self.assertEqual(list(mapper.mappings), [SERVER_PORT])
+        await forwarding.stop()
+
+    async def test_player_leaving_while_being_forwarded_is_released_after_it(self) -> None:
+        """Without the order, the release would find nothing and the late mapping would stay."""
+        mapper = FakeMapper()
+        forwarding = await self.start(mapper)
+        player = ("192.168.1.20", 3343)
+        forwarding_task = asyncio.ensure_future(forwarding.forward_player(player))
+        release_task = asyncio.ensure_future(forwarding.release_player(player))
+        await asyncio.gather(forwarding_task, release_task)
+        self.assertEqual(list(mapper.mappings), [SERVER_PORT])
         await forwarding.stop()
 
     async def test_without_a_router_the_server_runs_without_forwarding(self) -> None:
