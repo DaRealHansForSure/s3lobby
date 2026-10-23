@@ -45,6 +45,8 @@ CLANLIGA = "clanliga"
 LADDER_NAMES = {LadderType.INDIVIDUAL: LIGA, LadderType.CLANS: CLANLIGA}
 # Seasons are looked up by name; these name the infinite season.
 INFINITE_SEASON_NAMES = ("", "infinite", "infinite season")
+# A ladder result has two sides: the winning one and the losing one.
+LADDER_SIDE_COUNT = 2
 # A ladder result's clan that was deleted since.
 DELETED_CLAN_NAME = "(deleted clan)"
 
@@ -226,6 +228,37 @@ class LadderBook:
         voided = replace(record.evaluation, state=LadderState.VOID, reason=reason or "voided by an admin")
         self._database.store_ladder_result(voided, decided_by_account_id=admin_account_id)
         return voided
+
+    def match_lines(self, evaluation: Evaluation, game_name: str) -> list[str]:
+        """What the players of a just decided game are told in the chat: who beat whom and how the
+        ratings moved, or why the game does not count."""
+        if evaluation.state == LadderState.DISPUTED:
+            return [f"Ladder: the reports of {game_name} name different winners; an admin will decide."]
+        if evaluation.state != LadderState.COUNTED:
+            return [f"Ladder: {game_name} does not count ({evaluation.reason})."]
+        ratings = self.ratings()
+        if evaluation.ladder_type == LadderType.CLANS:
+            clan_names = {clan.clan_id: clan.name for clan in self._database.list_clans()}
+            sides = [player.clan_id for player in evaluation.players if player.has_won][:1]
+            sides += [player.clan_id for player in evaluation.players if not player.has_won][:1]
+            names = [clan_names.get(side, DELETED_CLAN_NAME) for side in sides]
+            side_ratings = ratings.clanliga
+            label = "Clanliga"
+        else:
+            account_names = {account.account_id: account.name for account in self._database.list_accounts()}
+            sides = [player.account_id for player in evaluation.players if player.has_won][:1]
+            sides += [player.account_id for player in evaluation.players if not player.has_won][:1]
+            names = [account_names.get(side, DELETED_ACCOUNT_NAME) for side in sides]
+            side_ratings = ratings.liga
+            label = "Liga"
+        if len(sides) != LADDER_SIDE_COUNT:
+            return []
+        moves = []
+        for name, side in zip(names, sides):
+            rating = side_ratings.get(side)
+            if rating is not None:
+                moves.append(f"{name} {round(rating.rating)} ({round(rating.last_change):+d})")
+        return [f"{label}: {names[0]} beat {names[1]}. " + ", ".join(moves) + "."]
 
     # Views with names, for the command line, the web interface and the chat commands.
 

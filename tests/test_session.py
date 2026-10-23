@@ -27,6 +27,7 @@ from s3lobby.messages import (
     AddPlayerToGroup,
     AddPlayerToGroupWithClan,
     AddPlayerToGroupWithFlags,
+    ChatCommandAnswer,
     CheckFileVersion,
     GameStatus,
     GetLobbyServerList,
@@ -336,17 +337,21 @@ class LadderEvaluationTest(LobbyTestCase):
         join_group(bob, GAME_ZONE_ID, bob_id)
         open_game(alice, GAME_ZONE_ID, LadderType.INDIVIDUAL, game_description(is_ladder_game=True))
         game = receive_announcement(alice)
+        # The host is told its game's id first (Result 0xc), before any report is answered.
+        alice.receive_next(MessageType.RESULT)
         bob.send(AddPlayerToGroup(game.group_id, bob_id, ("0.0.0.0", 0), ""))
         receive_announcement(bob)
         slots = (MatchReportPlayer(0, alice_id, 0, 0, 0, 0), MatchReportPlayer(0, bob_id, 1, 0, 1, 1))
         report = GameStatus(game.group_id, GameStatusFlag.LADDER_GAME, 0, THIRTY_MINUTES_OF_TICKS, "\\Random", slots)
         # Each reports, then leaves the game; the server confirms the leave, and the game closes
         # with its last player.
+        self.report_codes = []
         for client, player_id in ((alice, alice_id), (bob, bob_id)):
             client.send(report)
-            client.receive_next(MessageType.RESULT)
+            self.report_codes.append(Result.decode(client.receive_next(MessageType.RESULT)).code)
             client.send(RemovePlayerFromGroup(game.group_id, player_id))
             client.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
+        self.alice, self.bob = alice, bob
         [record] = self.database.list_recent_games(limit=1)
         return record.game_id
 
@@ -359,6 +364,24 @@ class LadderEvaluationTest(LobbyTestCase):
         self.assertEqual(result.evaluation.state, LadderState.COUNTED)
         winners = [player.account_id for player in result.evaluation.players if player.has_won]
         self.assertEqual(winners, [self.database.find_account("Alice").account_id])
+
+    def test_a_switched_off_ladder_tells_the_game_nothing_counts(self) -> None:
+        """Until the admins switch the ladder on, the game shows "not valid for ladder" (0x540b89),
+        as before the ladder existed, while the server still evaluates the match."""
+        self.play_liga_match(OTHER_SERIAL_NUMBER)
+        self.assertEqual(self.report_codes, [ResultCode.GAME_NOT_VALID_FOR_LADDER] * 2)
+
+    def test_a_switched_on_ladder_stores_the_report_and_tells_the_players(self) -> None:
+        """With the ladder on, the game shows "Game status stored at the Lobby server." during the
+        match (0x540a3e), and after the evaluation both players hear how their ratings moved; the
+        game itself has no place to show it."""
+        self.database.set_setting(Setting.LADDER_ENABLED, "true")
+        self.play_liga_match(OTHER_SERIAL_NUMBER)
+        self.assertEqual(self.report_codes, [ResultCode.GAME_STATUS_STORED] * 2)
+        self.server.evaluate_ladder_games()
+        for client in (self.alice, self.bob):
+            line = ChatCommandAnswer.decode(client.receive_next(MessageType.CHAT_COMMAND_ANSWER))
+            self.assertEqual(line.lines[0], "Liga: Alice beat Bob. Alice 1016 (+16), Bob 984 (-16).")
 
     def test_two_copies_of_one_installation_do_not_count(self) -> None:
         """Bob logs on with Alice's serial number: one installation against itself is void."""

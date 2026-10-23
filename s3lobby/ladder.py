@@ -574,3 +574,18 @@ def recent_form(
         else:
             letters.append(FORM_LOST)
     return "".join(letters[-count:])
+
+
+def report_can_count(status: GameStatus) -> bool:
+    """Whether a single ladder report could be part of a counted result, judged on the report alone:
+    a ladder game the game itself did not mark invalid, two teams, no computer opponents. The
+    game shows the server's answer during the match (0x540a18), before the other reports are in,
+    so the answer can only say the report was stored; whether the match counts is decided later."""
+    if not status.flags & GameStatusFlag.LADDER_GAME:
+        return False
+    if status.flags & GameStatusFlag.NOT_VALID_FOR_LADDER:
+        return False
+    if any(slot.is_computer for slot in status.players):
+        return False
+    teams = {slot.team for slot in status.players}
+    return len(teams) == LADDER_TEAM_COUNT

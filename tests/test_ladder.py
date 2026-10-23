@@ -31,6 +31,7 @@ from s3lobby.ladder import (
     exceeds_pair_limit,
     expected_score,
     recent_form,
+    report_can_count,
     standings,
 )
 from s3lobby.messages import GameStatus, MatchReportPlayer
@@ -196,6 +197,27 @@ class EvaluateLigaTest(unittest.TestCase):
         self.assertEqual(exceeds_pair_limit(evaluation, 2, SETTINGS).state, LadderState.COUNTED)
         self.assertEqual(exceeds_pair_limit(evaluation, 3, SETTINGS).state, LadderState.VOID)
 
+
+class ReportAnswerTest(unittest.TestCase):
+    """What a single report can be told during the match, before the other reports are in."""
+
+    def test_a_good_report_can_count(self) -> None:
+        """A ladder report with two human teams: the game may hear it was stored."""
+        self.assertTrue(report_can_count(report(ALICE, LIGA_SLOTS).status))
+
+    def test_reports_that_never_count(self) -> None:
+        """Not a ladder game, the game's own invalid mark, computer opponents, one team only."""
+        computer_slots = (slot(ALICE, 0, 0), slot(0, 1, 1, MatchPlayerFlag.COMPUTER))
+        one_team = (slot(ALICE, 0, 0), slot(BOB, 1, 0))
+        bad_reports = (
+            report(ALICE, LIGA_SLOTS, flags=0),
+            report(ALICE, LIGA_SLOTS, flags=GameStatusFlag.LADDER_GAME | GameStatusFlag.NOT_VALID_FOR_LADDER),
+            report(ALICE, computer_slots),
+            report(ALICE, one_team),
+        )
+        for bad_report in bad_reports:
+            with self.subTest(report=bad_report):
+                self.assertFalse(report_can_count(bad_report.status))
 
 class EvaluateClanligaTest(unittest.TestCase):
     """Clanliga: one clan per team, two clans, members long enough."""
