@@ -687,11 +687,13 @@ on every start. Restoring GOG's value fixes it.
 Each needs a run of the real game (start S3 with `-netmon`, which writes traffic to `trace.lis`,
 and compare with the server's `--verbose` log):
 
-- Two real players on two machines: the game's own DirectPlay connection across a network, which
-  needs the host address the server hands out to be reachable. Seen in a run on one machine (two
-  copies under Wine, 2026-10-23): chat between the two players in one chat group, a second player
-  joining a game opened in that chat group, the host starting the match, both reporting it (start
-  and winner, the same slots), and both coming back to the lobby while the server closes the game.
+- Players on different networks: the game's own DirectPlay connection across the internet, which
+  needs the host address the server hands out to be reachable through the players' routers.
+  Seen in runs so far: on one machine (two copies under Wine, 2026-10-23) chat between the two
+  players in one chat group, a second player joining a game opened in that chat group, the host
+  starting the match, both reporting it (start and winner, the same slots), and both coming back
+  to the lobby while the server closes the game; and in one LAN, a match between two machines
+  (Windows 10 and Linux under Wine).
 
 Not answerable from the game: what Blue Byte's server named the zone groups 30..38 and the rooms
 1..3. Only a recording of the original server would tell; s3lobby uses the names the client's own
