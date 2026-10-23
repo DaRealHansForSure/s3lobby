@@ -37,6 +37,7 @@ from s3lobby.constants import (
     BOARD_LANGUAGE_GROUP_PREFIX,
     BOARD_MESSAGE_TEXT_ID_BASE,
     BOARD_THEME_GROUP_ID_BASE,
+    BOARD_THEME_ID_SPAN,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
     DEFAULT_CHAT_THEME_DESCRIPTION,
@@ -52,6 +53,7 @@ from s3lobby.constants import (
     LADDER_NOT_SUPPORTED_TEXT,
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
+    MAX_BOARD_THEMES_PER_LANGUAGE,
     MAX_CHAT_COMMAND_LENGTH,
     MAX_OPEN_GROUPS_PER_PLAYER,
     MAX_TEXT_MESSAGE_BYTES,
@@ -206,8 +208,9 @@ class Lobby:
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
-        # Each board theme group's place in its language, as admins ordered the themes.
-        self._board_theme_ranks: dict[int, int] = {}
+        # The database id of the theme each board theme group shows (the group id holds its place,
+        # see board_theme_group_id).
+        self._board_theme_of_group: dict[int, int] = {}
         self._next_player_group_id = FIRST_GAME_GROUP_ID
         self._wrong_group_passwords = RateLimiter(WRONG_GROUP_PASSWORDS_PER_SECOND, WRONG_GROUP_PASSWORD_BURST)
         self._group_updates = RateLimiter(GROUP_UPDATES_PER_SECOND, GROUP_UPDATE_BURST)
@@ -954,12 +957,7 @@ class Lobby:
         if is_chat_theme_group(group.group_id):
             player.last_chat_theme_id = group.group_id
         self._record_game_player(group, player)
-        children = self._groups_listed_in(group.group_id)
-        # Board themes go out in the order admins gave them (inferred: the game lists groups in the
-        # order they arrive); every other parent keeps the order its groups were opened in.
-        if is_board_language_group(group.group_id):
-            children.sort(key=lambda child: self._board_theme_ranks.get(child.group_id, len(children)))
-        for child in children:
+        for child in self._groups_listed_in(group.group_id):
             self._show_group(player, child, group.group_id)
         self._send_counters_to_viewers(group)
         if group.group_id == HOME_GROUP_ID:
@@ -967,7 +965,9 @@ class Lobby:
         if group.group_id == MESSAGE_ZONE_GROUP_ID:
             self._tell_about_board_chat(player)
         if is_board_theme_group(group.group_id):
-            self._send_board_message_ids(player, group.group_id - BOARD_THEME_GROUP_ID_BASE)
+            theme_id = self._board_theme_of_group.get(group.group_id)
+            if theme_id is not None:
+                self._send_board_message_ids(player, group.group_id, theme_id)
 
     def _tell_about_board_chat(self, player: Player) -> None:
         """Once per logon, when the setting asks for it: chat typed on the message board reaches
@@ -1239,33 +1239,44 @@ class Lobby:
                 self._list_group_in(language_group, message_zone)
 
     def _sync_board_themes(self, language: str) -> None:
-        """List the board themes of one language in its language group; themes removed from the
-        database disappear once nobody is in them."""
-        language_group_id = BOARD_LANGUAGE_GROUP_ID_BASE + BOARD_LANGUAGES.index(language)
+        """List the board themes of one language in its language group, in the board's order: the
+        game sorts them by group id, so each theme's group id holds its place (board_theme_group_id).
+        Themes removed, hidden or moved get their old group taken away once nobody is in it; a
+        moved theme whose old group still has players keeps that group until it empties."""
+        language_index = BOARD_LANGUAGES.index(language)
+        language_group_id = BOARD_LANGUAGE_GROUP_ID_BASE + language_index
         language_group = self._groups[language_group_id]
         wanted = {}
         # list_board_themes gives the board's order; a hidden theme counts as gone for the game.
-        for theme in self._database.list_board_themes():
-            if theme.language == language and not theme.is_hidden:
-                wanted[BOARD_THEME_GROUP_ID_BASE + theme.theme_id] = theme
-        self._board_theme_ranks.update({group_id: rank for rank, group_id in enumerate(wanted)})
+        visible_themes = [
+            theme for theme in self._database.list_board_themes() if theme.language == language and not theme.is_hidden
+        ]
+        for rank, theme in enumerate(visible_themes[:MAX_BOARD_THEMES_PER_LANGUAGE]):
+            wanted[board_theme_group_id(language_index, rank, theme.theme_id)] = theme
+        themes_kept_in_old_groups = set()
         for group in self._groups_listed_in(language_group_id):
-            if group.group_id not in wanted and not group.member_ids:
-                self._unlist_group_from(group, language_group_id)
-                self._groups.pop(group.group_id, None)
-        for group_id, theme in wanted.items():
-            if group_id in self._groups:
+            if group.group_id in wanted:
                 continue
+            if group.member_ids:
+                themes_kept_in_old_groups.add(self._board_theme_of_group.get(group.group_id))
+                continue
+            self._unlist_group_from(group, language_group_id)
+            self._groups.pop(group.group_id, None)
+            self._board_theme_of_group.pop(group.group_id, None)
+        for group_id, theme in wanted.items():
+            if group_id in self._groups or theme.theme_id in themes_kept_in_old_groups:
+                continue
+            self._board_theme_of_group[group_id] = theme.theme_id
             announcement = room_announcement(group_id, theme.name, description_text=theme.description)
             theme_group = Group(announcement=announcement, kind=GroupKind.ROOM)
             self._groups[group_id] = theme_group
             self._list_group_in(theme_group, language_group)
 
-    def _send_board_message_ids(self, player: Player, theme_id: int) -> None:
-        """The ids of a theme's messages; the client asks for each text when it shows it."""
+    def _send_board_message_ids(self, player: Player, group_id: int, theme_id: int) -> None:
+        """The ids of a theme's messages, in the board's order (the game keeps the list as it
+        arrives, CGroup.SetIdList 0x5dbe30); the client asks for each text when it shows it."""
         messages = [message for message in self._database.list_board_messages(theme_id) if not message.is_hidden]
         text_ids = tuple(BOARD_MESSAGE_TEXT_ID_BASE + message.message_id for message in messages)
-        group_id = BOARD_THEME_GROUP_ID_BASE + theme_id
         self._outbox.send(player.address, TextIdList(group_id=group_id, text_ids=text_ids))
 
     # Built-in groups and lookups.
@@ -1401,6 +1412,13 @@ def language_of_board_group(group_id: int) -> str:
 def is_chat_theme_group(group_id: int) -> bool:
     """True for the id of a chat theme, the range below the board language groups."""
     return CHAT_THEME_GROUP_ID_BASE <= group_id < BOARD_LANGUAGE_GROUP_ID_BASE
+
+
+def board_theme_group_id(language_index: int, rank: int, theme_id: int) -> int:
+    """The group id of a board theme at a place in its language (see BOARD_THEME_ID_SPAN): lower for
+    a higher place, since the game lists groups by ascending id."""
+    slot = language_index * MAX_BOARD_THEMES_PER_LANGUAGE + rank
+    return BOARD_THEME_GROUP_ID_BASE + slot * BOARD_THEME_ID_SPAN + theme_id % BOARD_THEME_ID_SPAN
 
 
 def is_board_theme_group(group_id: int) -> bool:

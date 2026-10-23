@@ -327,6 +327,15 @@ CHAT_THEME_GROUP_ID_BASE = 0x10000
 BOARD_LANGUAGE_GROUP_ID_BASE = 0x20000
 BOARD_THEME_GROUP_ID_BASE = 0x30000
 FIRST_GAME_GROUP_ID = 0x100000
+# The game lists a parent's groups by ascending group id, whatever order they arrive in (CGroup's
+# operator< compares the ids, 0x5db570, and the visible groups are a sorted array, 0x44d730). So a
+# board theme's group id carries its place: for language L, place R and theme database id T it is
+# BOARD_THEME_GROUP_ID_BASE + (L * MAX_BOARD_THEMES_PER_LANGUAGE + R) * BOARD_THEME_ID_SPAN
+# + T % BOARD_THEME_ID_SPAN. The last part makes the id change when another theme takes a place, so
+# a client never mistakes one theme for another. 7 languages * 400 places * 256 stay below
+# FIRST_GAME_GROUP_ID.
+BOARD_THEME_ID_SPAN = 0x100
+MAX_BOARD_THEMES_PER_LANGUAGE = 400
 
 # Text ids of MessageZone messages: this base plus the message's database id, far from the news ids.
 BOARD_MESSAGE_TEXT_ID_BASE = 0x10000

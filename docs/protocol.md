@@ -550,6 +550,15 @@ listed in that language group are the themes; a theme's text id list (0x14) hold
 own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
 theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
 
+The order of the themes is the game's own: a group keeps its visible groups in a sorted array
+(CGroup +0xb8, binary search at 0x44d730) whose "less than" compares the group ids (CGroup's
+operator< at 0x5db570 compares +4, the id). So the game lists the groups inside any parent by
+ascending group id, whatever order the server sends them in (seen in a run: themes sent Liga
+first came out Test first, Test having the lower id). s3lobby therefore gives each board theme a
+group id that holds its place on the board (`board_theme_group_id`). A theme's text id list
+(0x14) is copied as it arrives (CGroup.SetIdList 0x5dbe30), so messages keep the server's order
+(*inferred*: not yet seen with several messages).
+
 A client bug, not reachable from the server: the screen's group lookup (0x452390) returns the
 GameZone slot instead of the MessageZone's own group for level 0 (0x452455). That slot is always
 empty there (leaving the GameZone clears it, 0x452039), so chat typed on the board screen is

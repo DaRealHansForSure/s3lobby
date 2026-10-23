@@ -38,6 +38,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   (SortableJS, bundled with the web interface) or moved with Up and Down, new messages come
   first, and the server's ladder theme starts on top. Themes and messages can be hidden from the
   game; the server's own theme and messages can only be hidden, not removed (migration 0011).
+  The game sorts a list's groups by their id (0x5db570), so each board theme's group id now holds
+  its place on the board.
 
 ### Changed
 
