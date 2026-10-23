@@ -158,8 +158,35 @@ class ResultCode(IntEnum):
     # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
     WRONG_GROUP_PASSWORD = 0x62
 
-    # Answer to GameStatus: the game shows 0x90148 "Game status stored at the Lobby server." (0x540a3e).
+    # Answer to GameStatus: 0x90148 "Game status stored at the Lobby server." (0x540a3e). The game
+    # shows answers to GameStatus only during a ladder game (0x540a18) and ignores them otherwise.
     GAME_STATUS_STORED = 0x6C
+
+
+class GameStatusFlag(IntFlag):
+    """Bits of GameStatus's flags (Logic.SendGameStatus 0x540500)."""
+
+    # The match is a ladder game (game settings +0x2a, 0x540770..0x54077e).
+    LADDER_GAME = 0x1
+    # Not valid for the ladder: a ladder slot has no lobby player id (0x5405ec, 0x5407b1), or the
+    # lobby manager marked the game (its byte +0x675, 0x54078a).
+    NOT_VALID_FOR_LADDER = 0x2
+
+
+class MatchPlayerFlag(IntFlag):
+    """Bits of a GameStatus player record's flags (0x540625..0x540680)."""
+
+    # The slot is a computer opponent (slot state 2; the setup names the states at 0x48fd26..0x490309:
+    # 0 free, 1 human, 2 computer opponent, 4 closed).
+    COMPUTER = 0x1
+    # The slot is in state 3, which the setup never shows (inferred: a human player who left).
+    SLOT_STATE_3 = 0x2
+    # The slot has no player number in the match (its number is 0xff, 0x540631).
+    NO_PLAYER_NUMBER = 0x4
+
+
+# GameStatus's winning team while more than one team is still in the match (0x540747..0x540768).
+NO_WINNING_TEAM = 0xFFFFFFFF
 
 
 class LogonFlag(IntFlag):

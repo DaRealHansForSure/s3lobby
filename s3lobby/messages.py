@@ -24,9 +24,13 @@ from s3lobby.constants import (
     GROUP_UPDATE_MESSAGE_TYPES,
     SESSION_GUID_SIZE,
     SOCKET_ADDRESS_SIZE,
+    U32_SIZE,
+    NO_WINNING_TEAM,
+    GameStatusFlag,
     GroupFlag,
     GroupUpdateMask,
     LadderType,
+    MatchPlayerFlag,
     MessageType,
 )
 from s3lobby.wire import Address, FieldReader, FieldWriter, ProtocolError, RawMessage, decode_block
@@ -1048,25 +1052,94 @@ class TextMessage:
 
 
 @dataclass(frozen=True)
-class GameStatus:
-    """0x1f: a client reports how its game went (sent from 0x540500). No answer is expected.
+class MatchReportPlayer:
+    """One slot of a match report, in wire order (constructor 0x5ec316..0x5ec505; the values are
+    gathered for every slot of the match at 0x5405bc..0x5406b5).
 
-    Layout: u32 group id, three u32 (flags with 1 = league game, winning team, unknown), a string,
-    u32 player count, then six u32 per player. The server only logs it, so everything after the
-    group id stays raw.
+    flags holds MatchPlayerFlag bits. lobby_player_id is the player id the lobby gave the slot's
+    player (0 for a computer opponent, inferred); in a ladder game a slot without one makes the
+    report not valid for the ladder (0x5405ec). race is 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons
+    (inferred from the setup's race choices 0x48c2a3..0x48c2df and the per-race tables the game
+    indexes with it, 0x4dd2fc). unused is always 0 (0x54061d). slot is the slot number, 0 to 19;
+    team the slot's team as the game numbers it (the winning team uses the same numbers).
+    """
+
+    flags: int
+    lobby_player_id: int
+    race: int
+    unused: int
+    slot: int
+    team: int
+
+    @property
+    def is_computer(self) -> bool:
+        return bool(self.flags & MatchPlayerFlag.COMPUTER)
+
+
+MATCH_REPORT_PLAYER_FIELD_COUNT = 6
+MATCH_REPORT_PLAYER_SIZE = MATCH_REPORT_PLAYER_FIELD_COUNT * U32_SIZE
+
+
+@dataclass(frozen=True)
+class GameStatus:
+    """0x1f: a client's report on its match (Logic.SendGameStatus 0x540500, constructor 0x5ec280).
+
+    Every client of a lobby game sends one when the match starts (sent unconditionally, 0x53da69,
+    so there is no winner yet) and one when a single team is left (0x53ae66, once per match).
+
+    Layout: u32 group id (the lobby game), u32 flags (GameStatusFlag), u32 winning team
+    (NO_WINNING_TEAM while more than one team is left), u32 game time (the game's tick counter,
+    global 0x7dfd48), string map (the map file of the game settings, +0x2c via 0x436a60), u32 n,
+    then n MatchReportPlayer records of six u32.
+
+    The game shows the server's answer only during a ladder game (0x540a18): Result
+    GAME_STATUS_STORED as "Game status stored at the Lobby server." (0x540a3e), any other code of
+    the same kind as "Game status inconsistencies. Game not valid for ladder." (0x540b89).
     """
 
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.GAME_STATUS
     group_id: int
-    rest_of_body: bytes = field(repr=False)
+    flags: int
+    winning_team: int
+    game_time: int
+    map_name: str
+    players: tuple[MatchReportPlayer, ...] = ()
+
+    @property
+    def is_ladder_game(self) -> bool:
+        return bool(self.flags & GameStatusFlag.LADDER_GAME)
+
+    @property
+    def has_winner(self) -> bool:
+        return self.winning_team != NO_WINNING_TEAM
 
     def encode(self) -> RawMessage:
-        return FieldWriter().write_u32(self.group_id).write_bytes(self.rest_of_body).to_message(self.MESSAGE_TYPE)
+        writer = FieldWriter()
+        writer.write_u32(self.group_id).write_u32(self.flags)
+        writer.write_u32(self.winning_team).write_u32(self.game_time)
+        writer.write_string(self.map_name).write_u32(len(self.players))
+        for player in self.players:
+            writer.write_u32(player.flags).write_u32(player.lobby_player_id).write_u32(player.race)
+            writer.write_u32(player.unused).write_u32(player.slot).write_u32(player.team)
+        return writer.to_message(self.MESSAGE_TYPE)
 
     @classmethod
     def decode(cls, message: RawMessage) -> GameStatus:
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
-        return cls(group_id=reader.read_u32(), rest_of_body=reader.read_remaining_bytes())
+        group_id = reader.read_u32()
+        flags = reader.read_u32()
+        winning_team = reader.read_u32()
+        game_time = reader.read_u32()
+        map_name = reader.read_string()
+        player_count = reader.read_u32()
+        # Checked before the loop, so a forged count cannot keep the server reading.
+        if player_count * MATCH_REPORT_PLAYER_SIZE != reader.remaining_size:
+            raise ProtocolError(f"match report claims {player_count} players in {reader.remaining_size} bytes")
+        players = []
+        for _ in range(player_count):
+            fields = [reader.read_u32() for _ in range(MATCH_REPORT_PLAYER_FIELD_COUNT)]
+            players.append(MatchReportPlayer(*fields))
+        return cls(group_id, flags, winning_team, game_time, map_name, tuple(players))
 
 
 # Logging.

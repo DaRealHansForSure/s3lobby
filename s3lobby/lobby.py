@@ -528,14 +528,27 @@ class Lobby:
         return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
 
     def _store_game_status(self, client_address: Address, message: RawMessage) -> None:
-        """A client reports how its match went (sent from 0x540500). The report is kept as the
-        client wrote it, for a ladder to read later, and the client is told it was stored."""
+        """A client reports on its match, once at the start and once when a single team is left
+        (0x540500). The report is kept as the client wrote it, and the client is told it was
+        stored; the game shows that answer only during a ladder game (0x540a18)."""
         status = GameStatus.decode(message)
         player = self._find_logged_on_player(client_address)
         if player is None:
             return
         self._database.store_game_report(player.player_id, status.group_id, message.body)
-        log.info("player %d %r reported the match of group %d", player.player_id, player.name, status.group_id)
+        outcome = "no winner yet"
+        if status.has_winner:
+            outcome = f"team {status.winning_team} won"
+        log.info(
+            "player %d %r reported the match of group %d: map %r, %s, %d slot(s), game time %d",
+            player.player_id,
+            player.name,
+            status.group_id,
+            status.map_name,
+            outcome,
+            len(status.players),
+            status.game_time,
+        )
         self._outbox.send(client_address, Result(ResultCode.GAME_STATUS_STORED))
 
     def _online_player_names(self) -> list[str]:

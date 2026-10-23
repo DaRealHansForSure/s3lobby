@@ -431,10 +431,30 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 
 ### Other
 
-- **0x1f GameStatus** (0x540500): u32 group id, 3 x u32 (flags with 1 = league game, winning team,
-  ...), string, u32 n, n x 6 u32 per player. No answer expected; Result 0x6c shows "Game status
-  stored at the Lobby server" in the game, 0x6a "Game status inconsistencies. Game not valid for
-  ladder" (0x540a3e).
+- **0x1f GameStatus** (Logic.SendGameStatus 0x540500, constructor 0x5ec280): a report on the
+  match. Every client of a lobby game sends one when the match starts (unconditionally, 0x53da69,
+  right after "CLogicThread: Initialisierung abgeschlossen") and one when a single team is left
+  (0x53ae66, once). Body: u32 group id (the lobby game), u32 flags (1 ladder game, game settings
+  +0x2a; 2 not valid for the ladder: a ladder slot without lobby player id, 0x5405ec, or the lobby
+  manager's mark +0x675), u32 winning team (0xffffffff while more than one team is left: a team
+  counts while it still owns buildings of the types 0xf, 0x10 or 0x12, 0x5406e7..0x540768), u32
+  game time (the game's tick counter, global 0x7dfd48), string map (the map file of the game
+  settings, +0x2c via 0x436a60), u32 n, then n records of six u32 per slot in the match
+  (0x5ec316..0x5ec505):
+
+  | Field | Meaning |
+  |---|---|
+  | flags | 1 computer opponent (slot state 2), 2 slot state 3 (*inferred*: a player who left), 4 no player number in the match (0x540625..0x540680) |
+  | lobby player id | the id the lobby gave the slot's player (0x1195d7c table) |
+  | race | 0 Romans, 1 Egyptians, 2 Asians, 3 Amazons (*inferred* from the setup's race choices 0x48c2a3 and the per-race tables indexed with it, 0x4dd2fc) |
+  | unused | always 0 (0x54061d) |
+  | slot | slot number, 0 to 19 |
+  | team | the slot's team, numbered as the winning team |
+
+  Slot states in the setup (names at 0x48fd26..0x490309): 0 free, 1 human, 2 computer opponent,
+  4 closed. The game shows the answer only during a ladder game (0x540a18): Result 0x6c as "Game
+  status stored at the Lobby server." (0x540a3e), 0x6a as "Game status inconsistencies. Game not
+  valid for ladder." (0x540b89). For other games it ignores the answer.
 
 ## Session sequence
 

@@ -8,8 +8,18 @@ from __future__ import annotations
 
 import unittest
 
-from s3lobby.constants import GroupFlag, LadderType, MessageType, ResultCode
+from s3lobby.constants import (
+    NO_WINNING_TEAM,
+    U32_SIZE,
+    GameStatusFlag,
+    GroupFlag,
+    LadderType,
+    MatchPlayerFlag,
+    MessageType,
+    ResultCode,
+)
 from s3lobby.messages import (
+    MATCH_REPORT_PLAYER_SIZE,
     AcknowledgeMessages,
     AddPlayerToGroup,
     ChatCommandAnswer,
@@ -19,10 +29,12 @@ from s3lobby.messages import (
     GameBlock,
     GameDescription,
     GameSettings,
+    GameStatus,
     GroupAnnouncement,
     LobbyServerEntry,
     LobbyServerList,
     Logon,
+    MatchReportPlayer,
     MinMissingAcknowledge,
     OwnPlayer,
     RemoveGroupFromGroup,
@@ -139,6 +151,26 @@ class MessageLayoutTest(unittest.TestCase):
             with self.subTest(description=description):
                 with self.assertRaises(ProtocolError):
                     GameDescription.decode(description)
+
+    def test_match_report_lists_every_slot(self) -> None:
+        human = MatchReportPlayer(flags=0, lobby_player_id=7, race=0, unused=0, slot=0, team=0)
+        computer = MatchReportPlayer(flags=MatchPlayerFlag.COMPUTER, lobby_player_id=0, race=3, unused=0, slot=1, team=1)
+        report = GameStatus(0x100000, GameStatusFlag.LADDER_GAME, NO_WINNING_TEAM, 12, "Elbe", (human, computer))
+        decoded = GameStatus.decode(report.encode())
+        self.assertEqual(decoded, report)
+        self.assertTrue(decoded.is_ladder_game)
+        self.assertFalse(decoded.has_winner)
+        self.assertEqual([player.is_computer for player in decoded.players], [False, True])
+
+    def test_match_report_whose_count_does_not_fit_is_refused(self) -> None:
+        report = GameStatus(0x100000, 0, 0, 12, "Elbe", (MatchReportPlayer(0, 7, 0, 0, 0, 0),)).encode()
+        player_count_offset = len(report.body) - MATCH_REPORT_PLAYER_SIZE - U32_SIZE
+        for forged_count in (0, 2, 0xFFFFFFFF):
+            body = bytearray(report.body)
+            body[player_count_offset:player_count_offset + U32_SIZE] = forged_count.to_bytes(U32_SIZE, "little")
+            with self.subTest(forged_count=forged_count):
+                with self.assertRaises(ProtocolError):
+                    GameStatus.decode(RawMessage(MessageType.GAME_STATUS, bytes(body)))
 
     def test_recorded_logon_decodes(self) -> None:
         logon = Logon.decode(RawMessage(MessageType.LOGON, RECORDED_LOGON))
