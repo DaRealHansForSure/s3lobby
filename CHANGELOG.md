@@ -6,6 +6,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+### Added
+
+- `s3lobby board move-theme|move-message ID up|down` and `hide-theme`, `show-theme`,
+  `hide-message`, `show-message`: the board's order and visibility from the command line, as on
+  the web; `board list` marks hidden and server-written themes.
+
 ### Fixed
 
 - A game's reports no longer call a ladder game "unranked here": the ladder ranks it, and the

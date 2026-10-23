@@ -17,6 +17,13 @@ from s3lobby.constants import NEWS_AUDIENCES
 from s3lobby.database import BUILT_IN_CHAT_THEMES, Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
 
 
+# board move-theme and move-message: the directions, and which kind of board item a command acts on.
+MOVE_UP = "up"
+MOVE_DIRECTIONS = (MOVE_UP, "down")
+BOARD_THEME_KIND = "theme"
+BOARD_ITEM_KINDS = (BOARD_THEME_KIND, "message")
+
+
 class AdminError(Exception):
     """A command that cannot be carried out, with a message for the person who typed it."""
 
@@ -225,11 +232,49 @@ def remove_board_theme(database: LobbyDatabase, options: argparse.Namespace) -> 
 
 
 def list_board(database: LobbyDatabase, options: argparse.Namespace) -> None:
-    """Print every board theme with the messages posted to it."""
+    """Print every board theme with the messages posted to it, in the board's order, hidden ones
+    marked."""
     for theme in database.list_board_themes():
-        print(f"{theme.theme_id}  [{theme.language}] {theme.name}  {theme.description}".rstrip())
+        theme_marks = hidden_mark(theme.is_hidden)
+        if theme.is_server_written:
+            theme_marks += " (written by the server)"
+        line = f"{theme.theme_id}  [{theme.language}] {theme.name}"
+        if theme.description:
+            line += f"  {theme.description}"
+        print(line + theme_marks)
         for message in database.list_board_messages(theme.theme_id):
-            print(f"    message {message.message_id}: {message.title} ({message.author}, {message.posted_at:%Y-%m-%d})")
+            print(
+                f"    message {message.message_id}: {message.title} ({message.author}, "
+                f"{message.posted_at:%Y-%m-%d}){hidden_mark(message.is_hidden)}"
+            )
+
+
+def hidden_mark(is_hidden: bool) -> str:
+    """The note after a hidden board theme or message in the listing."""
+    if is_hidden:
+        return " (hidden)"
+    return ""
+
+
+def move_board_item(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Move a board theme or message one place up or down, as Up and Down on the web do."""
+    is_up = options.direction == MOVE_UP
+    if options.board_item_kind == BOARD_THEME_KIND:
+        database.move_board_theme(options.item_id, is_up)
+    else:
+        database.move_board_message(options.item_id, is_up)
+    print(f"Board {options.board_item_kind} {options.item_id} moved {options.direction}.")
+
+
+def set_board_item_hidden(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Hide a board theme or message from the game, or show it again. The server's own theme and
+    messages can be hidden like any other, though not removed."""
+    if options.board_item_kind == BOARD_THEME_KIND:
+        database.set_board_theme_hidden(options.item_id, options.is_hidden)
+    else:
+        database.set_board_message_hidden(options.item_id, options.is_hidden)
+    state = "hidden" if options.is_hidden else "shown"
+    print(f"Board {options.board_item_kind} {options.item_id} {state} in the game.")
 
 
 def post_board_message(database: LobbyDatabase, options: argparse.Namespace) -> None:

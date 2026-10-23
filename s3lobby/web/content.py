@@ -202,25 +202,16 @@ def order_board_messages(theme_id: int) -> tuple[str, int]:
 @blueprint.post("/board/themes/<int:theme_id>/move")
 def move_board_theme(theme_id: int) -> Response:
     """Move a theme one place up or down among its language's themes: the board without script."""
-    database = get_database()
-    themes = database.list_board_themes()
-    theme = next((item for item in themes if item.theme_id == theme_id), None)
-    if theme is None:
-        abort(HTTPStatus.NOT_FOUND)
-    ids = [item.theme_id for item in themes if item.language == theme.language]
-    database.set_board_theme_order(moved(ids, theme_id, form_text("direction")))
+    is_up = form_text("direction") == MOVE_UP
+    apply_change(lambda: get_database().move_board_theme(theme_id, is_up), "Theme moved.")
     return redirect(url_for("content.show_board"))
 
 
 @blueprint.post("/board/messages/<int:message_id>/move")
 def move_board_message(message_id: int) -> Response:
     """Move a message one place up or down in its theme: the board without script."""
-    database = get_database()
-    message = database.find_board_message(message_id)
-    if message is None:
-        abort(HTTPStatus.NOT_FOUND)
-    ids = [item.message_id for item in database.list_board_messages(message.theme_id)]
-    database.set_board_message_order(message.theme_id, moved(ids, message_id, form_text("direction")))
+    is_up = form_text("direction") == MOVE_UP
+    apply_change(lambda: get_database().move_board_message(message_id, is_up), "Message moved.")
     return redirect(url_for("content.show_board"))
 
 
@@ -251,19 +242,6 @@ def ids_from_form(field_name: str) -> list[int] | None:
     if len(parts) > MAX_ORDERED_IDS or not all(is_whole_number_text(part) for part in parts):
         return None
     return [int(part) for part in parts]
-
-
-def moved(ids: list[int], item_id: int, direction: str) -> list[int]:
-    """The ids with one of them a place up ("up") or down ("down"); unchanged at either end."""
-    if item_id not in ids:
-        return ids
-    index = ids.index(item_id)
-    target = index - 1 if direction == MOVE_UP else index + 1
-    if target < 0 or target >= len(ids):
-        return ids
-    reordered = list(ids)
-    reordered[index], reordered[target] = reordered[target], reordered[index]
-    return reordered
 
 
 @blueprint.post("/board/messages/<int:message_id>/delete")

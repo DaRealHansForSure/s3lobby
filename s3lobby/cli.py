@@ -398,6 +398,22 @@ def add_board_commands(commands: argparse._SubParsersAction, database_option: ar
     remove_message.add_argument("message_id", type=int)
     remove_message.set_defaults(admin_function=admin.remove_board_message)
 
+    # Order and visibility, as the web interface's board page sets them by dragging, Up and Down
+    # and Hide and Show.
+    for kind in admin.BOARD_ITEM_KINDS:
+        move = actions.add_parser(f"move-{kind}", parents=[database_option], help=f"move a {kind} one place up or down")
+        move.add_argument("item_id", type=int, metavar=f"{kind}_id")
+        move.add_argument("direction", choices=admin.MOVE_DIRECTIONS)
+        move.set_defaults(admin_function=admin.move_board_item, board_item_kind=kind)
+        for is_hidden, verb in ((True, "hide"), (False, "show")):
+            visibility = actions.add_parser(
+                f"{verb}-{kind}", parents=[database_option], help=f"{verb} a {kind} in the game"
+            )
+            visibility.add_argument("item_id", type=int, metavar=f"{kind}_id")
+            visibility.set_defaults(
+                admin_function=admin.set_board_item_hidden, board_item_kind=kind, is_hidden=is_hidden
+            )
+
 
 def add_ladder_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the ladder subcommands: standings, results, admins' decisions and custom seasons
