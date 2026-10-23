@@ -113,6 +113,25 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 
 - No `Co-Authored-By` or other generated-by lines in commit messages.
 - Merges always with `--no-ff`.
+- Commit messages follow Conventional Commits: `type(scope): subject` in the imperative, lower
+  case after the colon, no full stop, at most about 72 characters, then a blank line and a body
+  that says why. Types: `feat` (new behaviour), `fix` (wrong behaviour corrected, security fixes
+  included), `docs`, `refactor` (no change in behaviour), `test`, `build` (packaging), `ci`,
+  `chore` (repository upkeep, releases), `perf`. Scopes are the area: `server`, `lobby`, `logon`,
+  `commands`, `protocol`, `database`, `web`, `cli`, `upnp`, `live`, `readme`, `security`. A change
+  that breaks a promise to admins or to the game gets `!` after the type and a `BREAKING CHANGE:`
+  line in the body.
+- Git flow: `main` holds releases only, `develop` the work in progress. Every change goes on a
+  branch from `develop` (`feature/...`, `fix/...`, `docs/...`, `refactor/...`) and is merged back
+  with `git merge --no-ff BRANCH -m "Merge branch 'BRANCH' into develop"`.
+- Releases follow SemVer (before 1.0.0, minor for features or anything that changes behaviour,
+  patch for fixes only; 1.0.0 once the real game is confirmed on two machines). A release is a
+  branch `release/X.Y.Z` from `develop` with one commit `chore(release): X.Y.Z` that sets
+  `__version__` in `s3lobby/__init__.py` and moves the `Unreleased` part of `CHANGELOG.md` into a
+  section for the version (Keep a Changelog: Added, Changed, Fixed, Security, with links at the
+  end). It is merged into `main` (`Merge branch 'release/X.Y.Z'`), tagged there with an annotated
+  `vX.Y.Z`, and merged back into `develop`. Every change worth telling admins adds a line under
+  `Unreleased` in `CHANGELOG.md` in the same commit.
 - Identity of this repository (stored in its local git config, the whole history was rewritten
   to it): DaRealHansForSure <stuff+s3@kognetwork.ch>. The project is MIT licensed under that name.
 - Work on a feature branch, merge it into `main` with `--no-ff`, push to `origin` (gitea at
