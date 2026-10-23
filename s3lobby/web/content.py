@@ -29,6 +29,8 @@ NEWS_AUDIENCE_TITLES = {
 
 @dataclass(frozen=True)
 class NewsForm:
+    """The news form for one audience: its title on the page and the news it holds now, if any."""
+
     audience: str
     audience_title: str
     news: News | None
@@ -36,6 +38,8 @@ class NewsForm:
 
 @dataclass(frozen=True)
 class BoardThemeWithMessages:
+    """A board theme with its messages, as the board page lists them."""
+
     theme: BoardTheme
     messages: list[BoardMessage]
 
@@ -45,6 +49,7 @@ class BoardThemeWithMessages:
 
 @blueprint.get("/news")
 def show_news() -> str:
+    """The news page: one form for the Home tab news of each audience."""
     database = get_database()
     forms = [
         NewsForm(audience=audience, audience_title=NEWS_AUDIENCE_TITLES[audience], news=database.find_news(audience))
@@ -55,6 +60,7 @@ def show_news() -> str:
 
 @blueprint.post("/news/<audience>")
 def set_news(audience: str) -> Response:
+    """Save the Home tab news for one audience; an unknown audience in the URL changes nothing."""
     if audience not in NEWS_AUDIENCES:
         return redirect(url_for("content.show_news"))
     title = form_text("title")
@@ -71,11 +77,13 @@ def set_news(audience: str) -> Response:
 
 @blueprint.get("/chat-themes")
 def list_chat_themes() -> str:
+    """The ChatZone themes page."""
     return render_template("chat_themes.html", themes=get_database().list_chat_themes())
 
 
 @blueprint.post("/chat-themes")
 def add_chat_theme() -> Response:
+    """Add a theme to the ChatZone tab's list."""
     name = form_text("name")
     description = form_text("description")
     apply_change(lambda: get_database().add_chat_theme(name, description), f"Chat theme {name} added.")
@@ -84,6 +92,7 @@ def add_chat_theme() -> Response:
 
 @blueprint.post("/chat-themes/<int:theme_id>/delete")
 def delete_chat_theme(theme_id: int) -> Response:
+    """Remove a ChatZone theme."""
     apply_change(lambda: get_database().delete_chat_theme(theme_id), "Chat theme removed.")
     return redirect(url_for("content.list_chat_themes"))
 
@@ -93,6 +102,8 @@ def delete_chat_theme(theme_id: int) -> Response:
 
 @blueprint.get("/board")
 def show_board() -> str:
+    """The MessageZone board page: every theme with its messages, and the logged on admin's name as
+    the default author."""
     database = get_database()
     themes = [
         BoardThemeWithMessages(theme=theme, messages=database.list_board_messages(theme.theme_id))
@@ -109,6 +120,7 @@ def show_board() -> str:
 
 @blueprint.post("/board/themes")
 def add_board_theme() -> Response:
+    """Add a board theme for the games of one language."""
     language = form_text("language")
     name = form_text("name")
     description = form_text("description")
@@ -121,12 +133,14 @@ def add_board_theme() -> Response:
 
 @blueprint.post("/board/themes/<int:theme_id>/delete")
 def delete_board_theme(theme_id: int) -> Response:
+    """Remove a board theme together with its messages."""
     apply_change(lambda: get_database().delete_board_theme(theme_id), "Board theme and its messages removed.")
     return redirect(url_for("content.show_board"))
 
 
 @blueprint.post("/board/messages")
 def post_board_message() -> Response:
+    """Post a message to the theme the form chose; a missing or malformed theme id is refused."""
     theme_id_text = form_text("theme_id")
     title = form_text("title")
     body = form_multiline_text("body")
@@ -143,5 +157,6 @@ def post_board_message() -> Response:
 
 @blueprint.post("/board/messages/<int:message_id>/delete")
 def delete_board_message(message_id: int) -> Response:
+    """Remove a board message."""
     apply_change(lambda: get_database().delete_board_message(message_id), "Message removed.")
     return redirect(url_for("content.show_board"))

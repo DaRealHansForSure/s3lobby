@@ -60,6 +60,8 @@ class GameRow:
 
 @dataclass(frozen=True)
 class ChatGroupRow:
+    """A chat group: the themes it is listed in, its members, and whether it needs a password."""
+
     name: str
     theme_names: tuple[str, ...]
     member_names: tuple[str, ...]
@@ -68,6 +70,8 @@ class ChatGroupRow:
 
 @dataclass(frozen=True)
 class RoomRow:
+    """A room of the lobby (GroupKind.ROOM) with the players in it; the page leaves out empty rooms."""
+
     name: str
     member_names: tuple[str, ...]
 
@@ -87,6 +91,7 @@ class LiveLobbyPage:
 
 @blueprint.get("/")
 def live_lobby() -> str:
+    """The public live lobby page: who is online, the open games and the chat groups."""
     return render_template("live.html", page=read_live_lobby_page())
 
 
@@ -97,6 +102,7 @@ def live_state_part() -> str:
 
 
 def read_live_lobby_page() -> LiveLobbyPage:
+    """The live lobby as the server last wrote it to the database, ready for the page."""
     return describe_live_lobby(get_database().read_live_state(), utc_now())
 
 
@@ -161,6 +167,7 @@ def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> tupl
 
 
 def describe_game(game: LiveGroup, names_by_id: dict[int, str]) -> GameRow:
+    """An open game from the live state as the page lists it."""
     return GameRow(
         name=game.name,
         member_names=game.member_names,
@@ -175,6 +182,7 @@ def describe_game(game: LiveGroup, names_by_id: dict[int, str]) -> GameRow:
 
 
 def describe_chat_group(chat_group: LiveGroup, names_by_id: dict[int, str]) -> ChatGroupRow:
+    """A chat group from the live state as the page lists it."""
     return ChatGroupRow(
         name=chat_group.name,
         theme_names=listed_in_names(chat_group, names_by_id),
@@ -184,6 +192,7 @@ def describe_chat_group(chat_group: LiveGroup, names_by_id: dict[int, str]) -> C
 
 
 def listed_in_names(group: LiveGroup, names_by_id: dict[int, str]) -> tuple[str, ...]:
+    """The names of the groups this group is listed in (a game's zones, a chat group's themes)."""
     return tuple(names_by_id[parent_id] for parent_id in group.listed_in_ids if parent_id in names_by_id)
 
 

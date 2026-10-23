@@ -59,6 +59,7 @@ class RefuseRedirects(urllib.request.HTTPRedirectHandler):
     """A router answers its own requests; a redirect elsewhere is refused, not followed."""
 
     def redirect_request(self, *arguments: object) -> None:
+        """Refuse every redirect, so a request never leaves the router."""
         return None
 
 
@@ -70,6 +71,7 @@ class UpnpError(Exception):
     """The router could not be found, or refused or failed an action."""
 
     def __init__(self, message: str, error_code: int | None = None) -> None:
+        """Keep the router's UPnP error code, when it gave one, for callers that act on it (718, 725)."""
         super().__init__(message)
         self.error_code = error_code
 
@@ -165,9 +167,12 @@ class PortMapper:
     """The port mapping actions of one router."""
 
     def __init__(self, gateway: Gateway) -> None:
+        """Talk to the port mapping service of this gateway."""
         self.gateway = gateway
 
     def external_ip(self) -> str:
+        """The router's public address; raises UpnpError when it is missing, malformed or not a
+        public one."""
         answer = self._call("GetExternalIPAddress", {})
         external_ip = answer.get("NewExternalIPAddress", "")
         try:
@@ -202,6 +207,7 @@ class PortMapper:
             self._call("AddPortMapping", arguments)
 
     def delete(self, external_port: int, protocol: str) -> None:
+        """Remove the forwarding of external_port for protocol."""
         arguments = {"NewRemoteHost": "", "NewExternalPort": str(external_port), "NewProtocol": protocol}
         self._call("DeletePortMapping", arguments)
 
@@ -278,4 +284,5 @@ def upnp_error_from_fault(action: str, fault: bytes) -> UpnpError:
 
 
 def escape_xml(text: str) -> str:
+    """Escape the characters that would break a SOAP argument's element text."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

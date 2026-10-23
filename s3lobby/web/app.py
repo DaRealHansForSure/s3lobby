@@ -141,4 +141,5 @@ def create_app_from_environment() -> Flask:
 
 
 def is_variable_set(name: str) -> bool:
+    """True when the environment variable holds a value that counts as true (1, true, yes, on)."""
     return os.environ.get(name, "").strip().lower() in TRUE_SETTING_VALUES

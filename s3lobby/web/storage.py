@@ -26,6 +26,7 @@ def get_database() -> LobbyDatabase:
 
 
 def close_database(error: BaseException | None = None) -> None:
+    """Close the request's database connection when the request opened one; Flask calls this at teardown."""
     database = g.pop(DATABASE_ATTRIBUTE, None)
     if database is not None:
         database.close()

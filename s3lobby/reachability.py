@@ -51,11 +51,13 @@ class ReachabilityProber(asyncio.DatagramProtocol):
     """Probes players from its own UDP socket and reports each result to on_result."""
 
     def __init__(self, on_result: Callable[[Address, Reachability], None]) -> None:
+        """Report each probe's result to on_result; the socket arrives later in connection_made."""
         self._on_result = on_result
         self._transport: asyncio.DatagramTransport | None = None
         self._pending: dict[Address, asyncio.TimerHandle] = {}
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        """Keep the transport asyncio hands over once the probe socket is bound."""
         # A datagram endpoint always hands over a DatagramTransport.
         self._transport = cast(asyncio.DatagramTransport, transport)
 
@@ -74,6 +76,7 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             timer.cancel()
 
     def close(self) -> None:
+        """Cancel every probe still running and close the probe socket."""
         for timer in self._pending.values():
             timer.cancel()
         self._pending.clear()
@@ -81,6 +84,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             self._transport.close()
 
     def datagram_received(self, data: bytes, address: Address) -> None:
+        """Take a datagram from a probed address as the answer to its probe: the player is
+        reachable. The game's connection is closed again at once."""
         # Anything from a probed address is its answer; datagrams from anyone else are ignored.
         timer = self._pending.pop(address, None)
         if timer is None:
@@ -91,9 +96,12 @@ class ReachabilityProber(asyncio.DatagramProtocol):
         self._on_result(address, Reachability.OPEN)
 
     def error_received(self, error: OSError) -> None:
+        """Log a socket error at debug level; an unreachable player shows as a missing answer."""
         log.debug("reachability probe socket: %s", error)
 
     def _send_probe(self, address: Address, probe_block: bytes, attempts_left: int) -> None:
+        """Send the probe block and schedule the next attempt; once no attempt is left without an
+        answer, the player is reported BLOCKED."""
         if attempts_left == 0:
             self._pending.pop(address, None)
             log.info("%s: not reachable from other ports", address)

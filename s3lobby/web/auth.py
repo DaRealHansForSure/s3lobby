@@ -93,6 +93,11 @@ def template_context() -> dict[str, object]:
 
 @blueprint.route("/logon", methods=["GET", "POST"])
 def log_on() -> str | Response | tuple[str, int]:
+    """The logon page and its form: an admin's account name and one of their access codes.
+
+    Failed attempts are limited per address and per name, and only MAX_CONCURRENT_LOGON_CHECKS
+    checks run at once, as each costs scrypt hashes. Only an admin who is not banned gets in, and
+    every refusal reads the same, so it does not tell which part was wrong."""
     next_path = safe_next_path(request.values.get("next", ""))
     if request.method == "GET":
         return render_template("logon.html", next_path=next_path, name="")
@@ -193,10 +198,12 @@ def install_logon_failure_limiter(app: Flask) -> None:
 
 
 def logon_checks() -> threading.BoundedSemaphore:
+    """The application's semaphore that bounds how many logon checks run at once."""
     return current_app.extensions[LOGON_CHECKS_EXTENSION]
 
 
 def logon_failure_limiter() -> LogonFailureLimiter:
+    """The application's limiter for failed logons."""
     return current_app.extensions[LIMITER_EXTENSION]
 
 

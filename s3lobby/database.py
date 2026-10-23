@@ -143,10 +143,12 @@ class Setting(Enum):
 
     @property
     def key(self) -> str:
+        """The name the setting is stored under in the settings table."""
         return self.value
 
     @property
     def default(self) -> str:
+        """The value used while none is stored."""
         return SETTING_DEFAULTS[self]
 
 
@@ -187,6 +189,10 @@ LINE_BREAK = "\n"
 
 @dataclass(frozen=True)
 class Account:
+    """An account, the only way into the lobby: its name is the player name the game logs on with.
+    banned_until is None or the moment logons are refused until; ban_reason is told to a player who is
+    online when banned and kept as a note for admins."""
+
     account_id: int
     name: str
     is_admin: bool
@@ -196,6 +202,7 @@ class Account:
     last_logon_at: datetime | None = None
 
     def is_banned_at(self, moment: datetime) -> bool:
+        """True while a ban is in force at the given moment; a ban ends by itself when it runs out."""
         return self.banned_until is not None and self.banned_until > moment
 
 
@@ -211,12 +218,16 @@ class Clan:
 
 @dataclass(frozen=True)
 class News:
+    """The Home tab's news for one audience, a title and a text (see LobbyDatabase.set_news)."""
+
     title: str
     body: str
 
 
 @dataclass(frozen=True)
 class ChatTheme:
+    """A theme listed on the ChatZone tab; the chat groups players open there are listed under it."""
+
     theme_id: int
     name: str
     description: str
@@ -224,6 +235,9 @@ class ChatTheme:
 
 @dataclass(frozen=True)
 class BoardTheme:
+    """A theme of the MessageZone board. language is one of BOARD_LANGUAGES: the game shows the
+    themes of its own language, and the English ones when its language has none."""
+
     theme_id: int
     language: str
     name: str
@@ -232,6 +246,9 @@ class BoardTheme:
 
 @dataclass(frozen=True)
 class BoardMessage:
+    """A message on the MessageZone board under one theme. author is empty for a message written
+    on the server side; the lobby then shows the server's name as its byline."""
+
     message_id: int
     theme_id: int
     title: str
@@ -252,6 +269,7 @@ class AccessCodeRecord:
 
     @property
     def is_active(self) -> bool:
+        """True until the code is revoked; a revoked code no longer logs on."""
         return self.revoked_at is None
 
 
@@ -317,6 +335,9 @@ class PendingKick:
 
 @dataclass(frozen=True)
 class AnnouncementRecord:
+    """An announcement queued for the running server. sent_at is None until the server took it,
+    or until a server start discarded it as stale."""
+
     text: str
     created_at: datetime
     sent_at: datetime | None
@@ -341,6 +362,7 @@ def is_whole_number_text(text: str) -> bool:
 
 
 def is_valid_player_name(name: str) -> bool:
+    """True for a name the game itself accepts as player name: letters A to Z and single spaces."""
     return PLAYER_NAME_PATTERN.fullmatch(name) is not None
 
 
@@ -412,10 +434,13 @@ def ban_kick_reason(until: datetime, reason: str) -> str:
 
 
 def utc_now() -> datetime:
+    """The current moment in UTC, the default clock of LobbyDatabase."""
     return datetime.now(timezone.utc)
 
 
 def to_stored_time(moment: datetime) -> str:
+    """A moment as stored: UTC in ISO 8601 to the second, so that comparing the text compares
+    the times in every backend."""
     return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
@@ -465,6 +490,8 @@ def normalize_access_code(access_code: str) -> str:
 
 
 def scrypt_digest(access_code: str, salt: bytes, cost: int, block_size: int, parallelism: int) -> bytes:
+    """The scrypt digest of a normalized access code; used both for storing a hash and for
+    checking a code against one."""
     # Normalizing here, where both storing and checking pass, keeps the two from ever disagreeing.
     return hashlib.scrypt(
         normalize_access_code(access_code).encode("utf-8"),
@@ -482,6 +509,7 @@ def hash_session_token(token: str) -> str:
 
 
 def generate_access_code() -> str:
+    """A new random access code of ACCESS_CODE_LENGTH characters from ACCESS_CODE_ALPHABET."""
     return "".join(secrets.choice(ACCESS_CODE_ALPHABET) for _ in range(ACCESS_CODE_LENGTH))
 
 
@@ -512,10 +540,12 @@ class LobbyDatabase:
             raise DatabaseError(str(error)) from error
 
     def close(self) -> None:
+        """Close the connection to the database; the object cannot be used afterwards."""
         self._backend.close()
 
     @property
     def dialect(self) -> str:
+        """The SQL dialect of the backend: "sqlite" or "mysql"."""
         return self._backend.dialect
 
     @property
@@ -525,9 +555,12 @@ class LobbyDatabase:
 
     @property
     def schema_version(self) -> int:
+        """The number of the newest migration applied to the database."""
         return current_version(self._backend)
 
     def read_migration_status(self) -> MigrationStatus:
+        """Which migrations are applied and which are still to apply, without changing anything.
+        Raises DatabaseError when the database does not fit this s3lobby's migrations."""
         try:
             return read_status(self._backend)
         except MigrationError as error:
@@ -560,27 +593,33 @@ class LobbyDatabase:
         return copied_rows
 
     def _has_rows(self, table: str) -> bool:
+        """True when the table holds at least one row."""
         # The table name comes from TABLES_IN_DEPENDENCY_ORDER only.
         return self._backend.fetch_one(f"SELECT 1 AS found FROM {table} LIMIT 1") is not None
 
     # Settings.
 
     def get_setting(self, setting: Setting) -> str:
+        """The stored value of a setting, or its default when none is stored."""
         row = self._backend.fetch_one("SELECT value FROM settings WHERE name = ?", (setting.key,))
         if row is None:
             return setting.default
         return row["value"]
 
     def get_integer_setting(self, setting: Setting) -> int:
+        """A numeric setting as a number. Raises DatabaseError when the stored value is not one,
+        which only a value written past check_setting_value can be."""
         try:
             return int(self.get_setting(setting))
         except ValueError as error:
             raise DatabaseError(f"setting {setting.key} is not a number") from error
 
     def get_boolean_setting(self, setting: Setting) -> bool:
+        """A switch setting: True for any of TRUE_SETTING_VALUES, False for anything else."""
         return self.get_setting(setting).strip().lower() in TRUE_SETTING_VALUES
 
     def set_setting(self, setting: Setting, value: str) -> None:
+        """Check and store the value of one setting (see set_settings)."""
         self.set_settings({setting: value})
 
     def set_settings(self, values: dict[Setting, str]) -> None:
@@ -595,6 +634,8 @@ class LobbyDatabase:
     # Accounts and access codes.
 
     def create_account(self, name: str, is_admin: bool = False) -> Account:
+        """Create an account and return it. Raises DatabaseError for a name the game would refuse
+        or one that is taken already. The account has no access code yet; issue_access_code makes one."""
         if not is_valid_player_name(name):
             raise DatabaseError(f"{name!r} is not a valid player name: only letters A to Z and single spaces")
         try:
@@ -611,14 +652,17 @@ class LobbyDatabase:
         return account
 
     def find_account(self, name: str) -> Account | None:
+        """The account with exactly this name, or None."""
         row = self._backend.fetch_one("SELECT * FROM accounts WHERE name = ?", (name,))
         return account_from_row(row)
 
     def find_account_by_id(self, account_id: int) -> Account | None:
+        """The account with this id, or None."""
         row = self._backend.fetch_one("SELECT * FROM accounts WHERE id = ?", (account_id,))
         return account_from_row(row)
 
     def list_accounts(self) -> list[Account]:
+        """Every account, sorted by name."""
         rows = self._backend.fetch_all("SELECT * FROM accounts ORDER BY name")
         return [account_from_row(row) for row in rows]
 
@@ -629,6 +673,8 @@ class LobbyDatabase:
             self._queue_kick(account_id, ACCOUNT_REMOVED_KICK_REASON)
 
     def set_admin(self, account_id: int, is_admin: bool) -> None:
+        """Make the account an admin or take that right away. Chat commands read the account at each
+        use, so they follow at once; an online player's row colour (mark_admins) follows at the next logon."""
         with self._backend.transaction():
             self._backend.execute("UPDATE accounts SET is_admin = ? WHERE id = ?", (int(is_admin), account_id))
 
@@ -651,6 +697,8 @@ class LobbyDatabase:
             self._queue_kick(account_id, reason)
 
     def _queue_kick(self, account_id: int, reason: str) -> None:
+        """Queue a kick inside the caller's transaction, so that it is stored together with the
+        change that causes it."""
         self._backend.execute(
             "INSERT INTO pending_kicks (account_id, reason, created_at) VALUES (?, ?, ?)",
             (account_id, reason, to_stored_time(self._clock())),
@@ -668,6 +716,7 @@ class LobbyDatabase:
         return [PendingKick(account_id=row["account_id"], reason=row["reason"]) for row in rows]
 
     def unban_account(self, account_id: int) -> None:
+        """Lift the account's ban and clear its reason; the player may log on again at once."""
         with self._backend.transaction():
             self._backend.execute(
                 "UPDATE accounts SET banned_until = NULL, ban_reason = '' WHERE id = ?", (account_id,)
@@ -709,6 +758,8 @@ class LobbyDatabase:
         return result.row_count == 1
 
     def list_access_codes(self, account_id: int) -> list[AccessCodeRecord]:
+        """Every access code of an account, revoked ones included, oldest first. The codes
+        themselves are not stored, only what describes them."""
         rows = self._backend.fetch_all(
             "SELECT id, label, created_at, last_used_at, revoked_at FROM access_codes WHERE account_id = ? ORDER BY id",
             (account_id,),
@@ -802,6 +853,8 @@ class LobbyDatabase:
         return WebSession(account_id=row["account_id"], access_code_id=row["access_code_id"])
 
     def end_web_session(self, token: str) -> None:
+        """End the web session with this token (the admin logged off); an unknown or ended token
+        changes nothing."""
         with self._backend.transaction():
             self._backend.execute(
                 "UPDATE web_sessions SET ended_at = ? WHERE token_hash = ? AND ended_at IS NULL",
@@ -820,6 +873,7 @@ class LobbyDatabase:
         return result.last_row_id
 
     def record_logout(self, session_id: int) -> None:
+        """Note when a lobby session ended, for the statistics; a session already ended stays as it is."""
         with self._backend.transaction():
             self._backend.execute(
                 "UPDATE lobby_sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
@@ -836,6 +890,8 @@ class LobbyDatabase:
     # Clans.
 
     def create_clan(self, name: str) -> Clan:
+        """Create a clan and return it. Raises DatabaseError for a name the game cannot show or
+        one that is taken already."""
         check_title("clan name", name)
         try:
             with self._backend.transaction():
@@ -848,12 +904,14 @@ class LobbyDatabase:
         return Clan(clan_id=result.last_row_id, name=name)
 
     def find_clan(self, name: str) -> Clan | None:
+        """The clan with exactly this name, or None."""
         row = self._backend.fetch_one("SELECT id, name, is_highlighted FROM clans WHERE name = ?", (name,))
         if row is None:
             return None
         return clan_from_row(row)
 
     def list_clans(self) -> list[Clan]:
+        """Every clan, sorted by name."""
         rows = self._backend.fetch_all("SELECT id, name, is_highlighted FROM clans ORDER BY name")
         return [clan_from_row(row) for row in rows]
 
@@ -863,6 +921,7 @@ class LobbyDatabase:
             self._backend.execute("UPDATE clans SET is_highlighted = ? WHERE id = ?", (int(is_highlighted), clan_id))
 
     def delete_clan(self, clan_id: int) -> None:
+        """Delete the clan; its members are left without a clan."""
         with self._backend.transaction():
             self._backend.execute("DELETE FROM clans WHERE id = ?", (clan_id,))
 
@@ -877,6 +936,7 @@ class LobbyDatabase:
                 )
 
     def find_clan_of_account(self, account_id: int) -> Clan | None:
+        """The clan the account belongs to, or None."""
         row = self._backend.fetch_one(
             "SELECT clans.id, clans.name, clans.is_highlighted FROM clans "
             "JOIN clan_members ON clan_members.clan_id = clans.id WHERE clan_members.account_id = ?",
@@ -887,6 +947,7 @@ class LobbyDatabase:
         return clan_from_row(row)
 
     def list_clan_member_names(self, clan_id: int) -> list[str]:
+        """The names of the clan's members, sorted."""
         rows = self._backend.fetch_all(
             "SELECT accounts.name FROM accounts JOIN clan_members ON clan_members.account_id = accounts.id "
             "WHERE clan_members.clan_id = ? ORDER BY accounts.name",
@@ -907,6 +968,7 @@ class LobbyDatabase:
             self._backend.upsert("news", ("audience",), values)
 
     def find_news(self, audience: str) -> News | None:
+        """The news for one audience ("german" or "other"), or None when none was set."""
         row = self._backend.fetch_one("SELECT title, body FROM news WHERE audience = ?", (audience,))
         if row is None:
             return None
@@ -915,6 +977,8 @@ class LobbyDatabase:
     # ChatZone themes.
 
     def add_chat_theme(self, name: str, description: str = "") -> ChatTheme:
+        """Add a theme to the ChatZone tab and return it. Raises DatabaseError for a text the game
+        cannot show or a name that is taken already."""
         check_title("chat theme name", name)
         check_game_text("chat theme description", description, MAX_GROUP_TEXT_LENGTH)
         try:
@@ -928,16 +992,21 @@ class LobbyDatabase:
         return ChatTheme(theme_id=result.last_row_id, name=name, description=description)
 
     def list_chat_themes(self) -> list[ChatTheme]:
+        """Every ChatZone theme, in the order they were added."""
         rows = self._backend.fetch_all("SELECT * FROM chat_themes ORDER BY id")
         return [ChatTheme(theme_id=row["id"], name=row["name"], description=row["description"]) for row in rows]
 
     def delete_chat_theme(self, theme_id: int) -> None:
+        """Remove a theme from the ChatZone tab."""
         with self._backend.transaction():
             self._backend.execute("DELETE FROM chat_themes WHERE id = ?", (theme_id,))
 
     # MessageZone board.
 
     def add_board_theme(self, language: str, name: str, description: str = "") -> BoardTheme:
+        """Add a theme to the MessageZone board of one language and return it. Raises
+        DatabaseError for an unknown language, a text the game cannot show, or a name that language has
+        already."""
         if language not in BOARD_LANGUAGES:
             raise DatabaseError(f"unknown board language {language!r}; known: {', '.join(BOARD_LANGUAGES)}")
         check_title("board theme name", name)
@@ -953,14 +1022,18 @@ class LobbyDatabase:
         return BoardTheme(theme_id=result.last_row_id, language=language, name=name, description=description)
 
     def list_board_themes(self) -> list[BoardTheme]:
+        """Every board theme, by language and then in the order they were added."""
         rows = self._backend.fetch_all("SELECT * FROM board_themes ORDER BY language, id")
         return [board_theme_from_row(row) for row in rows]
 
     def delete_board_theme(self, theme_id: int) -> None:
+        """Remove a theme from the MessageZone board."""
         with self._backend.transaction():
             self._backend.execute("DELETE FROM board_themes WHERE id = ?", (theme_id,))
 
     def post_board_message(self, theme_id: int, title: str, body: str, author: str = "") -> BoardMessage:
+        """Post a message under a board theme and return it. Raises DatabaseError for a text the
+        game cannot show or a theme that does not exist."""
         check_title("message title", title)
         check_game_text("message text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
         check_game_text("author", author, MAX_GROUP_TEXT_LENGTH)
@@ -976,16 +1049,19 @@ class LobbyDatabase:
         return BoardMessage(result.last_row_id, theme_id, title, body, author, posted_at)
 
     def list_board_messages(self, theme_id: int) -> list[BoardMessage]:
+        """The messages under a board theme, oldest first."""
         rows = self._backend.fetch_all("SELECT * FROM board_messages WHERE theme_id = ? ORDER BY id", (theme_id,))
         return [board_message_from_row(row) for row in rows]
 
     def find_board_message(self, message_id: int) -> BoardMessage | None:
+        """The board message with this id, or None."""
         row = self._backend.fetch_one("SELECT * FROM board_messages WHERE id = ?", (message_id,))
         if row is None:
             return None
         return board_message_from_row(row)
 
     def delete_board_message(self, message_id: int) -> None:
+        """Remove a message from the board."""
         with self._backend.transaction():
             self._backend.execute("DELETE FROM board_messages WHERE id = ?", (message_id,))
 
@@ -994,6 +1070,9 @@ class LobbyDatabase:
     def record_game_opened(
         self, name: str, host_account_id: int | None, group_id: int | None = None, announcement: bytes | None = None
     ) -> int:
+        """Note a game the lobby opened, for the statistics and the web interface; returns its
+        record id. group_id is the lobby's id for the game, announcement the game as the lobby shows it
+        (see GameRecord)."""
         with self._backend.transaction():
             result = self._backend.execute(
                 "INSERT INTO games (name, host_account_id, opened_at, group_id, announcement) VALUES (?, ?, ?, ?, ?)",
@@ -1015,6 +1094,7 @@ class LobbyDatabase:
             )
 
     def record_game_closed(self, game_record_id: int) -> None:
+        """Note when a game closed; a game already closed stays as it is."""
         with self._backend.transaction():
             self._backend.execute(
                 "UPDATE games SET closed_at = ? WHERE id = ? AND closed_at IS NULL",
@@ -1024,6 +1104,9 @@ class LobbyDatabase:
     def store_game_report(
         self, account_id: int | None, group_id: int, report: bytes, game_record_id: int | None = None
     ) -> None:
+        """Keep a match report as the client sent it. account_id is the sender, group_id the
+        game's id in the lobby, and game_record_id the stored game, None when the server did not know the
+        game."""
         with self._backend.transaction():
             self._backend.execute(
                 "INSERT INTO game_reports (account_id, group_id, report, received_at, game_id) VALUES (?, ?, ?, ?, ?)",
@@ -1031,6 +1114,7 @@ class LobbyDatabase:
             )
 
     def count_game_reports(self) -> int:
+        """How many match reports are stored."""
         return self._backend.fetch_one("SELECT COUNT(*) AS report_count FROM game_reports")["report_count"]
 
     GAME_COLUMNS = (
@@ -1052,6 +1136,7 @@ class LobbyDatabase:
         return [game_record_from_row(row, player_names.get(row["id"], [])) for row in rows]
 
     def find_game(self, game_id: int) -> GameRecord | None:
+        """The stored game with this record id and the names of its players, or None."""
         row = self._backend.fetch_one(self.GAME_COLUMNS + "WHERE games.id = ?", (game_id,))
         if row is None:
             return None
@@ -1128,6 +1213,7 @@ class LobbyDatabase:
         return [game_report_record_from_row(row) for row in rows]
 
     def find_game_report(self, report_id: int) -> bytes | None:
+        """The bytes of a stored match report as the client sent them, or None."""
         row = self._backend.fetch_one("SELECT report FROM game_reports WHERE id = ?", (report_id,))
         if row is None:
             return None
@@ -1136,6 +1222,8 @@ class LobbyDatabase:
     # Announcements from outside the server process.
 
     def queue_announcement(self, text: str) -> None:
+        """Queue a line for the running server to show in every player's chat. Raises
+        DatabaseError for an empty text or one the game cannot show."""
         check_title("announcement", text)
         check_game_text("announcement", text, MAX_ANNOUNCEMENT_LENGTH)
         with self._backend.transaction():
@@ -1185,6 +1273,7 @@ class LobbyDatabase:
     # The running server's lobby, for the web interface.
 
     def write_live_state(self, state: LiveLobbyState) -> None:
+        """Store the running server's lobby for the web interface, replacing the state written before."""
         values = {"id": LIVE_STATE_ROW_ID, "snapshot": state.to_json(), "written_at": to_stored_time(self._clock())}
         with self._backend.transaction():
             self._backend.upsert("live_state", ("id",), values)
@@ -1223,12 +1312,16 @@ class LobbyDatabase:
         )
 
     def _count_open(self, table: str, end_column: str, count_distinct: str = "id") -> int:
+        """How many rows of the table are still open (end_column empty), counting each value of
+        count_distinct once, so that a player with two sessions counts once."""
         query = f"SELECT COUNT(DISTINCT {count_distinct}) AS counted FROM {table} WHERE {end_column} IS NULL"
         return self._backend.fetch_one(query)["counted"]
 
     def _count_open_since(
         self, table: str, start_column: str, end_column: str, since: str, count_distinct: str = "id"
     ) -> int:
+        """How many rows of the table were open at any moment since the given stored time: still
+        open, or ended since. Each value of count_distinct counts once."""
         # Table and column names come from this class only, never from outside, so formatting
         # them into the query is safe; the time is passed as a parameter.
         query = (
@@ -1239,6 +1332,7 @@ class LobbyDatabase:
 
 
 def account_from_row(row: Row | None) -> Account | None:
+    """The account a row of the accounts table describes, or None for no row."""
     if row is None:
         return None
     return Account(
@@ -1253,10 +1347,12 @@ def account_from_row(row: Row | None) -> Account | None:
 
 
 def board_theme_from_row(row: Row) -> BoardTheme:
+    """The board theme a row of the board_themes table describes."""
     return BoardTheme(theme_id=row["id"], language=row["language"], name=row["name"], description=row["description"])
 
 
 def board_message_from_row(row: Row) -> BoardMessage:
+    """The board message a row of the board_messages table describes."""
     return BoardMessage(
         message_id=row["id"],
         theme_id=row["theme_id"],
@@ -1268,10 +1364,13 @@ def board_message_from_row(row: Row) -> BoardMessage:
 
 
 def clan_from_row(row: Row) -> Clan:
+    """The clan a row with the columns id, name and is_highlighted describes."""
     return Clan(clan_id=row["id"], name=row["name"], is_highlighted=bool(row["is_highlighted"]))
 
 
 def game_record_from_row(row: Row, player_names: list[str]) -> GameRecord:
+    """The game a GAME_COLUMNS row describes, with the names of the accounts that joined it.
+    The database driver may hand the announcement over as another bytes-like type; it is made bytes."""
     announcement = row["announcement"]
     if announcement is not None:
         announcement = bytes(announcement)
@@ -1288,6 +1387,8 @@ def game_record_from_row(row: Row, player_names: list[str]) -> GameRecord:
 
 
 def game_report_record_from_row(row: Row) -> GameReportRecord:
+    """The match report a GAME_REPORT_COLUMNS row describes; an empty sender name when the
+    account was deleted since."""
     return GameReportRecord(
         report_id=row["id"],
         sender_name=row["sender_name"] or "",

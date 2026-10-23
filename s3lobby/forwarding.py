@@ -44,6 +44,9 @@ class RouterForwarding:
     """The mappings for the server's port and for the players in its network."""
 
     def __init__(self, server_port: int, find_mapper: Callable[[], PortMapper] | None = None) -> None:
+        """Prepare the forwarding for the server's port; nothing talks to the router before start().
+
+        find_mapper locates the router; tests pass a fake one instead of searching the network."""
         self._server_port = server_port
         self._find_mapper = find_mapper or default_mapper
         self._mapper: PortMapper | None = None
@@ -56,6 +59,7 @@ class RouterForwarding:
 
     @property
     def is_active(self) -> bool:
+        """True once start() found a router and forwarded the server's port."""
         return self._mapper is not None
 
     async def start(self) -> str | None:
@@ -87,6 +91,8 @@ class RouterForwarding:
             await self._forward_player(player_address)
 
     async def _forward_player(self, player_address: Address) -> None:
+        """Forward the first free outside port in the player range to the player's game, skipping
+        ports the router already forwards elsewhere (error 718). Callers hold the change lock."""
         if self._mapper is None or player_address in self._player_mappings:
             return
         if not is_game_in_this_network(player_address):
@@ -113,10 +119,14 @@ class RouterForwarding:
         log.warning("UPnP: no free outside port left for %s:%d", host, port)
 
     async def release_player(self, player_address: Address) -> None:
+        """Remove the outside port of a player who left. Waits for a forwarding still being made for
+        them, so it is never left behind on the router."""
         async with self._changes:
             await self._release_player(player_address)
 
     async def _release_player(self, player_address: Address) -> None:
+        """Delete a player's mapping on the router; a failure is only logged, as the lease ends it
+        anyway. Callers hold the change lock."""
         mapping = self._player_mappings.pop(player_address, None)
         if mapping is None or self._mapper is None:
             return
@@ -135,6 +145,8 @@ class RouterForwarding:
             return await self._renew()
 
     async def _renew(self) -> str | None:
+        """Add every mapping again with a fresh lease and read the external address; None when the
+        router fails. Callers hold the change lock."""
         try:
             local_ip = self._mapper.gateway.local_ip
             await self._run(self._mapper.add, self._server_port, UDP, local_ip, self._server_port, UPNP_LEASE_SECONDS)
@@ -178,4 +190,5 @@ def is_game_in_this_network(player_address: Address) -> bool:
 
 
 def default_mapper() -> PortMapper:
+    """A PortMapper for the router SSDP finds; blocking, so it runs on the worker thread."""
     return PortMapper(discover_gateway())

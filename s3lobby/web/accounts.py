@@ -50,6 +50,7 @@ class AccountRow:
 
 @blueprint.get("/accounts")
 def list_accounts() -> str:
+    """The accounts page: every account with its clan, whether it is online or banned, and its row colour."""
     database = get_database()
     online_names = online_player_names()
     now = utc_now()
@@ -80,6 +81,9 @@ def account_row_colour(account: Account, clan: Clan | None, marks_admins: bool) 
 
 @blueprint.post("/accounts")
 def create_account() -> str | Response:
+    """Create an account and show its first access code, once, on the page that answers the form.
+
+    A name the database refuses (taken, or not a valid player name) sends the admin back to the list."""
     database = get_database()
     try:
         account = database.create_account(form_text("name"), is_admin=form_flag("is_admin"))
@@ -93,6 +97,7 @@ def create_account() -> str | Response:
 
 @blueprint.get("/accounts/<int:account_id>")
 def show_account(account_id: int) -> str:
+    """An account's page: clan, access codes, games played, and the forms to change it."""
     database = get_database()
     account = require_account(account_id)
     clan = database.find_clan_of_account(account_id)
@@ -115,6 +120,7 @@ def show_account(account_id: int) -> str:
 
 @blueprint.post("/accounts/<int:account_id>/codes")
 def issue_access_code(account_id: int) -> str:
+    """Issue another access code and show it, once, on the page that answers the form."""
     account = require_account(account_id)
     access_code = get_database().issue_access_code(account_id, label=form_text("label"))
     return render_template("code_issued.html", account=account, access_code=access_code)
@@ -122,6 +128,7 @@ def issue_access_code(account_id: int) -> str:
 
 @blueprint.post("/accounts/<int:account_id>/codes/<int:code_id>/revoke")
 def revoke_access_code(account_id: int, code_id: int) -> Response:
+    """Revoke one access code; its web sessions end with it, the account's other codes keep working."""
     require_account(account_id)
     if get_database().revoke_access_code(account_id, code_id):
         flash("Access code revoked.", "good")
@@ -132,6 +139,7 @@ def revoke_access_code(account_id: int, code_id: int) -> Response:
 
 @blueprint.post("/accounts/<int:account_id>/codes/revoke-all")
 def revoke_all_access_codes(account_id: int) -> Response:
+    """Revoke every access code of an account, so it cannot log on until it gets a new one."""
     require_account(account_id)
     revoked_count = get_database().revoke_access_codes(account_id)
     flash(f"Revoked {revoked_count} access code(s).", "good")
@@ -140,6 +148,10 @@ def revoke_all_access_codes(account_id: int) -> Response:
 
 @blueprint.post("/accounts/<int:account_id>/clan")
 def set_clan(account_id: int) -> Response:
+    """Put an account into the clan the form chose, or into none.
+
+    The clan is looked up among the existing ones, so a clan deleted in another tab is reported
+    instead of failing."""
     require_account(account_id)
     database = get_database()
     chosen_value = form_text("clan_id")
@@ -156,6 +168,8 @@ def set_clan(account_id: int) -> Response:
 
 @blueprint.post("/accounts/<int:account_id>/admin")
 def set_admin(account_id: int) -> Response:
+    """Grant or take away admin rights. An admin cannot take their own away, so the last admin
+    cannot lock everybody out by mistake."""
     account = require_account(account_id)
     is_admin = form_flag("is_admin")
     if is_own_account(account) and not is_admin:
@@ -168,6 +182,8 @@ def set_admin(account_id: int) -> Response:
 
 @blueprint.post("/accounts/<int:account_id>/ban")
 def ban_account(account_id: int) -> Response:
+    """Ban an account for the hours the form gives, within MIN_BAN_HOURS and MAX_BAN_HOURS. An
+    admin cannot ban themselves. A running server removes the player if they are online."""
     account = require_account(account_id)
     if is_own_account(account):
         flash("You cannot ban yourself.", "bad")
@@ -201,6 +217,7 @@ def kick_account(account_id: int) -> Response:
 
 @blueprint.post("/accounts/<int:account_id>/unban")
 def unban_account(account_id: int) -> Response:
+    """Lift an account's ban."""
     account = require_account(account_id)
     apply_change(lambda: get_database().unban_account(account_id), f"{account.name} is no longer banned.")
     return redirect_to_account(account_id)
@@ -208,6 +225,8 @@ def unban_account(account_id: int) -> Response:
 
 @blueprint.post("/accounts/<int:account_id>/delete")
 def delete_account(account_id: int) -> Response:
+    """Delete an account once the admin typed its name to confirm. An admin cannot delete their own
+    account."""
     account = require_account(account_id)
     if is_own_account(account):
         flash("You cannot remove your own account.", "bad")
@@ -224,6 +243,7 @@ def delete_account(account_id: int) -> Response:
 
 @blueprint.get("/clans")
 def list_clans() -> str:
+    """The clans page: every clan with its members and the colour the game lists them in."""
     database = get_database()
     clans_with_members = []
     for clan in database.list_clans():
@@ -234,6 +254,7 @@ def list_clans() -> str:
 
 @blueprint.post("/clans")
 def create_clan() -> Response:
+    """Create a clan with the name from the form."""
     name = form_text("name")
     apply_change(lambda: get_database().create_clan(name), f"Clan {name} created.")
     return redirect(url_for("accounts.list_clans"))
@@ -241,6 +262,7 @@ def create_clan() -> Response:
 
 @blueprint.post("/clans/<int:clan_id>/highlight")
 def highlight_clan(clan_id: int) -> Response:
+    """Have the game list the clan's members green, or in the usual colour again, from their next logon."""
     is_highlighted = form_flag("is_highlighted")
     if is_highlighted:
         done = "The clan's members are listed green in the game from their next logon."
@@ -252,6 +274,7 @@ def highlight_clan(clan_id: int) -> Response:
 
 @blueprint.post("/clans/<int:clan_id>/delete")
 def delete_clan(clan_id: int) -> Response:
+    """Delete a clan; its members are left in no clan."""
     apply_change(lambda: get_database().delete_clan(clan_id), "Clan removed; its members are in no clan now.")
     return redirect(url_for("accounts.list_clans"))
 
@@ -260,6 +283,7 @@ def delete_clan(clan_id: int) -> Response:
 
 
 def require_account(account_id: int) -> Account:
+    """The account with this id; answers 404 when there is none."""
     account = get_database().find_account_by_id(account_id)
     if account is None:
         abort(HTTPStatus.NOT_FOUND)
@@ -267,11 +291,13 @@ def require_account(account_id: int) -> Account:
 
 
 def is_own_account(account: Account) -> bool:
+    """True when the account is the one of the admin who is logged on."""
     admin = current_admin()
     return admin is not None and admin.account_id == account.account_id
 
 
 def redirect_to_account(account_id: int) -> Response:
+    """A redirect to the account's page."""
     return redirect(url_for("accounts.show_account", account_id=account_id))
 
 

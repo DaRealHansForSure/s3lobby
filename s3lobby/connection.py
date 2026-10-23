@@ -74,6 +74,9 @@ class UnacknowledgedBlock:
     retry_count: int = 0
 
     def is_retry_due(self, now_ms: int) -> bool:
+        """True when the block has waited its current retry interval since it was last sent.
+
+        The intervals grow with each retry and stay at the last one of RETRY_INTERVALS_MS from then on."""
         interval_index = min(self.retry_count, len(RETRY_INTERVALS_MS) - 1)
         return now_ms - self.last_sent_ms >= RETRY_INTERVALS_MS[interval_index]
 
@@ -91,6 +94,10 @@ class ReliableConnection:
     """One client's connection: block numbering, acknowledgements, retries and timeouts."""
 
     def __init__(self, client_address: Address, client_nonce: int, now_ms: int) -> None:
+        """Start a connection for the client that sent OpenConnection with client_nonce.
+
+        The server's own OpenConnection is queued at once with a fresh random nonce, so that it goes out in
+        the server's block 1, where the client requires it."""
         self.client_address = client_address
         # The nonce from the client's OpenConnection. A datagram with a different nonce from the
         # same address means the client started a new connection (0x605eec).
@@ -130,10 +137,13 @@ class ReliableConnection:
         return self._is_confirmed_by_client
 
     def age_ms(self, now_ms: int) -> int:
+        """How long ago the connection was opened; the server uses it to drop a client that does not log
+        on in time."""
         return now_ms - self._opened_at_ms
 
     @property
     def is_closing(self) -> bool:
+        """True once begin_closing was called, whether or not the CloseConnection has gone out yet."""
         return self._closing_since_ms is not None
 
     @property
@@ -275,6 +285,11 @@ class ReliableConnection:
         return True
 
     def _apply_connection_layer_message(self, message: RawMessage, received: ReceivedBlock) -> None:
+        """Act on one connection layer message of a received block; lobby messages are left alone.
+
+        An acknowledgement for a block of the server's ends its retries and confirms the client's
+        address; MinMissingAcknowledge lets the server stop repeating acknowledgements the client holds.
+        Raises ProtocolError when one of these messages is malformed."""
         match message.message_type:
             case MessageType.ACKNOWLEDGE_MESSAGES:
                 for block_id in AcknowledgeMessages.decode(message).block_ids:
@@ -317,6 +332,10 @@ class ReliableConnection:
         return not self._is_rest_of_queue_held_back or not self._unacknowledged_blocks
 
     def _send_queued_messages_as_new_block(self, now_ms: int) -> bytes:
+        """Turn the queue into the server's next numbered block and keep it for retries.
+
+        All leading messages go along, but only as many lobby messages as fit the byte budget; the rest
+        waits until this block is acknowledged (see _may_send_new_block)."""
         lobby_messages = self._take_lobby_messages_within_budget()
         block = UnacknowledgedBlock(
             block_id=self._next_server_block_id,
@@ -348,6 +367,8 @@ class ReliableConnection:
         return taken
 
     def _encode_numbered_block(self, block: UnacknowledgedBlock) -> bytes:
+        """The datagram for a numbered block: MessageId, the leading messages, the acknowledgements that
+        are current now, then the lobby messages."""
         messages = [MessageId(block.block_id).encode()]
         messages += block.leading_messages
         messages += self._encode_acknowledgements()
@@ -355,6 +376,7 @@ class ReliableConnection:
         return encode_block(messages)
 
     def _encode_acknowledgement_block(self) -> bytes:
+        """A datagram that only carries acknowledgements; it also serves as the keepalive."""
         # Like the client, repeat the id of the last numbered block; the receiver ignores it.
         messages = []
         last_server_block_id = self._next_server_block_id - 1
@@ -364,6 +386,11 @@ class ReliableConnection:
         return encode_block(messages)
 
     def _encode_acknowledgements(self) -> list[RawMessage]:
+        """AcknowledgeMessages for the client blocks still to acknowledge and MinMissingAcknowledge for the
+        lowest server block the client has not acknowledged.
+
+        With nothing outstanding, MinMissingAcknowledge carries the next block id the server will use,
+        which is never 0, as the client requires."""
         acknowledge = AcknowledgeMessages(tuple(sorted(self._client_block_ids_to_acknowledge)))
         if self._unacknowledged_blocks:
             lowest_unacknowledged = min(self._unacknowledged_blocks)

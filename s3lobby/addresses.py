@@ -49,6 +49,8 @@ class ViewerAddresses:
         public_ip: Callable[[], str | None],
         forwarded_port: Callable[[Address], int | None] = lambda subject: None,
     ) -> None:
+        """Take the three lookups described in the class docstring; without forwarded_port, no player
+        has a forwarded port of its own."""
         self._local_ip_facing = local_ip_facing
         self._public_ip = public_ip
         self._forwarded_port = forwarded_port

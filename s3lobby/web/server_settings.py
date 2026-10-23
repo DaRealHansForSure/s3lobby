@@ -95,11 +95,14 @@ SETTING_FIELDS = (
 
 @dataclass(frozen=True)
 class SettingRow:
+    """One setting on the settings page with its current stored value."""
+
     field: SettingField
     value: str
 
     @property
     def is_checked(self) -> bool:
+        """True when the stored value is one the server reads as true, so the checkbox shows ticked."""
         # Every value the server reads as true: one set to "yes" on the command line must show as
         # ticked, or the next save of this page would turn it off.
         return self.value.strip().lower() in TRUE_SETTING_VALUES
@@ -110,6 +113,7 @@ class SettingRow:
 
 @blueprint.get("/settings")
 def show_settings() -> str:
+    """The settings page with every setting's current value."""
     database = get_database()
     rows = [SettingRow(field=field, value=database.get_setting(field.setting)) for field in SETTING_FIELDS]
     return render_template("settings.html", rows=rows)
@@ -136,6 +140,7 @@ def save_settings() -> Response:
 
 
 def setting_value_from_form(field: SettingField) -> str:
+    """The value the form sent for a setting; a checkbox becomes the stored on or off value."""
     if field.is_checkbox:
         if form_flag(field.setting.key):
             return CHECKED_SETTING_VALUE
@@ -148,6 +153,7 @@ def setting_value_from_form(field: SettingField) -> str:
 
 @blueprint.get("/announcements")
 def show_announcements() -> str:
+    """The announcements page: the recent announcements and whether a server is running to send one."""
     return render_template(
         "announcements.html",
         announcements=get_database().list_recent_announcements(RECENT_ANNOUNCEMENT_COUNT),

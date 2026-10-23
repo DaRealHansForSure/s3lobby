@@ -42,6 +42,8 @@ UNKNOWN_HOST = "0.0.0.0"
 
 
 class GroupKind(Enum):
+    """The three kinds of group the server tells apart: they differ in who opens them and when they close."""
+
     ROOM = "room"
     GAME = "game"
     CHAT_GROUP = "chat group"
@@ -71,18 +73,24 @@ class Group:
 
     @property
     def group_id(self) -> int:
+        """The group's id, as its announcement carries it."""
         return self.announcement.group_id
 
     @property
     def is_room(self) -> bool:
+        """True for a group the server keeps for as long as it runs (tabs, zones, themes)."""
         return self.kind == GroupKind.ROOM
 
     @property
     def is_full(self) -> bool:
+        """True when the group has a player limit and reached it; a limit of 0 or UNLIMITED_PLAYERS means
+        there is none."""
         max_players = self.announcement.max_players
         return max_players != UNLIMITED_PLAYERS and max_players > 0 and len(self.member_ids) >= max_players
 
     def counters(self) -> GroupCounters:
+        """The GroupCounters that show viewers in a parent how many players the group has and whether
+        it is full."""
         status_flags = GROUP_COUNTERS_FULL if self.is_full else 0
         return GroupCounters(
             group_id=self.group_id,
@@ -194,6 +202,8 @@ def check_client_group_texts(group: GroupAnnouncement | GroupUpdate) -> None:
 
 
 def check_client_text(label: str, text: str) -> None:
+    """Raise ProtocolError for a text that is longer than the server passes on or holds control
+    characters; label names the text in the error."""
     if len(text) > MAX_GROUP_TEXT_LENGTH:
         raise ProtocolError(f"{label} of {len(text)} characters")
     has_control_character = any(character < FIRST_PRINTABLE_CHARACTER for character in text)

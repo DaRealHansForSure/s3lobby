@@ -66,6 +66,7 @@ class LiveLobbyState:
     groups: tuple[LiveGroup, ...] = ()
 
     def to_json(self) -> str:
+        """The state as JSON text, keys sorted, so the same lobby always gives the same text."""
         return json.dumps(asdict(self), sort_keys=True, ensure_ascii=False)
 
     @classmethod
@@ -80,9 +81,11 @@ class LiveLobbyState:
             raise ValueError(f"not a live lobby state: {error}") from error
 
     def group_names_by_id(self) -> dict[int, str]:
+        """The name of every group by its id, for showing the rooms and games a player is in."""
         return {group.group_id: group.name for group in self.groups}
 
     def groups_of_kind(self, kind: str) -> list[LiveGroup]:
+        """The groups of one GroupKind value, such as only the games."""
         return [group for group in self.groups if group.kind == kind]
 
 
@@ -93,6 +96,7 @@ def live_player_from_fields(fields: dict) -> LivePlayer:
 
 
 def live_group_from_fields(fields: dict) -> LiveGroup:
+    """A LiveGroup from its JSON fields; JSON has lists where the state has tuples."""
     group = LiveGroup(**fields)
     return replace(group, member_names=tuple(group.member_names), listed_in_ids=tuple(group.listed_in_ids))
 

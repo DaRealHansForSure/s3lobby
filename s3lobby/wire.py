@@ -141,14 +141,20 @@ class FieldWriter:
     """
 
     def __init__(self) -> None:
+        """Start with an empty body."""
         self._parts: list[bytes] = []
 
     def write_u32(self, value: int) -> FieldWriter:
+        """Append a u32, little endian; returns the writer for chaining."""
         # Masking lets callers pass values like -1 the way the game's C++ code would.
         self._parts.append(struct.pack(U32_FORMAT, value & U32_MASK))
         return self
 
     def write_string(self, text: str) -> FieldWriter:
+        """Append text in the game's encoding followed by a NUL byte.
+
+        Raises ProtocolError for text that contains a NUL byte: the receiver would end the string there
+        and read the rest as the next fields."""
         encoded = text.encode(TEXT_ENCODING, errors=TEXT_ERROR_HANDLING)
         if STRING_TERMINATOR in encoded:
             raise ProtocolError(f"text {text!r} contains a NUL byte, which would end the string early")
@@ -156,14 +162,17 @@ class FieldWriter:
         return self
 
     def write_bytes(self, data: bytes) -> FieldWriter:
+        """Append bytes exactly as given, without a length in front."""
         self._parts.append(bytes(data))
         return self
 
     def write_socket_address(self, address: Address) -> FieldWriter:
+        """Append a struct sockaddr_in for the address (16 bytes, see encode_socket_address)."""
         self._parts.append(encode_socket_address(address))
         return self
 
     def to_message(self, message_type: int) -> RawMessage:
+        """The fields written so far as the body of a message of the given type."""
         return RawMessage(message_type, b"".join(self._parts))
 
 
@@ -175,6 +184,7 @@ class FieldReader:
     """
 
     def __init__(self, body: bytes) -> None:
+        """Read the body from its first byte."""
         self._body = body
         self._position = 0
 
@@ -185,13 +195,19 @@ class FieldReader:
 
     @property
     def remaining_size(self) -> int:
+        """How many bytes of the body are still unread."""
         return len(self._body) - self._position
 
     def read_u32(self) -> int:
+        """Read a u32, little endian."""
         data = self.read_bytes(U32_SIZE)
         return struct.unpack(U32_FORMAT, data)[0]
 
     def read_string(self) -> str:
+        """Read text up to its NUL byte and step past the NUL.
+
+        Raises ProtocolError when no NUL follows. Bytes that Windows-1252 leaves undefined are kept as
+        placeholders, so the text encodes back to the same bytes."""
         end = self._body.find(STRING_TERMINATOR, self._position)
         if end < 0:
             raise ProtocolError(f"string at body offset {self._position} has no terminating NUL")
@@ -200,6 +216,7 @@ class FieldReader:
         return text
 
     def read_bytes(self, length: int) -> bytes:
+        """Read exactly length bytes; raises ProtocolError when fewer are left."""
         if length > self.remaining_size:
             raise ProtocolError(
                 f"field of {length} bytes at body offset {self._position}, only {self.remaining_size} left"
@@ -209,9 +226,11 @@ class FieldReader:
         return data
 
     def read_socket_address(self) -> Address:
+        """Read a struct sockaddr_in and return its (host, port)."""
         return decode_socket_address(self.read_bytes(SOCKET_ADDRESS_SIZE))
 
     def read_remaining_bytes(self) -> bytes:
+        """Read everything up to the end of the body."""
         return self.read_bytes(self.remaining_size)
 
 

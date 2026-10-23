@@ -101,4 +101,5 @@ class DatabaseBackend(ABC):
 
 
 def placeholders(count: int) -> str:
+    """count comma-separated ? placeholders, for an INSERT or an IN list."""
     return ", ".join("?" for _ in range(count))

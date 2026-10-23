@@ -139,15 +139,20 @@ class LobbyOutbox(Protocol):
     """What the lobby needs from the network side: a way to reach a client, and the address under
     which that client reaches this server."""
 
-    def send(self, client_address: Address, message: EncodableMessage) -> None: ...
+    def send(self, client_address: Address, message: EncodableMessage) -> None:
+        """Send one message to a client over its reliable connection."""
 
-    def server_address_text_for(self, client_address: Address) -> str: ...
+    def server_address_text_for(self, client_address: Address) -> str:
+        """This server's address as the client should use it, as text for the lobby server list."""
 
-    def close_connection(self, client_address: Address) -> None: ...
+    def close_connection(self, client_address: Address) -> None:
+        """Close the connection to a client, as for a kick."""
 
-    def player_logged_on(self, client_address: Address) -> None: ...
+    def player_logged_on(self, client_address: Address) -> None:
+        """Tell the network side that the client at this address is now a logged on player."""
 
-    def reachability_of(self, client_address: Address) -> Reachability: ...
+    def reachability_of(self, client_address: Address) -> Reachability:
+        """What the reachability probe found out about the client at this address."""
 
 
 @dataclass
@@ -181,6 +186,8 @@ class Lobby:
     def __init__(
         self, server_name: str, outbox: LobbyOutbox, database: LobbyDatabase, is_development_mode: bool = False
     ) -> None:
+        """Set up the message handlers and the built-in rooms. is_development_mode is passed to the
+        logon check (see LogonCheck)."""
         self._server_name = server_name
         self._outbox = outbox
         self._database = database
@@ -274,6 +281,7 @@ class Lobby:
             self.announce(text)
 
     def is_logged_on(self, client_address: Address) -> bool:
+        """True when a player is logged on from this address."""
         return client_address in self._players_by_address
 
     def carry_out_pending_kicks(self) -> None:
@@ -309,6 +317,8 @@ class Lobby:
         return LiveLobbyState(server_name=self._server_name, players=players, groups=groups)
 
     def _live_group(self, group: Group) -> LiveGroup:
+        """One group for the live lobby state; for a game also whether it is a ladder game and, when its
+        description decodes, its map and number of teams."""
         live_group = LiveGroup(
             group_id=group.group_id,
             kind=group.kind.value,
@@ -337,6 +347,7 @@ class Lobby:
     # Index server role.
 
     def _answer_patch_check(self, client_address: Address, message: RawMessage) -> None:
+        """CheckFileVersion: always answered with Result NO_PATCH_NEEDED."""
         # The server never says a patch is needed: there is none to offer, and a game told to fetch
         # one stops before the logon. Every version check, whatever version, edition and language
         # it reports, gets Result NO_PATCH_NEEDED: the client's handler marks the answer as received
@@ -354,6 +365,7 @@ class Lobby:
         self._outbox.send(client_address, Result(ResultCode.NO_PATCH_NEEDED))
 
     def _answer_lobby_server_list(self, client_address: Address, message: RawMessage) -> None:
+        """GetLobbyServerList: answered with a list that holds only this server."""
         # The list names this same server: the client then closes the index connection and opens
         # a new one here for the logon.
         server_address_text = self._outbox.server_address_text_for(client_address)
@@ -364,6 +376,8 @@ class Lobby:
     # Lobby server role: logon.
 
     def _log_on_player(self, client_address: Address, message: RawMessage) -> None:
+        """Logon: let the player in with Result LOGON_ACCEPTED and OwnPlayer, or refuse with the
+        Result code the logon check chose."""
         logon = Logon.decode(message)
         if logon.protocol_version != LOGON_PROTOCOL_VERSION:
             self._warn(
@@ -400,6 +414,7 @@ class Lobby:
         self._outbox.player_logged_on(client_address)
 
     def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
+        """Record the session and make the accepted account a player of the lobby."""
         account = decision.account
         player = Player(
             player_id=account.account_id,
@@ -415,6 +430,7 @@ class Lobby:
         return player
 
     def _occupancy(self) -> LobbyOccupancy:
+        """Who is online now, as the logon check needs it."""
         players = list(self._players_by_id.values())
         return LobbyOccupancy(
             player_count=len(players),
@@ -423,11 +439,14 @@ class Lobby:
         )
 
     def _log_out_player(self, client_address: Address, message: RawMessage) -> None:
+        """Logout: the player leaves the lobby and every group in it."""
         self.forget_client(client_address)
 
     # Lobby server role: joining and leaving groups.
 
     def _join_group_on_request(self, client_address: Address, message: RawMessage) -> None:
+        """AddPlayerToGroup from a client: join a room, game or chat group, or get the Result that
+        says why not."""
         # Right after the logon the client joins its lobby tab (1 to 4) and one zone per bit of its
         # GameZoneSelection setting (30 to 38 with the default 511), all in one block, without
         # asking for a list of groups first. A joiner of a game or chat group knows its id from the
@@ -465,12 +484,16 @@ class Lobby:
         self._tell_about_ladder(group, [player])
 
     def _leave_group_on_request(self, client_address: Address, message: RawMessage) -> None:
+        """RemovePlayerFromGroup from a client: leave the group, with the confirmation the client
+        waits for."""
         request = RemovePlayerFromGroup.decode(message)
         player = self._find_logged_on_player(client_address)
         if player is not None:
             self._remove_player_from_group(player, request.group_id, is_player_told=True)
 
     def _refuse_join(self, player: Player, group_id: int, result_code: ResultCode, reason: str) -> None:
+        """Tell a player that a join or the opening of a group failed: a Result with the group id as
+        value, which the game shows as a message."""
         log.info("player %d %r cannot join group %d: %s", player.player_id, player.name, group_id, reason)
         self._outbox.send(player.address, Result(result_code, value=group_id))
 
@@ -496,6 +519,8 @@ class Lobby:
         self._open_player_group(player, request, parent)
 
     def _open_player_group(self, player: Player, request: GroupAnnouncement, parent: Group) -> None:
+        """Open a game or chat group a player asked for, under an id the server picks, and list it in
+        the parent it was opened in."""
         if request.group_id not in (SERVER_ASSIGNS_GROUP_ID, PRIVATE_CHAT_GROUP_ID):
             raise ProtocolError(f"new group with id {request.group_id}; only the server picks ids")
         if request.group_id == PRIVATE_CHAT_GROUP_ID:
@@ -560,6 +585,8 @@ class Lobby:
         self._list_group_in(group, theme)
 
     def _list_existing_game(self, player: Player, group: Group, zone: Group) -> None:
+        """List a player's own game in one more zone ("Show game in GameZone"); listing it twice is
+        ignored."""
         if player.player_id not in group.member_ids or group.kind != GroupKind.GAME:
             raise ProtocolError(f"listing group {group.group_id}, which is no game of this player")
         if not zone.is_room:
@@ -614,11 +641,13 @@ class Lobby:
     # Chat and other requests.
 
     def _log_chat_message(self, client_address: Address, message: RawMessage) -> None:
+        """ChatMessage sent to the server: logged only, as nobody else needs it from here."""
         # Clients chat with each other directly; the server only sees lines meant for it.
         chat = ChatMessage.decode(message)
         log.info("%s: chat to group %d: %r", client_address, chat.group_id, chat.text)
 
     def _answer_chat_command(self, client_address: Address, message: RawMessage) -> None:
+        """ChatCommand: answer a slash command the client does not handle itself (see commands.py)."""
         command = ChatCommand.decode(message)
         if len(command.command) > MAX_CHAT_COMMAND_LENGTH:
             raise ProtocolError(f"chat command of {len(command.command)} characters")
@@ -632,6 +661,8 @@ class Lobby:
         self._outbox.send(client_address, ChatCommandAnswer(group_id=command.group_id, lines=lines))
 
     def _answer_image_list(self, client_address: Address, message: RawMessage) -> None:
+        """GetImageList from a logged on member of the group: the banner for Home, an empty list for
+        any other group."""
         # Only the Home tab shows an image: the banner, when one is configured. The game asks only
         # for groups it joined, so only after its logon; answering anyone else would let a forged
         # sender address turn a small request into a large answer to someone else.
@@ -651,6 +682,7 @@ class Lobby:
         self._outbox.send(client_address, ImageList(group_id=request.group_id, images=images))
 
     def _answer_text_message(self, client_address: Address, message: RawMessage) -> None:
+        """GetTextMessage from a logged on player: a news text, a board message or a placeholder."""
         # Asked for from the Home tab and the board, so only after the logon (see _answer_image_list).
         if self._find_logged_on_player(client_address) is None:
             return
@@ -726,6 +758,7 @@ class Lobby:
         )
 
     def _online_player_names(self) -> list[str]:
+        """The names of everyone logged on, for the chat commands."""
         return [player.name for player in self._players_by_id.values()]
 
     # Membership.
@@ -804,6 +837,8 @@ class Lobby:
         self._outbox.send(player.address, TextIdList(group_id=HOME_GROUP_ID, text_ids=tuple(news_text_ids)))
 
     def _send_statistics_to_home(self) -> None:
+        """Send the current statistics to everyone on the Home tab, whenever the numbers change
+        (a logon, a logout, a game opened or closed). Nothing is sent when the database fails."""
         home = self._groups[HOME_GROUP_ID]
         members = self._members_of(home)
         if not members:
@@ -815,6 +850,7 @@ class Lobby:
             self._outbox.send(member.address, statistics)
 
     def _statistics(self) -> ServerStatistics:
+        """The statistics table of the Home tab, read from the database."""
         numbers = self._database.collect_statistics()
         return ServerStatistics(
             players_online=numbers.players_online,
@@ -897,6 +933,8 @@ class Lobby:
                 self._show_group(member, group, parent.group_id)
 
     def _unlist_group_from(self, group: Group, parent_id: int) -> None:
+        """Stop listing a group in a parent, and remove it from that parent for every player who sees it
+        there."""
         group.listed_in_parent_ids.discard(parent_id)
         for player in list(self._players_by_id.values()):
             self._hide_group(player, group.group_id, parent_id)
@@ -918,6 +956,7 @@ class Lobby:
                 self._close_player_group(group)
 
     def _close_player_group(self, group: Group) -> None:
+        """Remove a game or chat group: unlist it everywhere, forget it and, for a game, record its end."""
         for parent_id in list(group.listed_in_parent_ids):
             self._unlist_group_from(group, parent_id)
         self._groups.pop(group.group_id, None)
@@ -946,6 +985,8 @@ class Lobby:
         self._outbox.send(player.address, RemoveGroupFromGroup(parent_id=parent_id, group_id=group_id))
 
     def _send_counters_to_viewers(self, group: Group) -> None:
+        """Send a game's or chat group's counters to everyone who sees it in a parent; rooms have none
+        the client shows."""
         if group.is_room:
             return
         counters = group.counters()
@@ -962,6 +1003,7 @@ class Lobby:
         return viewers
 
     def _groups_listed_in(self, parent_id: int) -> list[Group]:
+        """The groups listed inside a parent."""
         return [group for group in self._groups.values() if parent_id in group.listed_in_parent_ids]
 
     # The ChatZone tab.
@@ -1046,15 +1088,19 @@ class Lobby:
         )
 
     def _members_of(self, group: Group) -> list[Player]:
+        """The players in a group who are still logged on."""
         return [self._players_by_id[member_id] for member_id in group.member_ids if member_id in self._players_by_id]
 
     def _find_logged_on_player(self, client_address: Address) -> Player | None:
+        """The player logged on from this address, or None with a warning for a client that has not
+        logged on."""
         player = self._players_by_address.get(client_address)
         if player is None:
             self._warn(client_address, "%s: lobby message from a client that has not logged on", client_address)
         return player
 
     def _warn(self, client_address: Address, message: str, *arguments: object) -> None:
+        """Log a warning about a client's message, throttled per client address."""
         self._warnings.warning(client_address, time.monotonic(), message, *arguments)
 
 
@@ -1079,6 +1125,8 @@ def is_highlighted_member(player: Player, marks_admins: bool) -> bool:
 
 
 def live_player(player: Player, reachability: Reachability, marks_admins: bool = False) -> LivePlayer:
+    """A player for the live lobby state, with the address, the reachability found and the colour the
+    game draws the player's row in."""
     host, port = player.address
     clan_name = player.shown_clan.name if player.shown_clan is not None else ""
     return LivePlayer(
@@ -1147,16 +1195,20 @@ def text_message(text_id: int, title: str, body: str) -> TextMessage:
 
 
 def is_board_language_group(group_id: int) -> bool:
+    """True for the id of one of the MessageZone language groups."""
     return BOARD_LANGUAGE_GROUP_ID_BASE <= group_id < BOARD_LANGUAGE_GROUP_ID_BASE + len(BOARD_LANGUAGES)
 
 
 def language_of_board_group(group_id: int) -> str:
+    """The board language a language group stands for."""
     return BOARD_LANGUAGES[group_id - BOARD_LANGUAGE_GROUP_ID_BASE]
 
 
 def is_chat_theme_group(group_id: int) -> bool:
+    """True for the id of a chat theme, the range below the board language groups."""
     return CHAT_THEME_GROUP_ID_BASE <= group_id < BOARD_LANGUAGE_GROUP_ID_BASE
 
 
 def is_board_theme_group(group_id: int) -> bool:
+    """True for the id of a board theme, the range below the first game id."""
     return BOARD_THEME_GROUP_ID_BASE <= group_id < FIRST_GAME_GROUP_ID

@@ -80,6 +80,8 @@ def check_csrf_token() -> None:
 
 
 def add_security_headers(response: Response) -> Response:
+    """Add the security headers to every response: the fixed set, no caching except for static
+    files, and HSTS when the interface runs on HTTPS only."""
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
     if not request.path.startswith(STATIC_PATH_PREFIX):
@@ -96,19 +98,24 @@ class LogonFailureLimiter:
     several threads, hence the lock."""
 
     def __init__(self) -> None:
+        """Start with no failures counted for any address or name."""
         self._failures_by_address = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._failures_by_name = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._lock = threading.Lock()
 
     def is_address_blocked(self, address: Hashable) -> bool:
+        """True when this address used up its failed logons for now."""
         with self._lock:
             return self._failures_by_address.is_exhausted(address, time.monotonic())
 
     def is_name_blocked(self, name: str) -> bool:
+        """True when this name, in any letter case, used up its failed logons for now."""
         with self._lock:
             return self._failures_by_name.is_exhausted(name.casefold(), time.monotonic())
 
     def record_failure(self, address: Hashable, name: str) -> None:
+        """Count a failed logon against the address and the name, and drop entries that have been
+        quiet long enough, so the tables cannot grow without end."""
         now_seconds = time.monotonic()
         with self._lock:
             self._failures_by_address.record_event(address, now_seconds)

@@ -58,6 +58,8 @@ class LobbyOccupancy:
 
 @dataclass(frozen=True)
 class AcceptedLogon:
+    """A logon that may enter the lobby: the account, and the clan to show if the player asked for one."""
+
     account: Account
     # The clan to show next to the player's name; None when the player did not tick the clan box.
     shown_clan: Clan | None
@@ -65,6 +67,8 @@ class AcceptedLogon:
 
 @dataclass(frozen=True)
 class RefusedLogon:
+    """A logon that is turned away with one of the game's own Result codes."""
+
     result_code: ResultCode
     # For the server log only; the player sees the game's own text for the result code.
     reason: str
@@ -132,6 +136,8 @@ class LogonCheck:
         return is_development_client(client_ip)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
+        """Let the failure and check limits forget addresses and names that have gone quiet, so the
+        limiters do not grow without bound."""
         self._failures_by_ip.forget_quiet_keys(now_seconds)
         self._failures_by_name_and_ip.forget_quiet_keys(now_seconds)
         self._access_code_checks.forget_quiet_keys(now_seconds)
@@ -139,6 +145,8 @@ class LogonCheck:
     def _decide_for_known_account(
         self, account: Account, logon: Logon, occupancy: LobbyOccupancy
     ) -> AcceptedLogon | RefusedLogon:
+        """The checks that come only after a correct access code, as they tell something about the
+        account: a ban, a full server, the name or serial number already online, and the clan box."""
         if account.is_banned_at(utc_now()):
             return RefusedLogon(ResultCode.BANNED, f"banned until {account.banned_until:%Y-%m-%d %H:%M} UTC")
 
