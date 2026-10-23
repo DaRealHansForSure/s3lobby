@@ -119,6 +119,14 @@ class GameTest(LobbyTestCase):
         self.game_for_host = receive_announcement(self.bob)
         self.game_in_zone = receive_announcement(self.alice)
 
+    def test_host_is_told_its_game_for_the_setup(self) -> None:
+        """The game setup keeps the host's new game in an empty slot until Result 0xc names it
+        (0x452b53); setup updates (0x45506c), "show game in GameZone" (0x456370) and the match
+        start (0x454c20) all name that slot, so without it they name no game."""
+        opened = Result.decode(self.bob.receive_next(MessageType.RESULT))
+        self.assertEqual((opened.code, opened.value), (ResultCode.GROUP_OPENED, self.game_for_host.group_id))
+        self.alice.assert_nothing_arrives(MessageType.RESULT)
+
     def test_host_is_in_its_game_and_the_zone_sees_it_with_counters(self) -> None:
         self.assertEqual(self.game_for_host.parent_id, JOINED_GROUP_PARENT_ID)
         self.assertEqual(self.game_in_zone.parent_id, GAME_ZONE_ID)
@@ -255,7 +263,7 @@ class GroupRulesTest(LobbyTestCase):
         bob.send(AddPlayerToGroup(shown_to_bob.group_id, bob_id, ("0.0.0.0", 0), "", extra_text="hunter"))
         self.assertEqual(receive_announcement(bob).parent_id, JOINED_GROUP_PARENT_ID)
 
-    def test_chat_group_creator_is_told_the_group_as_channel(self) -> None:
+    def test_chat_group_creator_is_told_its_channel(self) -> None:
         """After opening a chat group the game's lobby screen has no channel until Result 0xc
         names the group (0x452577). Without it the creator sat in the group without name and
         members, and chat, whisper and new games did nothing until leaving and joining it again
@@ -265,7 +273,7 @@ class GroupRulesTest(LobbyTestCase):
         joined = receive_announcement(alice)
         self.assertEqual(joined.parent_id, JOINED_GROUP_PARENT_ID)
         channel = Result.decode(alice.receive_next(MessageType.RESULT))
-        self.assertEqual((channel.code, channel.value), (ResultCode.CHAT_GROUP_OPENED, joined.group_id))
+        self.assertEqual((channel.code, channel.value), (ResultCode.GROUP_OPENED, joined.group_id))
 
     def test_wrong_group_passwords_are_limited_per_player(self) -> None:
         """Each join carries one guess and a datagram holds hundreds: without a limit a password

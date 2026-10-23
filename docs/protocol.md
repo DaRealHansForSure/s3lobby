@@ -256,7 +256,7 @@ Offsets count from the first byte after the header.
   | 9 | patch check: no patch |
   | 8 | patch check: failed |
   | 0x64, 0x65 | private chat accepted / refused (client to client, value = player id) |
-  | 0xc | a chat group was opened, value = its id: status 1/0 (0x5d052d); in the ChatZone a lobby screen without a channel takes the group with that id as its channel (LM.PollStatus 0x452577 copies a CGroup with that id, 0x5da8a0, to LM+0x490 by 0x5db590) |
+  | 0xc | a group the player opened exists, value = its id: status 1/0 (0x5d052d). LM.PollStatus fills the lobby screen's empty slot with a CGroup of that id (0x5da8a0, 0x5db590): the channel LM+0x490 in the ChatZone (0x452577), the game LM+0x6e8 in the game setup (0x452a12, 0x452b53). An already filled slot makes the client leave the group instead (0x5dd520 -> 0x5ca5e0) |
   | 0xb | dialog "Der Wechsel in die Gruppe hat nicht geklappt" (status 2/5, 0x5d0557) |
   | 0x62 | dialog "Das Passwort stimmte nicht", value = group id (status 2/6, 0x5d0542) |
 
@@ -325,8 +325,11 @@ and partly seen in runs:
    1, 0x435ac0; seen in runs: 2 for 1 vs 1, 1 for Human vs Computer), the long game block and the
    game description. Chat groups are opened the same way (CreateGame 0x5ca7d0, called from
    0x5dd5b9), without a game block.
-2. The server picks the id, sends the group back to the host with parent 0, and shows it in the
-   zone with its counters.
+2. The server picks the id, sends the group back to the host with parent 0 and Result 0xc with
+   the id, and shows it in the zone with its counters. The host's setup keeps its game in an
+   empty slot (SwitchZone 5 with an empty CGroup, 0x454780) until that Result fills it
+   (0x452b53); the setup updates (0x45506c), "show game in GameZone" (0x456370) and the match
+   start (0x454c20) all name the game in that slot.
 3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
    take an update only for a group they see in a parent, never for one they are in (0x5d8de6): the
    server keeps the new state and passes the update to the zone.
@@ -514,7 +517,7 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
 | 3 | closes, opens a new connection: OpenConnection, Logon | OpenConnection, acks, Result 0x66, own player 0x0e |
 | 4 | AddPlayerToGroup for its lobby room (1 to 3) and its zones (30 to 38) | AddGroupToGroup (parent 0), AddPlayerToGroup per member incl. the client, the games in the room |
 | 5 | chat to the other members directly | tells members about arrivals (0x0c) and departures (0x0d) |
-| 6 | AddGroupToGroup2 under the room (open a game) | relays it to the room, host address filled in |
+| 6 | AddGroupToGroup2 under the room (open a game) | the game with parent 0, the host's member entry and Result 0xc (its id) to the host; relays it to the room, host address filled in |
 | 7 | game ends: AdjustConnectionTimeout 60000, joins its rooms again (never leaves the game) | takes the player out of its game without telling it (a RemovePlayerFromGroup for a game the client already dropped, as after "Zurück" in the game setup, hangs the game), closes it, answers the joins |
 | 8 | Logout, CloseConnection | removes the player from its groups |
 

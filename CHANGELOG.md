@@ -8,8 +8,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
-- A player who opens a chat group now gets it as their channel at once: the server answers
-  with Result 0xc, so chat, whisper and new games work without leaving and joining again.
+- A player who opens a chat group or a game is told its id (Result 0xc), as the game expects:
+  the chat group is their channel at once, so chat, whisper and new games work without leaving
+  and joining again, and the game setup's updates name the game.
 
 ### Added
 
