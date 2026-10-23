@@ -199,6 +199,11 @@ scripts/start.sh           # datagrams in lobby.log, output in lobby-console.log
 scripts/start.sh --dev     # both in development mode
 ```
 
+Two scripts help testing with the real game under Wine: `scripts/run-game-wine.sh` starts a copy
+in a window of its own (`--window 2` for a second one, `--help` in its first lines), and
+`scripts/game-language.sh GAME_FOLDER en` makes a test copy of the game an English one (the game
+takes its language from its voice files; `--restore` undoes it).
+
 ## Choosing a database
 
 By default everything lives in one SQLite file, `s3lobby.sqlite3`, readable by its owner only.

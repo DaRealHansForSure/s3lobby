@@ -8,6 +8,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- Scripts for testing with the real game: `scripts/run-game-wine.sh` starts a copy under Wine in a
+  window of its own, and `scripts/game-language.sh` sets the language a test copy reports, for the
+  chat themes of one language.
 - Chat themes for one language: a theme can be shown only to games of that language (web form
   "Shown to", `chat-theme add --language`). The lobby learns a game's language from its patch
   check. A new lobby starts with the rooms the game's manual describes: Meeting Room, Beginners

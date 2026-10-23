@@ -191,7 +191,10 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 - Two copies of the game on one machine: `build/wine/run-s3.sh --window 1` and `--window 2` (each
   in its own Wine desktop, game filled in by cnc-ddraw's settings in ddraw.ini, `--monitor NAME`
   remembered, `--stop` ends every copy). Log the second copy on with a second account (the name is
-  shared between the copies' settings).
+  shared between the copies' settings). `build/wine/run-s3.sh` only calls the generic
+  `scripts/run-game-wine.sh` with the prefix and GOG's serial. `--language en` (or
+  `scripts/game-language.sh FOLDER CODE`) changes the language field of the copy's voice archive;
+  the game reads it at start, so start the copies one after the other in different languages.
 - Checking web pages by eye: render them with headless Chrome (`google-chrome --headless=new
   --window-size=1280,900 --screenshot=FILE file://PAGE.html`) from HTML fetched with Flask's test
   client, `/static/` rewritten to file paths; check light and dark (`data-theme` on `<html>`) and
