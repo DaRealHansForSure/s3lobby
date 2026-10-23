@@ -20,6 +20,7 @@ from werkzeug.wrappers import Response
 from s3lobby.commands import kick_reason
 from s3lobby.database import MAX_BAN_REASON_LENGTH, Account, Clan, DatabaseError, is_whole_number_text, utc_now
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
+from s3lobby.web.games import games_of_account
 from s3lobby.web.lobby_view import online_player_names
 from s3lobby.web.storage import apply_change, get_database, sentence_from_error
 from s3lobby.web.texts import form_flag, form_text
@@ -85,6 +86,7 @@ def show_account(account_id: int) -> str:
         clan=clan,
         clans=database.list_clans(),
         access_codes=database.list_access_codes(account_id),
+        games=games_of_account(account_id),
         is_online=account.name in online_player_names(),
         is_banned=account.is_banned_at(utc_now()),
         is_own_account=is_own_account(account),

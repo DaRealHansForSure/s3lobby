@@ -2,6 +2,11 @@
 {% set active_nav = "games" %}
 {% block title %}{{ game.name }}{% endblock %}
 
+{# A player's name, linked to the account page while the account exists. #}
+{% macro account_link(name, account_id) -%}
+{% if account_id is not none %}<a href="{{ url_for('accounts.show_account', account_id=account_id) }}">{{ name }}</a>{% else %}{{ name }}{% endif %}
+{%- endmacro %}
+
 {% macro player_notes(player) %}
   {% for note in player.notes %}<span class="badge">{{ note }}</span>{% endfor %}
 {% endmacro %}
@@ -61,7 +66,7 @@
             {% if team.has_won and loop.first %}<span class="badge badge--good">won</span>{% endif %}
           </td>
           <td>{{ player.slot }}</td>
-          <td>{{ player.name }}</td>
+          <td>{{ account_link(player.name, player.account_id) }}</td>
           <td>{{ player.race }}</td>
           <td class="num">{{ player.lobby_player_id }}</td>
           <td><div class="badges">{{ player_notes(player) }}</div></td>
@@ -104,10 +109,14 @@
   {% if players %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Player</th><th>Joined</th></tr></thead>
+      <thead><tr><th>Player</th><th class="num">Account id</th><th>Joined</th></tr></thead>
       <tbody>
         {% for player in players %}
-        <tr><td>{{ player.name }}</td><td>{{ player.joined_at | moment }}</td></tr>
+        <tr>
+          <td>{{ account_link(player.name, player.account_id) }}</td>
+          <td class="num">{% if player.account_id is not none %}{{ player.account_id }}{% else %}<span class="muted">deleted</span>{% endif %}</td>
+          <td class="cell-time">{{ player.joined_at | moment }}</td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>

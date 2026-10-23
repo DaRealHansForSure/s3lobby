@@ -264,10 +264,12 @@ class GameRecord:
 
 @dataclass(frozen=True)
 class GamePlayerRecord:
-    """A player who joined a game; name is DELETED_ACCOUNT_NAME when the account is gone."""
+    """A player who joined a game. account_id is None and name DELETED_ACCOUNT_NAME when the
+    account was deleted since (the foreign key clears it)."""
 
     name: str
     joined_at: datetime
+    account_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1026,16 +1028,31 @@ class LobbyDatabase:
         player_names = self._player_names_of_games([game_id])
         return game_record_from_row(row, player_names.get(game_id, []))
 
+    def list_games_of_account(self, account_id: int, limit: int) -> list[GameRecord]:
+        """The games an account joined, newest first."""
+        rows = self._backend.fetch_all(
+            self.GAME_COLUMNS
+            + "WHERE games.id IN (SELECT game_id FROM game_players WHERE account_id = ?) "
+            "ORDER BY games.id DESC LIMIT ?",
+            (account_id, limit),
+        )
+        player_names = self._player_names_of_games([row["id"] for row in rows])
+        return [game_record_from_row(row, player_names.get(row["id"], [])) for row in rows]
+
     def list_game_players(self, game_id: int) -> list[GamePlayerRecord]:
         """Who joined a game and when, in the order they joined (the host first)."""
         rows = self._backend.fetch_all(
-            "SELECT accounts.name, game_players.joined_at FROM game_players "
+            "SELECT accounts.name, game_players.joined_at, game_players.account_id FROM game_players "
             "LEFT JOIN accounts ON accounts.id = game_players.account_id "
             "WHERE game_players.game_id = ? ORDER BY game_players.id",
             (game_id,),
         )
         return [
-            GamePlayerRecord(name=row["name"] or DELETED_ACCOUNT_NAME, joined_at=from_stored_time(row["joined_at"]))
+            GamePlayerRecord(
+                name=row["name"] or DELETED_ACCOUNT_NAME,
+                joined_at=from_stored_time(row["joined_at"]),
+                account_id=row["account_id"],
+            )
             for row in rows
         ]
 
@@ -1059,6 +1076,18 @@ class LobbyDatabase:
     def list_recent_game_reports(self, limit: int) -> list[GameReportRecord]:
         """The newest match reports first."""
         rows = self._backend.fetch_all(self.GAME_REPORT_COLUMNS + "ORDER BY game_reports.id DESC LIMIT ?", (limit,))
+        return [game_report_record_from_row(row) for row in rows]
+
+    def list_reports_of_games(self, game_ids: list[int]) -> list[GameReportRecord]:
+        """The match reports of several games in the order they arrived, in one query; the ids
+        are numbers from the database, joined into the IN list."""
+        if not game_ids:
+            return []
+        placeholders = ", ".join("?" for _ in game_ids)
+        rows = self._backend.fetch_all(
+            self.GAME_REPORT_COLUMNS + f"WHERE game_reports.game_id IN ({placeholders}) ORDER BY game_reports.id",
+            tuple(game_ids),
+        )
         return [game_report_record_from_row(row) for row in rows]
 
     def list_reports_of_game(self, game_id: int) -> list[GameReportRecord]:

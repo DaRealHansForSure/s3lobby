@@ -73,6 +73,11 @@
 /* A numeric column's heading sits over its right-aligned numbers. */
 .table th.num { text-align: right; }
 
+/* A table that ends its section: the section's own line closes it. With both lines, the space the
+   kit keeps before a section line (one row high) reads as an empty last row. */
+.page > section > .scroll-x:last-child .table tbody tr:last-child > *,
+.page > section > .table-block:last-child .table tbody tr:last-child > * { border-bottom: 0; }
+
 /* A date and time in a table, kept on one line so a column of times reads down evenly. */
 .table .cell-time { white-space: nowrap; }
 
