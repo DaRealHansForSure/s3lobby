@@ -83,6 +83,7 @@ class MessageType(IntEnum):
     CHAT_COMMAND_ANSWER = 0x23
     OWN_PLAYER_WITH_CLAN = 0x24
     ADD_PLAYER_TO_GROUP_WITH_CLAN = 0x25
+    GROUP_COUNTERS = 0x1A
 
 
 # Messages the reliable layer consumes itself; everything else is handed to the lobby.
@@ -149,6 +150,12 @@ class ResultCode(IntEnum):
     # 0x90139 "You're no clan member. ..." (the player ticked the clan box without being in one)
     NOT_A_CLAN_MEMBER = 0x6D
 
+    # Group answers.
+    # Dialog "Der Wechsel in die Gruppe hat nicht geklappt" (joining a group failed).
+    GROUP_CHANGE_FAILED = 0x0B
+    # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
+    WRONG_GROUP_PASSWORD = 0x62
+
 
 class LogonFlag(IntFlag):
     """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
@@ -176,6 +183,31 @@ JOINED_GROUP_PARENT_ID = 0
 # names a real group on the server.
 PRIVATE_CHAT_GROUP_ID = 0
 
+# The groups the client joins on its own, with the names its UI uses for them. The four lobby tabs
+# (labels 0x90097..0x9009a, buttons 0x43eb09..0x43ebb1) and the nine game zones on the GameZone tab,
+# one per bit of the registry value GameZoneSelection (0x457030; labels set at 0x441313).
+HOME_GROUP_ID = 1
+CHAT_ZONE_GROUP_ID = 2
+GAME_ZONE_GROUP_ID = 3
+MESSAGE_ZONE_GROUP_ID = 4
+LOBBY_TAB_GROUP_NAMES = {
+    HOME_GROUP_ID: "Home",
+    CHAT_ZONE_GROUP_ID: "ChatZone",
+    GAME_ZONE_GROUP_ID: "GameZone",
+    MESSAGE_ZONE_GROUP_ID: "MessageZone",
+}
+GAME_ZONE_NAMES = {
+    30: "League 1 vs 1",
+    31: "Free-for-all",
+    32: "1 vs 1",
+    33: "2 vs 2",
+    34: "3-4 vs 3-4",
+    35: "5+ vs 5+",
+    36: "3 or more teams",
+    37: "Human vs Computer",
+    38: "Other games",
+}
+
 # A host opens its game with this group id and leaves the choice of the real id to the server
 # (seen in a run: CreateGame 0x5ca7d0 sends 0xffffffff).
 SERVER_ASSIGNS_GROUP_ID = 0xFFFFFFFF
@@ -201,11 +233,39 @@ class GroupFlag(IntFlag):
     # The receiver asks for the group's images with GetImageList.
     REQUESTS_IMAGES = 0x4000000
 
+    # The group receives the Home tab statistics (0x1b) (0x5d997d).
+    RECEIVES_STATISTICS = 0x80
 
-# Size of the game block, socket address included, per announcement type.
+    # Joining asks for a password (0x442d1a); also set on a game not yet listed in a zone (0x455319).
+    HAS_PASSWORD = 0x1000
+
+
+class GroupUpdateMask(IntFlag):
+    """Which fields of an UpdateGroup the receiver takes over (0x5dbf80)."""
+
+    NAME = 0x1
+    SECOND_TEXT = 0x2
+    THIRD_TEXT = 0x4
+    FLAGS = 0x8
+    MAX_PLAYERS = 0x10
+    GAME_BLOCK = 0x20
+    DESCRIPTION = 0x40
+
+
+# A group's maximum player count of this value means no limit; chat groups are opened with it.
+UNLIMITED_PLAYERS = 0xFFFFFFFF
+
+# Bit 0 of the third GroupCounters value marks a full group (0x44b635, 0x442cf2).
+GROUP_COUNTERS_FULL = 0x1
+
+
+# Size of the game block, socket address included, per announcement or update type: the 2 variants
+# carry two more u32 values (5 instead of 3).
 GAME_BLOCK_SIZE_BY_MESSAGE_TYPE = {
     MessageType.ADD_GROUP_TO_GROUP: 0x2C,
     MessageType.ADD_GROUP_TO_GROUP_2: 0x34,
+    MessageType.UPDATE_GROUP: 0x2C,
+    MessageType.UPDATE_GROUP_2: 0x34,
 }
 
 # The languages the MessageZone tab knows. The client looks for a group named "MessageThemes"
@@ -283,3 +343,14 @@ UNCONFIRMED_CONNECTION_TIMEOUT_MS = 15_000
 
 # A warning about one sender is logged at most this often, so a flood cannot flood the log too.
 WARNING_INTERVAL_SECONDS = 10.0
+
+# Text a client sends for other clients to see (group names, descriptions, the map name inside a
+# game's description) is passed on only within these limits and without control characters. The
+# game's own dialogs stay well below them; the limits keep a crafted client from feeding the other
+# players' 1998 game clients oversized or unexpected input through this server.
+MAX_GROUP_TEXT_LENGTH = 64
+MAX_GROUP_DESCRIPTION_BYTES = 512
+MAX_CHAT_COMMAND_LENGTH = 256
+
+# Groups one player may have open at a time (games and chat groups it created).
+MAX_OPEN_GROUPS_PER_PLAYER = 4

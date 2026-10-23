@@ -251,8 +251,8 @@ can be accepted as they come.
 
 ### Groups (rooms and games)
 
-- **0x0f AddGroupToGroup** (constructor 0x5e2d60): u32 parent, u32 group id, u32 flags, u32 unknown,
-  three strings (the first is the name), then optional parts by flag:
+- **0x0f AddGroupToGroup** (constructor 0x5e2d60): u32 parent, u32 group id, u32 flags, u32 maximum
+  player count, three strings (name, description column, password), then optional parts by flag:
   - `0x400`: game block, 0x2c bytes: sockaddr_in of the host, 16 bytes (*inferred*: DirectPlay
     session GUID), 3 x u32.
   - `0x40000`: description, u32 length then that many bytes (the client stores a whole serialized
@@ -263,21 +263,69 @@ can be accepted as they come.
   room makes the group visible inside it. Sent with group id 0 from another client, it is a private
   chat invitation.
 - **0x20 AddGroupToGroup2** (constructor 0x5e3b40): as 0x0f, game block 0x34 bytes (5 x u32).
-  Opening a game sends this with flags 0x840401 (0x5ca7d0), parent = the zone it is opened in, and
-  group id 0xffffffff: the server picks the id. Seen in a run, in the same block the host leaves
-  all other zones and, after the game, its lobby room and zone. The host only counts itself in the
-  game when the server sends the game back with parent 0.
-- **0x19 UpdateGroup**: u32 group id, u32 update mask, u32 flags, u32 unknown, three strings, the
-  0x2c game block and the description, both always present. Mask (0x5dbf80): 1 string 1,
-  2 string 2, 8 flags, 0x10 unknown u32, 0x20 game block, 0x40 description. **0x21** is the same
-  with the 0x34 game block.
+- **0x19 UpdateGroup** (constructor 0x5ea320): u32 group id, u32 update mask, u32 flags, u32 maximum
+  player count, three strings, the 0x2c game block and the description (u32 length, bytes), both
+  always present. Mask (0x5dbf80): 1 name, 2 second text, 4 third text, 8 flags, 0x10 maximum,
+  0x20 game block, 0x40 description. **0x21** is the same with the 0x34 game block.
 - **0x10 RemoveGroupFromGroup**: u32 parent, u32 group id; size exactly 12.
+- **0x1a group counters** (handler 0x5d8580): u32 group id, u32 players, u32 maximum, u32 flags
+  (bit 0: full), for a group shown inside a group the client is in. The game list shows
+  "players/max" and marks full games (0x44b635); the client refuses to join a full game (0x4437c1,
+  text 0x900a6) and a full chat group (0x442cf2).
 
-Seen in a run: after logon the client sends one block that leaves group 1 (it was never in it),
-joins group 3 and joins groups 30 to 38, one per set bit of the registry value `GameZoneSelection`
-(GOG writes 511, nine bits). Switching lobby rooms in the screen leaves the current group and
-joins 1, 2 or 3 (with the zones). A server has to accept a join for any group id; there is no
-request that lists groups first.
+**Games, from opening to the match.** Read from the code (0x4547f6, 0x45506c, 0x45637f, 0x454c20)
+and partly seen in runs:
+
+1. The host sends AddGroupToGroup2 with parent = the zone it is in (or a chat group), group id
+   0xffffffff, flags 0x840401 and a game block of five values (version 160, two check values, the
+   Amazons add-on flag, the league type 0/1/2 shown as "", "Liga", "Clanliga"). The description
+   holds the teams and the map name. Chat groups are opened the same way (CreateGame 0x5ca7d0,
+   called from 0x5dd5b9), without a game block.
+2. The server picks the id, sends the group back to the host with parent 0, and shows it in the
+   zone with its counters.
+3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
+   take an update only for a group they see in a parent, never for one they are in (0x5d8de6): the
+   server keeps the new state and passes the update to the zone.
+4. "Show game in GameZone": AddGroupToGroup with the game's id, flags 0 and empty texts, then an
+   UpdateGroup clearing 0x1000. The server lists the game in that zone.
+5. A joiner first connects DirectPlay to the host (0x443bc8), then leaves the GameZone groups and
+   sends AddPlayerToGroup for the game (0x460c8b). It gets the game with parent 0 and every member.
+6. At the match start the host sends RemoveGroupFromGroup(zone, game) for every zone the game is
+   listed in, and AdjustConnectionTimeout 600000. The game leaves the zone lists; it goes on for its
+   players.
+
+**Tabs and zones.** The lobby screen has four tabs, each a group the client joins on its own (button
+handler 0x4424a0, labels 0x90097..0x9009a): 1 Home, 2 ChatZone, 3 GameZone, 4 MessageZone. On the
+GameZone tab the client also joins one game zone per set bit of the registry value
+`GameZoneSelection` (bit i joins group 30 + i, 0x457030; GOG writes 511): 30 League 1 vs 1,
+31 Free-for-all, 32 1 vs 1, 33 2 vs 2, 34 3-4 vs 3-4, 35 5+ vs 5+, 36 3 or more teams, 37 Human vs
+Computer, 38 Other games (client texts set at 0x441313). Seen in a run: after logon one block leaves
+group 1, joins group 3 and joins 30 to 38; switching tabs leaves the current tab and joins another.
+There is no request for a list of groups: the client simply joins these ids.
+
+Group names are shown only in chat theme and chat group lists (second text as "Description"), in
+the game list, as "Channel: name" inside a chat group, and in the chat log; the MessageZone looks
+for groups named `MessageThemes<Language>` (0x453831). Receivers never store the third text or the
+maximum player count of an announcement (0x5d2c27..0x5d2c7f); the third text is the password when
+a player creates a chat group (0x4546cb).
+
+**Flags the client tests** on a received group:
+
+| Flag | Meaning |
+|---|---|
+| 0x80 | the group receives the Home statistics 0x1b (0x5d997d) |
+| 0x400 | game block present: a lobby game (0x4552a8) |
+| 0x1000 | joining asks for a password (0x442d1a); also set on a game not yet shown in a zone (0x455319) |
+| 0x40000 | description present |
+| 0x4000000 | the client asks for the group's image list (0x5d3261) |
+
+Games are opened with 0x840401, chat groups with 0x301073 (0x1000 included when a password is set).
+
+**What a client sees must be mirrored by the server.** Three things drop the connection: an
+announcement of a group the client already sees in the same parent (0x5db9ad), a
+RemoveGroupFromGroup for a group it does not see in that parent, or while it is not in the parent
+(0x5d5828, 0x5dbcc3), and a RemovePlayerFromGroup for a group it is not in (0x5d6af0). A server has
+to know, per client, which groups it sees where.
 
 **Leaving needs the server's confirmation.** `LeaveGroup` 0x5ca5e0 only sends RemovePlayerFromGroup;
 the group stays on the client's joined list until the server sends RemovePlayerFromGroup with the

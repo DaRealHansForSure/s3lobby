@@ -6,137 +6,47 @@ game when the server gets it wrong.
 
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
 
 from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
-    SERVER_ASSIGNS_GROUP_ID,
-    GroupFlag,
     LogonFlag,
     MessageType,
     ResultCode,
 )
 from s3lobby.messages import (
-    AddPlayerToGroup,
+    AddPlayerToGroupWithClan,
     CheckFileVersion,
-    GameBlock,
     GetLobbyServerList,
     GroupAnnouncement,
     LobbyServerList,
     Logon,
-    OwnPlayer,
     OwnPlayerWithClan,
-    AddPlayerToGroupWithClan,
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
     Result,
 )
-from s3lobby.database import LobbyDatabase
-from s3lobby.wire import RawMessage
-from tests.support import BackgroundServer, FakeGameClient
-
-GAME_VERSION = 160
-ACCESS_CODE = "TESTCODE2345"
-SERIAL_NUMBER = "0497-2584-2194-4356-2336"
-EDITION_MISSION_AND_GOLD = 4
-LOBBY_ROOM_ID = 3
-GAME_ZONE_ID = 30
-UNKNOWN_HOST_ADDRESS = ("0.0.0.0", 3343)
-# AddGroupToGroup2's game block after the host address: a 16-byte session id and 5 u32 values.
-GAME_BLOCK_REMAINDER_SIZE = 16 + 5 * 4
-
-
-def go_to_lobby_server(client: FakeGameClient) -> None:
-    """The patch check and the server list, then a new connection for the logon, like the game."""
-    client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
-    Result.decode(client.receive_next(MessageType.RESULT))
-    client.send(GetLobbyServerList())
-    LobbyServerList.decode(client.receive_next(MessageType.LOBBY_SERVER_LIST))
-    client.close_connection()
+from tests.support import (
+    ACCESS_CODE,
+    EDITION_MISSION_AND_GOLD,
+    GAME_VERSION,
+    GAME_ZONE_ID,
+    LOBBY_ROOM_ID,
+    SERIAL_NUMBER,
+    UNKNOWN_HOST_ADDRESS,
+    LobbyTestCase,
+    go_to_lobby_server,
+    join_group,
+    log_on,
+    open_game,
+    receive_member_entry,
+    send_logon,
+)
 
 
-def send_logon(client: FakeGameClient, access_code: str = ACCESS_CODE, flags: int = 0, name: str | None = None) -> Result:
-    logon = Logon(
-        protocol_version=LOGON_PROTOCOL_VERSION,
-        player_name=client.player_name if name is None else name,
-        password=access_code,
-        flags=flags,
-        serial_number=SERIAL_NUMBER,
-    )
-    client.send(logon)
-    return Result.decode(client.receive_next(MessageType.RESULT))
-
-
-def log_on(client: FakeGameClient) -> int:
-    """Run the whole way into the lobby like the game; returns the player id."""
-    go_to_lobby_server(client)
-    send_logon(client)
-    return OwnPlayer.decode(client.receive_next(MessageType.OWN_PLAYER)).player_id
-
-
-def join_group(client: FakeGameClient, group_id: int, player_id: int) -> None:
-    """Join a group the way the game asks: its own address unknown, its name left empty."""
-    client.send(AddPlayerToGroup(group_id, player_id, player_address=("0.0.0.0", 0), player_name=""))
-    announcement = GroupAnnouncement.decode(client.receive_next(MessageType.ADD_GROUP_TO_GROUP))
-    if (announcement.parent_id, announcement.group_id) != (JOINED_GROUP_PARENT_ID, group_id):
-        raise AssertionError(f"expected group {group_id} announced with parent 0, got {announcement}")
-
-
-def receive_member_entry(client: FakeGameClient, group_id: int) -> AddPlayerToGroup:
-    """The next member entry for one group; entries for other groups stay unread."""
-
-    def is_entry_for_group(message: RawMessage) -> bool:
-        is_member_entry = message.message_type == MessageType.ADD_PLAYER_TO_GROUP
-        return is_member_entry and AddPlayerToGroup.decode(message).group_id == group_id
-
-    return AddPlayerToGroup.decode(client.receive_matching(is_entry_for_group))
-
-
-def open_game(client: FakeGameClient, zone_id: int) -> GroupAnnouncement:
-    game_block = GameBlock(host_address=UNKNOWN_HOST_ADDRESS, remainder=bytes(GAME_BLOCK_REMAINDER_SIZE))
-    request = GroupAnnouncement(
-        message_type=MessageType.ADD_GROUP_TO_GROUP_2,
-        parent_id=zone_id,
-        group_id=SERVER_ASSIGNS_GROUP_ID,
-        flags=GroupFlag.HAS_GAME_BLOCK,
-        unknown_value=2,
-        name=f"{client.player_name}'s game",
-        second_text="",
-        third_text="",
-        game_block=game_block,
-    )
-    client.send(request)
-    return request
-
-
-class LobbySessionTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.database_folder = tempfile.TemporaryDirectory()
-        self.database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
-        self.database = LobbyDatabase(self.database_path)
-        for name in ("Alice", "Bob"):
-            account = self.database.create_account(name)
-            self.database.add_access_code(account.account_id, ACCESS_CODE)
-        self.server = BackgroundServer(self.database_path)
-        self.server.__enter__()
-        self.clients: list[FakeGameClient] = []
-
-    def tearDown(self) -> None:
-        for client in self.clients:
-            client.close_socket()
-        self.server.__exit__(None, None, None)
-        self.database.close()
-        self.database_folder.cleanup()
-
-    def new_client(self, player_name: str, nonce: int) -> FakeGameClient:
-        client = FakeGameClient(self.server.address, player_name, nonce)
-        self.clients.append(client)
-        return client
-
+class LobbySessionTest(LobbyTestCase):
     def test_patch_check_says_no_patch_and_the_list_names_this_server(self) -> None:
         """Without Result NO_PATCH_NEEDED the client stops with "patch check failed"; an empty
         server list stops it with error 0x1e."""

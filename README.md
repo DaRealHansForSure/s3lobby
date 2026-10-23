@@ -15,6 +15,10 @@ Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine
 - the lobby rooms and the game zones, switching between them
 - opening a game, playing it, and coming back to the lobby
 
+Implemented from the game's code, not yet tried with the real game: joining another player's game,
+games listed in several zones, full games, game settings updated during setup, chat groups with
+passwords, clans.
+
 Not tested yet with two real players on two machines: chat between players, joining another
 player's game, and the game's own DirectPlay connection between them.
 
@@ -142,6 +146,9 @@ original game clients it talks to were written in 1998. So:
   connection whose first answer is never acknowledged (a forged sender) ends after 15 seconds.
 - The state kept per client is bounded: duplicate detection works within a window of block ids, and
   a client that stops acknowledging is dropped instead of queueing more for it.
+- Whatever a client sends for other players to see (group names, descriptions) is decoded fully,
+  checked against length limits and for control characters, and passed on re-encoded from the
+  checked fields, never as the raw bytes received. Chat group passwords are never passed on.
 - A malformed message is refused with a warning; warnings about one sender are throttled so they
   cannot flood the log. A bug triggered by a crafted message is logged with its traceback and the
   server keeps serving everyone else.

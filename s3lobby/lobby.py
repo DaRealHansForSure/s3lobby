@@ -1,15 +1,20 @@
-"""The lobby: players, rooms, games, and the answers the game expects to every request.
+"""The lobby: players, groups, and the answers the game expects to every request.
 
 The server plays both roles the game knows (docs/protocol.md, "Lobby layer"):
 - index server: the patch check and the list of lobby servers, asked first;
-- lobby server: logon, rooms and zones, and the games players open in them.
+- lobby server: logon, the lobby tabs and game zones, and the games and chat groups players open.
 
-In this protocol rooms, zones and games are all "groups". A client joins a group with
-AddPlayerToGroup, the server announces the group to it with parent 0 ("you are in") and lists its
-members, and everyone who can see a group hears when players come and go. Games are groups under
-a zone; the match itself runs over DirectPlay between the players, never through this server.
+In this protocol rooms, zones, chat groups and games are all groups (see groups.py). A client joins
+a group with AddPlayerToGroup; the server announces the group to it with parent 0 ("you are in"),
+lists its members, and shows it the groups listed inside. The match itself runs over DirectPlay
+between the players, never through this server.
 
-Several rules here exist because the real client breaks without them. Each one is explained where
+The server mirrors what each client sees. A client drops the connection when it is shown a group
+it already sees in the same parent (0x5db9ad), or told to remove one it does not see (0x5dbcc3), or
+told that a player left a group it is not in (0x5d6af0). So every player has a set of the groups it
+sees, as (parent id, group id) pairs, and every announcement and removal goes through it.
+
+Several more rules exist because the real client breaks without them. Each one is explained where
 it is applied, with the address in S3.EXE that shows why.
 """
 
@@ -23,15 +28,30 @@ from typing import Protocol
 
 from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
-    WARNING_INTERVAL_SECONDS,
+    GAME_ZONE_NAMES,
     JOINED_GROUP_PARENT_ID,
+    LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
+    MAX_CHAT_COMMAND_LENGTH,
+    MAX_OPEN_GROUPS_PER_PLAYER,
     PRIVATE_CHAT_GROUP_ID,
     SERVER_ASSIGNS_GROUP_ID,
+    WARNING_INTERVAL_SECONDS,
     MessageType,
     ResultCode,
 )
 from s3lobby.database import Clan, LobbyDatabase
+from s3lobby.groups import (
+    Group,
+    GroupKind,
+    check_client_group_texts,
+    game_block_with_real_host,
+    kind_of_new_group,
+    room_announcement,
+    with_real_host_address,
+)
+from s3lobby.guards import ThrottledLogger
+from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
     AddPlayerToGroup,
     AddPlayerToGroupWithClan,
@@ -56,15 +76,12 @@ from s3lobby.messages import (
     Result,
     TextMessage,
 )
-from s3lobby.guards import ThrottledLogger
-from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.wire import Address, ProtocolError, RawMessage
 
 log = logging.getLogger(__name__)
 
-# What a host's game reports as its own address before the server fills in the real one: the
-# client binds its socket to INADDR_ANY and so only knows itself as 0.0.0.0.
-UNKNOWN_HOST = "0.0.0.0"
+# A group shown inside a parent, as the client keeps it: (parent id, group id).
+VisibleGroup = tuple[int, int]
 
 
 class LobbyOutbox(Protocol):
@@ -82,7 +99,8 @@ class Player:
 
     The player id is the account id, so it stays the same across logons. The address is where the
     player's datagrams come from. shown_clan is set when the player logged on with the clan box
-    ticked; the other players then see the clan next to the name.
+    ticked; the other players then see the clan next to the name. group_ids are the groups the
+    player is in; visible_groups the groups its client shows inside one of those.
     """
 
     player_id: int
@@ -93,27 +111,7 @@ class Player:
     session_id: int
     shown_clan: Clan | None = None
     group_ids: set[int] = field(default_factory=set)
-
-
-@dataclass
-class Group:
-    """A room, a zone or a game.
-
-    Rooms and zones are made the first time a client joins them and stay for as long as the
-    server runs. Games are opened by a host and closed when their last member leaves.
-    """
-
-    announcement: GroupAnnouncement
-    is_room: bool
-    member_ids: list[int] = field(default_factory=list)
-
-    @property
-    def group_id(self) -> int:
-        return self.announcement.group_id
-
-    @property
-    def parent_id(self) -> int:
-        return self.announcement.parent_id
+    visible_groups: set[VisibleGroup] = field(default_factory=set)
 
 
 class Lobby:
@@ -127,7 +125,7 @@ class Lobby:
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
-        self._next_game_group_id = FIRST_GAME_GROUP_ID
+        self._next_player_group_id = FIRST_GAME_GROUP_ID
         # Warnings about a client's messages are throttled per client, so a client that sends a
         # stream of bad messages within its rate limit cannot flood the log.
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
@@ -138,11 +136,11 @@ class Lobby:
             MessageType.LOGOUT: self._log_out_player,
             MessageType.ADD_PLAYER_TO_GROUP: self._join_group_on_request,
             MessageType.REMOVE_PLAYER_FROM_GROUP: self._leave_group_on_request,
-            MessageType.ADD_GROUP_TO_GROUP: self._open_game_on_request,
-            MessageType.ADD_GROUP_TO_GROUP_2: self._open_game_on_request,
-            MessageType.UPDATE_GROUP: self._relay_group_update,
-            MessageType.UPDATE_GROUP_2: self._relay_group_update,
-            MessageType.REMOVE_GROUP_FROM_GROUP: self._close_game_on_request,
+            MessageType.ADD_GROUP_TO_GROUP: self._open_or_list_group_on_request,
+            MessageType.ADD_GROUP_TO_GROUP_2: self._open_or_list_group_on_request,
+            MessageType.UPDATE_GROUP: self._update_group_on_request,
+            MessageType.UPDATE_GROUP_2: self._update_group_on_request,
+            MessageType.REMOVE_GROUP_FROM_GROUP: self._unlist_group_on_request,
             MessageType.CHAT_MESSAGE: self._log_chat_message,
             MessageType.CHAT_MESSAGE_2: self._log_chat_message,
             MessageType.CHAT_COMMAND: self._answer_chat_command,
@@ -150,6 +148,7 @@ class Lobby:
             MessageType.GET_TEXT_MESSAGE: self._answer_text_message,
             MessageType.GAME_STATUS: self._log_game_status,
         }
+        self._open_built_in_rooms()
 
     def handle_message(self, client_address: Address, message: RawMessage) -> None:
         """Act on one lobby message. A malformed message is logged and skipped; the rest of the
@@ -161,20 +160,12 @@ class Lobby:
         try:
             handler(client_address, message)
         except ProtocolError as error:
-            self._warn(client_address, "%s: unreadable %s: %s", client_address, message.type_name, error)
+            self._warn(client_address, "%s: refused %s: %s", client_address, message.type_name, error)
         except Exception:
             # A bug, not a broken message: the next message of the block still gets its turn.
             self._warnings.error_with_traceback(
                 client_address, time.monotonic(), "%s: internal error while handling %s", client_address, message.type_name
             )
-
-    def forget_quiet_keys(self, now_seconds: float) -> None:
-        """Let the per client warning and logon limits forget clients that went quiet."""
-        self._warnings.forget_quiet_keys(now_seconds)
-        self._logon_check.forget_quiet_keys(now_seconds)
-
-    def _warn(self, client_address: Address, message: str, *arguments: object) -> None:
-        self._warnings.warning(client_address, time.monotonic(), message, *arguments)
 
     def forget_client(self, client_address: Address) -> None:
         """The client's connection is gone: take its player out of every group. Nobody can tell the
@@ -187,6 +178,11 @@ class Lobby:
         log.info("player %d %r left the lobby", player.player_id, player.name)
         for group_id in list(player.group_ids):
             self._remove_player_from_group(player, group_id, is_player_told=False)
+
+    def forget_quiet_keys(self, now_seconds: float) -> None:
+        """Let the per client warning and logon limits forget clients that went quiet."""
+        self._warnings.forget_quiet_keys(now_seconds)
+        self._logon_check.forget_quiet_keys(now_seconds)
 
     # Index server role.
 
@@ -271,29 +267,35 @@ class Lobby:
     def _log_out_player(self, client_address: Address, message: RawMessage) -> None:
         self.forget_client(client_address)
 
-    # Lobby server role: rooms, zones and games.
+    # Lobby server role: joining and leaving groups.
 
     def _join_group_on_request(self, client_address: Address, message: RawMessage) -> None:
-        # Right after the logon the client joins its lobby room (1, 2 or 3) and one zone per bit of
-        # its GameZoneSelection setting (30 to 38 with the default 511), all in one block. There is
-        # no request for a list of groups first, so any group a client asks for is made on the spot.
+        # Right after the logon the client joins its lobby tab (1 to 4) and one zone per bit of its
+        # GameZoneSelection setting (30 to 38 with the default 511), all in one block, without
+        # asking for a list of groups first. A joiner of a game or chat group knows its id from the
+        # zone or theme it saw it in; for a chat group the extra text carries the password.
         request = AddPlayerToGroup.decode(message)
         player = self._find_logged_on_player(client_address)
-        is_real_group = request.group_id != PRIVATE_CHAT_GROUP_ID
-        if player is None or not is_real_group:
+        if player is None or request.group_id == PRIVATE_CHAT_GROUP_ID:
             return
-        group = self._find_or_open_room(request.group_id)
+        group = self._groups.get(request.group_id)
+        if group is None:
+            self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "no such group")
+            return
         if player.player_id in group.member_ids:
             return
-        if group.is_room:
-            # Back from a match, the client joins its rooms again but never says it left its game.
+        if group.password and request.extra_text != group.password:
+            self._refuse_join(player, group.group_id, ResultCode.WRONG_GROUP_PASSWORD, "wrong password")
+            return
+        if group.is_full:
+            self._refuse_join(player, group.group_id, ResultCode.GROUP_CHANGE_FAILED, "group is full")
+            return
+        if group.group_id in LOBBY_TAB_GROUP_NAMES:
+            # Back from a match, the client joins its lobby tab and zones again but never says it
+            # left its game; the tab comes first in that block (seen in a run). Zone joins alone do
+            # not count: a host still setting up its game may list it in further zones.
             self._take_player_out_of_games(player)
-        log.info("player %d %r joins group %d", player.player_id, player.name, group.group_id)
-        self._send_group_contents(player, group)
-        for member in self._members_of(group):
-            self._outbox.send(member.address, member_entry(group.group_id, player))
-        group.member_ids.append(player.player_id)
-        player.group_ids.add(group.group_id)
+        self._add_player_to_group(player, group)
 
     def _leave_group_on_request(self, client_address: Address, message: RawMessage) -> None:
         request = RemovePlayerFromGroup.decode(message)
@@ -301,53 +303,116 @@ class Lobby:
         if player is not None:
             self._remove_player_from_group(player, request.group_id, is_player_told=True)
 
-    def _open_game_on_request(self, client_address: Address, message: RawMessage) -> None:
+    def _refuse_join(self, player: Player, group_id: int, result_code: ResultCode, reason: str) -> None:
+        log.info("player %d %r cannot join group %d: %s", player.player_id, player.name, group_id, reason)
+        self._outbox.send(player.address, Result(result_code, value=group_id))
+
+    # Lobby server role: games and chat groups players open.
+
+    def _open_or_list_group_on_request(self, client_address: Address, message: RawMessage) -> None:
+        """AddGroupToGroup from a client: open a new game or chat group under a parent the player is
+        in, or, for a game the player is in, list it in one more zone ("Show game in GameZone":
+        AddGroupToGroup with the game's id, flags 0 and empty texts, 0x45637f)."""
         request = GroupAnnouncement.decode(message)
         player = self._find_logged_on_player(client_address)
-        zone = self._groups.get(request.parent_id)
-        is_acceptable = (
-            player is not None
-            and zone is not None
-            and request.group_id != PRIVATE_CHAT_GROUP_ID
-            and request.group_id not in self._groups
+        if player is None:
+            return
+        parent = self._groups.get(request.parent_id)
+        if parent is None:
+            raise ProtocolError(f"group {request.group_id} under {request.parent_id}, which does not exist")
+        existing_group = self._groups.get(request.group_id)
+        if existing_group is not None:
+            self._list_existing_game(player, existing_group, parent)
+            return
+        if player.player_id not in parent.member_ids:
+            raise ProtocolError(f"new group under {request.parent_id}, a group the player is not in")
+        self._open_player_group(player, request, parent)
+
+    def _open_player_group(self, player: Player, request: GroupAnnouncement, parent: Group) -> None:
+        if request.group_id not in (SERVER_ASSIGNS_GROUP_ID, PRIVATE_CHAT_GROUP_ID):
+            raise ProtocolError(f"new group with id {request.group_id}; only the server picks ids")
+        if request.group_id == PRIVATE_CHAT_GROUP_ID:
+            # A private chat invitation goes from client to client; one sent here is a mistake.
+            return
+        check_client_group_texts(request)
+        open_group_count = sum(1 for group in self._groups.values() if group.creator_player_id == player.player_id)
+        if open_group_count >= MAX_OPEN_GROUPS_PER_PLAYER:
+            self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "too many open groups")
+            return
+
+        group_id = self._next_player_group_id
+        self._next_player_group_id += 1
+        announcement = with_real_host_address(request, player.address)
+        # The third text is the password of a chat group: kept here, never shown to anyone.
+        announcement = replace(announcement, group_id=group_id, third_text="")
+        group = Group(
+            announcement=announcement,
+            kind=kind_of_new_group(request),
+            password=request.third_text,
+            creator_player_id=player.player_id,
         )
-        if not is_acceptable:
-            self._warn(client_address, "%s: ignored new group %d under %d", client_address, request.group_id, request.parent_id)
+        if group.kind == GroupKind.GAME:
+            group.game_record_id = self._database.record_game_opened(announcement.name, player.player_id)
+        self._groups[group_id] = group
+        log.info(
+            "player %d %r opens %s %d %r in group %d",
+            player.player_id,
+            player.name,
+            group.kind.value,
+            group_id,
+            announcement.name,
+            parent.group_id,
+        )
+        # The creator's client does not count itself in the new group (CreateGame 0x5ca7d0): it is
+        # in once the server announces the group to it with parent 0, like after any other join.
+        self._add_player_to_group(player, group)
+        self._list_group_in(group, parent)
+
+    def _list_existing_game(self, player: Player, group: Group, zone: Group) -> None:
+        if player.player_id not in group.member_ids or group.kind != GroupKind.GAME:
+            raise ProtocolError(f"listing group {group.group_id}, which is no game of this player")
+        if not zone.is_room:
+            raise ProtocolError(f"listing game {group.group_id} in group {zone.group_id}, which is no zone")
+        if zone.group_id in group.listed_in_parent_ids:
             return
+        log.info("player %d %r lists game %d in group %d", player.player_id, player.name, group.group_id, zone.group_id)
+        self._list_group_in(group, zone)
 
-        announcement = with_real_host_address(request, client_address)
-        if announcement.group_id == SERVER_ASSIGNS_GROUP_ID:
-            announcement = replace(announcement, group_id=self._next_game_group_id)
-            self._next_game_group_id += 1
-        game = Group(announcement=announcement, is_room=False)
-        self._groups[game.group_id] = game
-        log.info("player %d %r opens game %d in group %d", player.player_id, player.name, game.group_id, zone.group_id)
-
-        # The host's client does not count itself in its own game (CreateGame 0x5ca7d0): it joins
-        # when the server announces the game to it with parent 0, like any other join.
-        self._send_group_contents(player, game)
-        game.member_ids.append(player.player_id)
-        player.group_ids.add(game.group_id)
-        for member in self._members_of(zone):
-            if member is not player:
-                self._outbox.send(member.address, game.announcement)
-
-    def _relay_group_update(self, client_address: Address, message: RawMessage) -> None:
-        # TODO: apply the update to the stored announcement, so players who join the zone later see
-        # the game's current settings. Needs the update mask decoded first (docs/protocol.md,
-        # UpdateGroup); until then later joiners see the settings the game was opened with.
+    def _update_group_on_request(self, client_address: Address, message: RawMessage) -> None:
+        """UpdateGroup from a member, usually the host setting up its game (mask 0x50: player count
+        and description, 0x45506c). The server keeps the new state, so players who see the group
+        later see it current, and passes the update on to everyone who sees the group inside a
+        parent. Members of the group do not take updates for it (0x5d8de6), so they are skipped."""
         update = GroupUpdate.decode(message)
+        player = self._find_logged_on_player(client_address)
         group = self._groups.get(update.group_id)
-        if group is not None:
-            self._relay_to_everyone_who_sees(group, update, sender_address=client_address)
+        if player is None or group is None or player.player_id not in group.member_ids:
+            raise ProtocolError(f"update of group {update.group_id} by a player not in it")
+        check_client_group_texts(update)
+        update = replace(update, game_block=game_block_with_real_host(update.game_block, player.address))
+        updated = update.applied_to(group.announcement)
+        if updated.third_text:
+            group.password = updated.third_text
+        group.announcement = replace(updated, third_text="")
+        public_update = replace(update, third_text="")
+        for viewer in self._viewers_of(group):
+            self._outbox.send(viewer.address, public_update)
+        self._send_counters_to_viewers(group)
 
-    def _close_game_on_request(self, client_address: Address, message: RawMessage) -> None:
+    def _unlist_group_on_request(self, client_address: Address, message: RawMessage) -> None:
+        """RemoveGroupFromGroup from a member: at the start of the match the host takes its game
+        out of every zone it was listed in (0x454c20). The game itself goes on for its players; it
+        only disappears from the zone lists, and only for players who see it there (0x5d5828,
+        0x5dbcc3: anything else drops their connection)."""
         request = RemoveGroupFromGroup.decode(message)
+        player = self._find_logged_on_player(client_address)
         group = self._groups.get(request.group_id)
-        if group is None or group.is_room:
-            return
-        self._relay_to_everyone_who_sees(group, request, sender_address=client_address)
-        self._forget_group(group)
+        if player is None or group is None or player.player_id not in group.member_ids:
+            raise ProtocolError(f"unlisting group {request.group_id} by a player not in it")
+        log.info(
+            "player %d %r unlists group %d from group %d", player.player_id, player.name, group.group_id, request.parent_id
+        )
+        self._unlist_group_from(group, request.parent_id)
 
     # Chat and other requests.
 
@@ -358,6 +423,8 @@ class Lobby:
 
     def _answer_chat_command(self, client_address: Address, message: RawMessage) -> None:
         command = ChatCommand.decode(message)
+        if len(command.command) > MAX_CHAT_COMMAND_LENGTH:
+            raise ProtocolError(f"chat command of {len(command.command)} characters")
         answer = ChatCommandAnswer(group_id=command.group_id, lines=(f"Unknown command: {command.command}",))
         self._outbox.send(client_address, answer)
 
@@ -373,18 +440,23 @@ class Lobby:
         status = GameStatus.decode(message)
         log.info("%s: game status for group %d: %s", client_address, status.group_id, status.rest_of_body.hex())
 
-    # Group bookkeeping.
+    # Membership.
 
-    def _send_group_contents(self, player: Player, group: Group) -> None:
-        """What a client needs when it joins a group: the group itself with parent 0, every member
-        with the address they can be reached at (the joining player last), and the games inside."""
+    def _add_player_to_group(self, player: Player, group: Group) -> None:
+        """Put a player into a group and tell everyone concerned: the player gets the group, its
+        members and what is listed in it; the members get the newcomer; whoever sees the group in
+        a parent gets its new counters."""
+        log.info("player %d %r joins group %d", player.player_id, player.name, group.group_id)
         self._outbox.send(player.address, group.announcement.under_parent(JOINED_GROUP_PARENT_ID))
         for member in self._members_of(group):
             self._outbox.send(player.address, member_entry(group.group_id, member))
+            self._outbox.send(member.address, member_entry(group.group_id, player))
         self._outbox.send(player.address, member_entry(group.group_id, player))
-        for child in self._groups.values():
-            if child.parent_id == group.group_id:
-                self._outbox.send(player.address, child.announcement)
+        group.member_ids.append(player.player_id)
+        player.group_ids.add(group.group_id)
+        for child in self._groups_listed_in(group.group_id):
+            self._show_group(player, child, group.group_id)
+        self._send_counters_to_viewers(group)
 
     def _remove_player_from_group(self, player: Player, group_id: int, is_player_told: bool) -> None:
         """Take a player out of a group and tell the remaining members.
@@ -392,10 +464,12 @@ class Lobby:
         is_player_told sends the confirmation to the player as well. A client that asked to leave
         needs it: it keeps the group on its joined list until the server confirms (handler
         0x5d6af0, own player check at 0x5d721e), and joining that group again would then fail
-        (assert "! vJoinedGroups.contains") and drop the connection.
+        (assert "! vJoinedGroups.contains") and drop the connection. With the group, the client
+        also drops what it saw listed inside it.
         """
         group = self._groups.get(group_id)
         player.group_ids.discard(group_id)
+        player.visible_groups = {visible for visible in player.visible_groups if visible[0] != group_id}
         if group is None or player.player_id not in group.member_ids:
             return
         group.member_ids.remove(player.player_id)
@@ -405,9 +479,10 @@ class Lobby:
             self._outbox.send(member.address, departure)
         if is_player_told:
             self._outbox.send(player.address, departure)
-        is_empty_game = not group.member_ids and not group.is_room
-        if is_empty_game:
-            self._close_game(group)
+        if not group.member_ids and not group.is_room:
+            self._close_player_group(group)
+            return
+        self._send_counters_to_viewers(group)
 
     def _take_player_out_of_games(self, player: Player) -> None:
         """Take a player who is back from a match out of its game, without telling the player.
@@ -418,43 +493,75 @@ class Lobby:
         """
         for group_id in list(player.group_ids):
             group = self._groups.get(group_id)
-            if group is not None and not group.is_room:
+            if group is not None and group.kind == GroupKind.GAME:
                 self._remove_player_from_group(player, group_id, is_player_told=False)
 
-    def _close_game(self, game: Group) -> None:
-        zone = self._groups.get(game.parent_id)
-        if zone is not None:
-            removal = RemoveGroupFromGroup(parent_id=zone.group_id, group_id=game.group_id)
-            for member in self._members_of(zone):
-                self._outbox.send(member.address, removal)
-        self._forget_group(game)
+    # Listing groups inside parents, mirrored per player.
 
-    def _forget_group(self, group: Group) -> None:
+    def _list_group_in(self, group: Group, parent: Group) -> None:
+        """Show a group in a parent to the parent's members who are not in the group themselves."""
+        group.listed_in_parent_ids.add(parent.group_id)
+        for member in self._members_of(parent):
+            if member.player_id not in group.member_ids:
+                self._show_group(member, group, parent.group_id)
+
+    def _unlist_group_from(self, group: Group, parent_id: int) -> None:
+        group.listed_in_parent_ids.discard(parent_id)
+        for player in list(self._players_by_id.values()):
+            self._hide_group(player, group.group_id, parent_id)
+
+    def _close_player_group(self, group: Group) -> None:
+        for parent_id in list(group.listed_in_parent_ids):
+            self._unlist_group_from(group, parent_id)
         self._groups.pop(group.group_id, None)
+        if group.game_record_id is not None:
+            self._database.record_game_closed(group.game_record_id)
+        log.info("%s %d %r closed", group.kind.value, group.group_id, group.announcement.name)
+
+    def _show_group(self, player: Player, group: Group, parent_id: int) -> None:
+        """Show a group inside a parent to one player, unless the player already sees it there."""
+        visible = (parent_id, group.group_id)
+        if visible in player.visible_groups:
+            return
+        player.visible_groups.add(visible)
+        self._outbox.send(player.address, group.announcement.under_parent(parent_id))
+        if not group.is_room:
+            self._outbox.send(player.address, group.counters())
+
+    def _hide_group(self, player: Player, group_id: int, parent_id: int) -> None:
+        """Remove a group from a parent for one player, only if the player sees it there."""
+        visible = (parent_id, group_id)
+        if visible not in player.visible_groups:
+            return
+        player.visible_groups.discard(visible)
+        self._outbox.send(player.address, RemoveGroupFromGroup(parent_id=parent_id, group_id=group_id))
+
+    def _send_counters_to_viewers(self, group: Group) -> None:
+        if group.is_room:
+            return
+        counters = group.counters()
+        for viewer in self._viewers_of(group):
+            self._outbox.send(viewer.address, counters)
+
+    def _viewers_of(self, group: Group) -> list[Player]:
+        """Players who see the group inside a parent; members of the group do not count."""
+        viewers = []
         for player in self._players_by_id.values():
-            player.group_ids.discard(group.group_id)
+            sees_group = any(visible[1] == group.group_id for visible in player.visible_groups)
+            if sees_group:
+                viewers.append(player)
+        return viewers
 
-    def _find_or_open_room(self, group_id: int) -> Group:
-        group = self._groups.get(group_id)
-        if group is None:
-            group = Group(announcement=room_announcement(group_id), is_room=True)
-            self._groups[group_id] = group
-            log.info("room %d opened", group_id)
-        return group
+    def _groups_listed_in(self, parent_id: int) -> list[Group]:
+        return [group for group in self._groups.values() if parent_id in group.listed_in_parent_ids]
 
-    def _relay_to_everyone_who_sees(self, group: Group, message: EncodableMessage, sender_address: Address) -> None:
-        """Send a change of a group to its members and to the members of the zone it is shown in,
-        once each, except to the client the change came from."""
-        receivers: dict[Address, Player] = {}
-        zone = self._groups.get(group.parent_id)
-        for watched_group in (group, zone):
-            if watched_group is None:
-                continue
-            for member in self._members_of(watched_group):
-                receivers[member.address] = member
-        for receiver_address in receivers:
-            if receiver_address != sender_address:
-                self._outbox.send(receiver_address, message)
+    # Built-in groups and lookups.
+
+    def _open_built_in_rooms(self) -> None:
+        """The lobby tabs and the game zones exist from the start, with the names the client's UI
+        gives them. The client does not show these names, but they make logs and lists readable."""
+        for group_id, name in {**LOBBY_TAB_GROUP_NAMES, **GAME_ZONE_NAMES}.items():
+            self._groups[group_id] = Group(announcement=room_announcement(group_id, name), kind=GroupKind.ROOM)
 
     def _members_of(self, group: Group) -> list[Player]:
         return [self._players_by_id[member_id] for member_id in group.member_ids if member_id in self._players_by_id]
@@ -465,20 +572,8 @@ class Lobby:
             self._warn(client_address, "%s: lobby message from a client that has not logged on", client_address)
         return player
 
-
-def room_announcement(group_id: int) -> GroupAnnouncement:
-    """The announcement for a room or zone the server made on a client's first join."""
-    no_flags = 0
-    return GroupAnnouncement(
-        message_type=MessageType.ADD_GROUP_TO_GROUP,
-        parent_id=JOINED_GROUP_PARENT_ID,
-        group_id=group_id,
-        flags=no_flags,
-        unknown_value=0,
-        name=f"Room {group_id}",
-        second_text="",
-        third_text="",
-    )
+    def _warn(self, client_address: Address, message: str, *arguments: object) -> None:
+        self._warnings.warning(client_address, time.monotonic(), message, *arguments)
 
 
 def own_player_message(player: Player) -> EncodableMessage:
@@ -506,17 +601,3 @@ def member_entry(group_id: int, player: Player) -> EncodableMessage:
         clan_id=player.shown_clan.clan_id,
         clan_name=player.shown_clan.name,
     )
-
-
-def with_real_host_address(announcement: GroupAnnouncement, host_client_address: Address) -> GroupAnnouncement:
-    """A host announces its game with its own address, which reads 0.0.0.0 on the host. Put in the
-    IP the server sees the host at, so other players can connect DirectPlay to it, and keep the
-    host's port."""
-    game_block = announcement.game_block
-    if game_block is None:
-        return announcement
-    host, port = game_block.host_address
-    if host != UNKNOWN_HOST:
-        return announcement
-    real_host_ip = host_client_address[0]
-    return replace(announcement, game_block=replace(game_block, host_address=(real_host_ip, port)))
