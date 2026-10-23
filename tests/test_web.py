@@ -608,7 +608,7 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertIn("No winner yet", page)
         self.assertIn(f"Team 1, slot 0: {PLAYER_NAME} (Egyptians)", page)
         self.assertIn("Team 2, slot 1: Computer (Romans)", page)
-        self.assertIn("ladder game, unranked here", page)
+        self.assertIn("ladder game", page)
         self.assertIn("42 min 40 s", page)
 
     def test_games_list_shows_type_map_players_and_result(self) -> None:

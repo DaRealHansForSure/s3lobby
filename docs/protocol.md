@@ -231,8 +231,11 @@ The rest of the state machine (state at +0x278; IsClosed 0x604980 is true for 0,
   numbered block with Logout and CloseConnection (state 4 to 6).
 
 s3lobby closes connections this way when an admin removes a player (a kick, a ban of a player who
-is online, a deleted account) and when it stops. The reason for the player goes first; the
-CloseConnection follows once the client has acknowledged every earlier block, so a lost reason
+is online, a deleted account) and when it stops. The reason for the player goes first and the
+player leaves every group at once; the CloseConnection follows about 6 seconds later
+(`KICK_REASON_READING_SECONDS`), since a close right after the line sent the game straight to its
+"connection dropped" dialog before the player could read it (seen in a run), and only once the
+client has acknowledged every earlier block, so a lost reason
 line cannot trip the sync check above (when the server stops it cannot wait and sends it at once).
 It goes in a numbered block that acknowledges everything received so far, and lobby messages that
 still arrive on the closing connection are ignored.

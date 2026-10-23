@@ -262,7 +262,7 @@ class LogonFlag(IntFlag):
     """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
 
     # The player pressed "create player" in the logon dialog (dialog flag +0xf0, set at 0x43a35c).
-    # This server never creates accounts from the game: they are made on the server side.
+    # The server makes an account from it only while the setting allow_create_player is on.
     CREATE_PLAYER = 0x1
     # Set when the game's edition setting is 1; meaning unknown.
     EDITION_ONE = 0x2

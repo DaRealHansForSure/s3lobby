@@ -146,6 +146,23 @@ class CommandLineTest(unittest.TestCase):
         _, listing, _ = self.run_command("board", "list")
         self.assertIn("Cup", listing)
 
+    def test_board_order_and_hiding_work_without_the_web(self) -> None:
+        """Every admin action of the web interface exists as a command too: moving and hiding board
+        themes and messages."""
+        self.run_command("board", "add-theme", "English", "Tournaments")
+        self.run_command("board", "add-theme", "English", "Trading")
+        database = self.open_database()
+        tournaments, trading = database.list_board_themes()
+        self.assertEqual(self.run_command("board", "move-theme", str(trading.theme_id), "up")[0], EXIT_SUCCESS)
+        self.run_command("board", "hide-theme", str(tournaments.theme_id))
+        database = self.open_database()
+        themes = database.list_board_themes()
+        self.assertEqual([theme.name for theme in themes], ["Trading", "Tournaments"])
+        self.assertTrue(themes[1].is_hidden)
+        _, listing, _ = self.run_command("board", "list")
+        self.assertIn("Tournaments (hidden)", listing)
+        self.assertNotEqual(self.run_command("board", "move-message", "999", "down")[0], EXIT_SUCCESS)
+
 
 class LoggingLevelTest(unittest.TestCase):
     """The console stays at INFO while a log file takes the datagrams of --verbose."""

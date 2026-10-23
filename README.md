@@ -72,12 +72,14 @@ files: point the game at your server and log on.
   admins, `/announce`, `/kick` and `/ban`.
 - **A ladder for Liga and Clanliga**: Elo ratings for players and clans, an infinite season and
   custom seasons, disputes decided by admins, standings on the web, in the chat and as JSON.
-- **Web interface**: a public live view of the lobby, and administration of accounts, clans, news,
-  themes, the board, settings and announcements. Every game gets a page with its setup, teams,
-  winners and time of play, decoded from the reports the game sends; every account a list of its
-  games and results.
+- **Web interface**: public pages for the live lobby, the ladder and every player (their rating,
+  races and games), and an admin area under `/admin` for accounts, clans, news, chat themes, the
+  board, settings, announcements and the ladder, with Message, Kick and Ban for players online.
+  Every game gets a page with its setup, teams, winners and time of play, decoded from the reports
+  the game sends.
 - **For testing**: a development mode that lets every account log on with `1234` from the LAN,
-  and scripts that start and stop the server and the web interface together.
+  scripts that start and stop the server and the web interface together, and scripts that start
+  the game under Wine and set the language a test copy reports.
 - **SQLite or MySQL**: a single file by default; MySQL or MariaDB with one switch, and a command
   that moves an existing lobby across.
 - **Schema migrations** that upgrade the database in place on every start, with checksums that
@@ -113,12 +115,17 @@ from Windows 10 in the LAN where noted:
 - a chat group with a password: opening it and its creator getting in
 - the chat commands `/who` and `/net`
 - server lines, and the web interface with every page
+- kicks and bans of players who are online, with the reason readable before the connection closes
+- the message board in the order admins set, the server's Liga theme on top
+- chat themes: General always listed, and a copy of the game made English or Polish with
+  `scripts/game-language.sh` reporting that language
 - from Windows 10: logon, a chat group, a game opened from it and listed in a zone, a match with
   its reports, coming back, and the MessageZone with a board message read
 
 Implemented from the game's code, not yet tried with the real game: full games, another player
 joining a chat group with its password, the Home tab's news and statistics, the banner, the other
-chat commands, and kicks and bans of players who are online.
+chat commands, the game's Create Player button (`allow_create_player`), chat themes shown only
+to one language, and the ladder with the game's reports from two machines.
 
 Not tested yet with players on two machines: the game's own DirectPlay connection between them.
 
@@ -197,6 +204,7 @@ To start the server and the web interface together in the background, from the c
 ```sh
 scripts/start.sh           # datagrams in lobby.log, output in lobby-console.log and web-console.log
 scripts/start.sh --dev     # both in development mode
+scripts/start.sh --follow  # then show the lobby's log as it grows
 ```
 
 Two scripts help testing with the real game under Wine: `scripts/run-game-wine.sh` starts a copy
@@ -257,7 +265,9 @@ s3lobby database copy --database s3lobby.sqlite3 --to mysql://s3lobby@db.example
 Players log on with an account created on the server. The game's own "create player" button is
 refused unless the setting `allow_create_player` is on (off by default; Settings, Logons in the
 web interface); then it makes an account with the name and the password typed in the game, at
-least 8 characters. Creating an account here prints an access code, which the player types into
+least 8 characters, at most three accounts from one address at once and then one an hour. A
+taken name is never reported as taken: every refusal is the game's "refuses your combination of
+username and password", so nobody learns which names exist. Creating an account here prints an access code, which the player types into
 the game's password field:
 
 ```sh
@@ -291,8 +301,17 @@ s3lobby chat-theme add "Tactics" --description "Talk about strategies"
 s3lobby chat-theme add "Schweiz" --language German   # shown to German games only
 s3lobby board add-theme English "Tournaments"
 s3lobby board post 1 --title "Saturday cup" --text "8 pm, 1 vs 1"
+s3lobby board move-theme 1 up            # the board's order, as dragging on the web
+s3lobby board hide-message 3             # hidden from the game, kept on the server
 s3lobby setting list
 ```
+
+The ChatZone always lists the theme "General", which cannot be changed or removed: the game joins
+the theme it was in last as soon as the tab opens and fails if it is gone. A new lobby also starts
+with a Meeting Room, a Beginners room and one room per language (Deutsch, English, Français,
+Italiano, Polski, Español), each shown only to games of that language; admins may remove them. The
+game names its language when it connects. On the board, new messages come first, and the
+server's own Liga theme starts on top; it can be hidden but not removed.
 
 The Home tab shows the news for the game's language (German, or the other text for every other
 language) and a statistics table of players and games. An advert banner can be shown too: the game
@@ -315,14 +334,15 @@ s3lobby setting set welcome_message "Welcome to our LAN lobby!"
 s3lobby setting set mark_admins true    # admins' rows green in the game's member lists
 ```
 
-In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
+In the game, players can type `/who`, `/clan`, `/net` and `/help` into the chat. Admins also have
 `/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces);
 each waits for `/confirm CODE` with a code the server shows only to the admin.
 Answers and announcements show as `[Server]` lines. Match reports the game sends after a game are
 stored in the database.
 
-A removed player (a kick, a ban, a deleted account) gets the reason as a server line and is
-disconnected within a second; the game then says the connection to the lobby server dropped. A
+A removed player (a kick, a ban, a deleted account) gets the reason as a server line ("Reason:
+..." or "No reason given."), leaves every room at once, and is disconnected a few seconds later,
+time enough to read the line; the game then says the connection to the lobby server dropped. A
 kicked player may log on again, a banned one is refused until the ban ends. When the server stops,
 every player is told at once instead of waiting a minute for a timeout.
 
@@ -342,6 +362,8 @@ s3lobby ladder standings --ladder clanliga --season "Autumn Cup" --format json
 s3lobby ladder results --state disputed
 s3lobby ladder decide 42 --winner 1 --by Alice
 s3lobby ladder void 42 --reason "played on a broken map"
+s3lobby ladder show 42                      # one game's evaluation, step by step
+s3lobby ladder stats --of maps              # races and maps: played, won, match length
 s3lobby ladder season add "Autumn Cup" --start 2026-10-01 --end 2026-11-30 --counts liga
 s3lobby setting set ladder_enabled true      # tell the game results are stored (untried)
 ```
@@ -354,21 +376,34 @@ about a decided dispute (and, with `ladder_logon_line`, the player's place). Sta
 also come out as JSON or CSV (`--format`), for tools of your own. Until `ladder_enabled` is on, the
 game is told "Game not valid for ladder." and players hear that ladder games are not ranked, while
 the server ranks in the background; with it on, the game shows "Game status stored at the Lobby
-server." and players hear their result after the match.
+server." and players hear their result after the match. The public Ladder page has the
+standings, a rating chart, the last results and how often each race and map is played and wins;
+each player's page has their own rating over time, races and games.
 
 Every command takes `--database` and works while the server runs. The web interface below does
 the same from a browser.
 
 ## Web interface
 
-A small web application on the same database, in two parts. The public pages, the live lobby and
-the ladder, show everyone the same, logged on or not. Everything for admins lives under `/admin`,
-with its own start page (is the server running, disputed ladder games, the latest games) and its
-own navigation: a live lobby with each player's address and reachability, and pages to manage accounts and access codes, clans, news, chat themes, the message board, settings
-and announcements, to remove players from the running lobby, and to look through past games and
-match reports: each game with the setup its host chose (type, map, teams, computer opponents,
-player limit, Amazons, version), who joined it, when its match started and how it ended, and
-every report decoded field by field, and a page per game with its teams and winners.
+A small web application on the same database, in two parts. The public pages, the live lobby, the
+ladder and a page per player (`/players/NAME`), show everyone the same, logged on or not.
+Everything for admins lives under `/admin`, with its own start page (is the server running,
+disputed ladder games, the latest games) and a menu per topic (People, Content, Play, Ladder,
+Settings):
+
+- a live lobby with each player's address and reachability, a search, and Message (a server line
+  only that player sees), Kick and Ban for each player online;
+- accounts with access codes, bans and admin rights, and clans; long lists come in pages of 50,
+  accounts with a name search;
+- the Home tab news, the chat themes, and the message board, put in order by dragging or with Up
+  and Down, themes and messages hidden from the game or shown again;
+- settings, and announcements with whom each line was for and whether it arrived;
+- past games and match reports: each game with the setup its host chose (type, map, teams,
+  computer opponents, player limit, Amazons, version), who joined it, when its match started and
+  how it ended, its ladder result, and every report decoded field by field;
+- the ladder: disputed games to decide or void, custom seasons, and the ladder's settings.
+
+Kicks, bans, removals and the ladder's decisions ask for a confirmation in a dialog first.
 
 ```sh
 .venv/bin/pip install '.[web]'
@@ -376,7 +411,8 @@ export S3LOBBY_WEB_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex
 .venv/bin/s3lobby web --database s3lobby.sqlite3
 ```
 
-Then open http://127.0.0.1:8080. The live lobby shows who is online, the open games and chat
+Then open http://127.0.0.1:8080 for the public pages and http://127.0.0.1:8080/admin for the admin
+area. The live lobby shows who is online, the open games and chat
 groups and who is in which room, refreshed every few seconds; the running server writes that state
 to the database once a second. Admins log on with their player name and one of their access codes,
 the same pair as in the game; only accounts with admin rights get in. A new access code is shown
@@ -390,6 +426,7 @@ once, right after it is made.
 | `--secure-cookies` | off | send the session cookie over HTTPS only |
 | `--behind-proxy` | off | take the client address from the reverse proxy's `X-Forwarded-For` |
 | `--dev` | off | development mode: every admin also logs on with the password `1234`, from this machine and its LAN only; refused together with `--behind-proxy` |
+| `--verbose` | off | log every request |
 
 `S3LOBBY_WEB_SECRET` signs the session cookie; without it admins are logged out whenever the web
 interface restarts. `s3lobby web` uses Flask's own server, which is fine on a LAN. To reach the
@@ -403,10 +440,58 @@ S3LOBBY_WEB_BEHIND_PROXY=1 gunicorn "s3lobby.web.app:create_app_from_environment
 
 ## Screenshots
 
-The screenshots show a demo lobby. Names in green and blue are the ones the game's member lists
-draw in those colours.
+The screenshots show a demo lobby with made-up players. Names in green and blue are the ones the
+game's member lists draw in those colours.
 
 <table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/ladder-dark.png">
+        <img src="docs/images/ladder-light.png" alt="The public Ladder page: the top three, a rating chart, the standings with form and win rate, the last results, and races and maps">
+      </picture>
+      <p align="center"><b>Ladder</b>: standings, ratings, last results, races and maps.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/player-dark.png">
+        <img src="docs/images/player-light.png" alt="A player's public page: place and rating, record, rating over time, the races played and the games with opponents and results">
+      </picture>
+      <p align="center"><b>A player</b>: rating over time, races and games.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/admin-start-dark.png">
+        <img src="docs/images/admin-start-light.png" alt="The admin start page: whether the server runs, players online, disputed ladder games and the latest games">
+      </picture>
+      <p align="center"><b>Admin start</b>: the server, disputes, latest games.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/admin-lobby-dark.png">
+        <img src="docs/images/admin-lobby-light.png" alt="The admin live lobby: each player with address, reachability and the buttons Message, Kick and Ban, and a form to message one player">
+      </picture>
+      <p align="center"><b>Admin lobby</b>: Message, Kick and Ban for each player.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
+        <img src="docs/images/board-light.png" alt="The message board page: themes and messages in the order the game shows them, with Up, Down, Hide and Remove, the server's Ladder theme on top">
+      </picture>
+      <p align="center"><b>Message board</b>: drag into order, hide or show.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/chat-themes-dark.png">
+        <img src="docs/images/chat-themes-light.png" alt="The chat themes page: General built in, the default rooms with the language each is shown to, and the form for a new theme">
+      </picture>
+      <p align="center"><b>Chat themes</b>: General built in, rooms per language.</p>
+    </td>
+  </tr>
   <tr>
     <td width="50%">
       <picture>
@@ -418,18 +503,18 @@ draw in those colours.
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/game-details-dark.png">
-        <img src="docs/images/game-details-light.png" alt="A game's page: when it was opened, started, decided and closed, the winner, the teams with slot, race and lobby id, and the setup">
+        <img src="docs/images/game-details-light.png" alt="A game's page: when it was opened, started, decided and closed, the winner, its ladder result, the teams with slot, race and lobby id, and the setup">
       </picture>
-      <p align="center"><b>A game</b>: timeline, winners, teams, setup and reports.</p>
+      <p align="center"><b>A game</b>: timeline, winners, ladder result, teams and setup.</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/account-dark.png">
-        <img src="docs/images/account-light.png" alt="An account's page: its access codes, the form for a new code, and the games it joined with team, race and result">
+        <img src="docs/images/account-light.png" alt="An account's page: its access codes, clan and rights, ban, and the games it joined with team, race and result">
       </picture>
-      <p align="center"><b>An account</b>: access codes and the games it played.</p>
+      <p align="center"><b>An account</b>: access codes, clan, rights, ban and games.</p>
     </td>
     <td width="50%">
       <picture>
@@ -576,6 +661,9 @@ The code follows the same layers:
 | `s3lobby/groups.py` | one group (room, game or chat group) and the rules about groups |
 | `s3lobby/logon.py` | who may log on: accounts, access codes, bans, limits, development mode |
 | `s3lobby/commands.py` | the chat commands (`/who`, `/clan`, `/announce`, `/kick`, `/ban`, ...) |
+| `s3lobby/ladder.py` | the ladder's rules as pure functions: when a game counts, Elo, seasons, standings |
+| `s3lobby/ladder_book.py` | the ladder on the database: stores results, builds the views every front end shows |
+| `s3lobby/ladder_admin.py`, `s3lobby/ladder_texts.py` | `s3lobby ladder`, and the texts the ladder writes into the board, the news and the chat |
 | `s3lobby/server.py` | the UDP socket and one connection per client |
 | `s3lobby/addresses.py` | the address each player is shown to another, so chat and joins can reach it |
 | `s3lobby/upnp.py`, `s3lobby/forwarding.py` | port forwarding on the router by UPnP (`--upnp`) |
