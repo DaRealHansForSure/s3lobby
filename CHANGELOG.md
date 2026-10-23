@@ -32,6 +32,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   logon that chat typed there reaches nobody, a bug of the game itself.
 - `scripts/stop.sh` stops every running lobby server and web interface cleanly, `--force`
   kills what still runs after ten seconds.
+- `scripts/start.sh` starts the lobby server and the web interface together in the background,
+  with `--dev` for development mode, and checks that both came up.
 - `s3lobby serve --dev`: every account also logs on with the password `1234`, from this machine
   and its LAN only, for testing with the game; it refuses to start with `--public-host` or `--upnp`.
   It also accepts several players with the same serial number, whatever `unique_serial_numbers`
