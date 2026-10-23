@@ -131,11 +131,21 @@ def run_admin(options: argparse.Namespace) -> int:
 
 
 def configure_logging(is_verbose: bool, log_file: str | None) -> None:
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    """INFO on the console. is_verbose adds every datagram at DEBUG: into the log file when there is
+    one, so the console stays readable while the file keeps the full detail for checking a run
+    against the game, and onto the console only when there is no file to take it."""
+    detail_level = logging.INFO
+    if is_verbose:
+        detail_level = logging.DEBUG
+    console = logging.StreamHandler()
+    console.setLevel(detail_level)
+    handlers: list[logging.Handler] = [console]
     if log_file:
-        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
-    level = logging.DEBUG if is_verbose else logging.INFO
-    logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_TIME_FORMAT, handlers=handlers)
+        console.setLevel(logging.INFO)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(detail_level)
+        handlers.append(file_handler)
+    logging.basicConfig(level=detail_level, format=LOG_FORMAT, datefmt=LOG_TIME_FORMAT, handlers=handlers, force=True)
     # asyncio announces its event loop selector at debug level; that is noise in this log.
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
@@ -189,7 +199,11 @@ def add_serve_command(commands: argparse._SubParsersAction, database_option: arg
         help=f"development mode: every account also logs on with the password {DEVELOPMENT_PASSWORD}, "
         "from this machine and its LAN only; never on a server others can reach",
     )
-    serve.add_argument("--verbose", action="store_true", help="log every datagram (secrets removed)")
+    serve.add_argument(
+        "--verbose",
+        action="store_true",
+        help="log every datagram (secrets removed): into the --log-file only when one is given, the console stays at INFO",
+    )
     serve.add_argument("--log-file", help="also write the log to this file")
 
 

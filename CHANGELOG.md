@@ -34,6 +34,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Changed
 
+- `s3lobby serve --verbose --log-file FILE` writes the datagrams only into the file; the console
+  shows INFO, so it stays readable during a test run.
 - A match report without a winner says "No winner yet" instead of "Match started": a game with a
   single team names its winner already in the report sent at the start.
 

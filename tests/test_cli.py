@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import io
+import logging
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from s3lobby.cli import EXIT_FAILURE, EXIT_SUCCESS, main
+from s3lobby.cli import EXIT_FAILURE, EXIT_SUCCESS, configure_logging, main
 from s3lobby.database import ACCESS_CODE_LENGTH, LobbyDatabase, Setting
 
 
@@ -109,6 +110,50 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(exit_code, EXIT_SUCCESS)
         _, listing, _ = self.run_command("board", "list")
         self.assertIn("Cup", listing)
+
+
+
+class LoggingLevelTest(unittest.TestCase):
+    """The console stays at INFO while a log file takes the datagrams of --verbose."""
+
+    def setUp(self) -> None:
+        root = logging.getLogger()
+        saved_handlers = list(root.handlers)
+        saved_level = root.level
+
+        def restore() -> None:
+            for handler in root.handlers:
+                handler.close()
+            root.handlers = saved_handlers
+            root.setLevel(saved_level)
+
+        self.addCleanup(restore)
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.log_file = str(Path(self.folder.name) / "lobby.log")
+
+    def levels(self) -> tuple[int | None, int | None]:
+        """The console's level and the file's (None without a file)."""
+        console_level = None
+        file_level = None
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, logging.FileHandler):
+                file_level = handler.level
+            else:
+                console_level = handler.level
+        return console_level, file_level
+
+    def test_verbose_with_a_file_keeps_the_console_at_info(self) -> None:
+        configure_logging(is_verbose=True, log_file=self.log_file)
+        self.assertEqual(self.levels(), (logging.INFO, logging.DEBUG))
+
+    def test_verbose_without_a_file_shows_the_detail_on_the_console(self) -> None:
+        configure_logging(is_verbose=True, log_file=None)
+        self.assertEqual(self.levels(), (logging.DEBUG, None))
+
+    def test_without_verbose_everything_is_info(self) -> None:
+        configure_logging(is_verbose=False, log_file=self.log_file)
+        self.assertEqual(self.levels(), (logging.INFO, logging.INFO))
 
 
 if __name__ == "__main__":
