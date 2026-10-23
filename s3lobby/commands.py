@@ -52,7 +52,7 @@ from s3lobby.constants import (
     MAX_GROUP_TEXT_LENGTH,
     MIN_BAN_HOURS,
 )
-from s3lobby.database import DatabaseError, LobbyDatabase, is_whole_number_text, utc_now
+from s3lobby.database import DatabaseError, LobbyDatabase, is_whole_number_text, utc_now, with_reason
 from s3lobby.guards import RateLimiter
 from s3lobby.ladder import INFINITE_SEASON, Season
 from s3lobby.ladder_book import CLANLIGA, LIGA, LadderBook, StandingRow
@@ -434,9 +434,7 @@ def describe_network(address: Address, reachability: Reachability = Reachability
 
 def kick_reason(reason: str) -> str:
     """What a kicked player is told, with the admin's reason when there is one."""
-    if reason:
-        return f"{KICK_REASON_PREFIX}: {reason}"
-    return f"{KICK_REASON_PREFIX}."
+    return with_reason(KICK_REASON_PREFIX, reason)
 
 
 def split_leading_name(argument: str, is_name: Callable[[str], bool]) -> tuple[str, str]:

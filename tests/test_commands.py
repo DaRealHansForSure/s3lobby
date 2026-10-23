@@ -121,7 +121,7 @@ class ChatCommandsTest(unittest.TestCase):
         boss = Sender(self.boss.account_id, "Boss")
         answer = self.confirm(boss, self.commands.answer(boss, "/kick roman legion spamming the chat"))
         self.assertEqual(answer, ("Removed Roman Legion from the lobby.",))
-        self.assertEqual(self.kicked, [(legion.account_id, "An admin removed you from the lobby: spamming the chat")])
+        self.assertEqual(self.kicked, [(legion.account_id, "An admin removed you from the lobby. Reason: spamming the chat")])
 
     def test_admin_command_waits_for_its_code(self) -> None:
         """A datagram forged from an admin's address is sent blind; without the code it does nothing."""

@@ -60,6 +60,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - A kicked or banned player can read the reason: the connection now closes a few seconds after
   the reason line instead of at once, which sent the game straight to its "connection dropped"
   dialog (seen in a run). The others still see the player leave at once.
+- The kick and ban lines name the admin's reason as "Reason: ...", or say "No reason given."
+  when there is none; a bare colon after the ban's end date was easy to miss.
 
 ### Removed
 
