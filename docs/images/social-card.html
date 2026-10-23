@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- GitHub's social preview for the repository (Settings > Social preview), 1280 x 640.
+     Everything that matters stays 80 px inside the edges, the 40 pt border GitHub recommends,
+     since sites crop the card differently. Colours are the web interface's tokens
+     (s3lobby/web/static/tokens.css, dark theme) and the logo's navy and gold; fonts are the
+     system fonts the web interface uses. Render it again with:
+       google-chrome --headless=new --disable-gpu --hide-scrollbars --window-size=1280,640 \
+         --screenshot=docs/images/social-card.png file://$PWD/docs/images/social-card.html -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>s3lobby social card</title>
+<style>
+  :root {
+    --canvas: #191b1a;
+    --surface: #222423;
+    --border: #3a3d3b;
+    --text: #e8eae9;
+    --text-muted: #a9aeab;
+    --navy: #1b3a6b;
+    --gold: #dec470;
+    --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    background: var(--canvas);
+    color: var(--text);
+    font-family: var(--font-ui);
+    display: grid;
+    place-items: center;
+    /* A thin gold rule along the top and the bottom, like the logo's outline. */
+    border-top: 8px solid var(--gold);
+    border-bottom: 8px solid var(--navy);
+  }
+  .card {
+    width: 1120px;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 64px;
+    align-items: center;
+  }
+  .logo { width: 300px; height: 300px; display: block; }
+  h1 {
+    font-size: 104px;
+    font-weight: 800;
+    letter-spacing: -2px;
+    line-height: 1;
+  }
+  .tagline {
+    margin-top: 20px;
+    font-size: 38px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--gold);
+  }
+  .details {
+    margin-top: 24px;
+    font-size: 27px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+  .tags {
+    margin-top: 32px;
+    display: flex;
+    gap: 12px;
+  }
+  .tag {
+    font-size: 22px;
+    padding: 6px 14px;
+    border: 2px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="logo.svg" alt="">
+    <div>
+      <h1>s3lobby</h1>
+      <p class="tagline">The online lobby of The Settlers III, back again</p>
+      <p class="details">A lobby server for the unmodified 1998 game: rooms, chat, games,
+        clans, an Elo ladder and a web interface.</p>
+      <div class="tags">
+        <span class="tag">Python</span>
+        <span class="tag">SQLite or MySQL</span>
+        <span class="tag">MIT licensed</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
