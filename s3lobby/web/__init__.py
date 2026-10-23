@@ -1,6 +1,6 @@
 """The web interface: the live lobby for everyone, administration for the lobby's admins.
 
-A Flask application on the same SQLite file the server uses. It never talks to the server
+A Flask application on the same database the server uses. It never talks to the server
 directly: it shows the live lobby the server writes to the database (s3lobby/live.py) and writes
 accounts, clans, news, themes, settings and announcements, which the server reads from there.
 

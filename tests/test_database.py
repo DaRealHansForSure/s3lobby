@@ -1,4 +1,7 @@
-"""The SQLite database: accounts and access codes, clans, news, themes, board, statistics."""
+"""The database: accounts and access codes, clans, news, themes, board, statistics.
+
+Runs on SQLite, or on MySQL when S3LOBBY_TEST_DATABASE names one (tests/databases.py).
+"""
 
 from __future__ import annotations
 
@@ -12,13 +15,13 @@ from s3lobby.constants import MAX_ANNOUNCEMENT_LENGTH, MAX_GROUP_TEXT_LENGTH
 from s3lobby.database import (
     ACCESS_CODE_ALPHABET,
     ACCESS_CODE_LENGTH,
-    SCHEMA_UPGRADES,
-    SCHEMA_VERSION,
     DatabaseError,
     LobbyDatabase,
     Setting,
     is_valid_player_name,
 )
+from s3lobby.migrations import latest_version, load_migrations
+from tests.databases import database_location_for_test
 
 START = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
 
@@ -39,7 +42,7 @@ class SteppingClock:
 class LobbyDatabaseTest(unittest.TestCase):
     def setUp(self) -> None:
         self.clock = SteppingClock()
-        self.database = LobbyDatabase(":memory:", clock=self.clock)
+        self.database = LobbyDatabase(database_location_for_test(":memory:"), clock=self.clock)
 
     def tearDown(self) -> None:
         self.database.close()
@@ -97,7 +100,7 @@ class LobbyDatabaseTest(unittest.TestCase):
         account = self.database.create_account("Alice")
         self.database.add_access_code(account.account_id, "SAMECODE2345")
         self.database.add_access_code(account.account_id, "SAMECODE2345")
-        stored = [row[0] for row in self.database._connection.execute("SELECT code_hash FROM access_codes")]
+        stored = [row["code_hash"] for row in self.database._backend.fetch_all("SELECT code_hash FROM access_codes")]
         self.assertTrue(all(value.startswith("scrypt$") for value in stored))
         self.assertTrue(all("SAMECODE2345" not in value for value in stored))
         self.assertNotEqual(stored[0], stored[1], "each code gets its own salt")
@@ -258,14 +261,14 @@ class LobbyDatabaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "old.sqlite3"
             old_database = sqlite3.connect(path)
-            old_database.executescript(SCHEMA_UPGRADES[1])
+            old_database.executescript(load_migrations("sqlite")[0].sql)
             old_database.execute("INSERT INTO accounts (name, created_at) VALUES ('Alice', '2026-10-01T00:00:00+00:00')")
             old_database.execute("PRAGMA user_version = 1")
             old_database.commit()
             old_database.close()
 
             upgraded = LobbyDatabase(path)
-            self.assertEqual(upgraded.schema_version, SCHEMA_VERSION)
+            self.assertEqual(upgraded.schema_version, latest_version("sqlite"))
             self.assertIsNotNone(upgraded.find_account("Alice"))
             upgraded.queue_announcement("works")
             self.assertEqual(upgraded.take_pending_announcements(), ["works"])
@@ -279,7 +282,7 @@ class LobbyDatabaseTest(unittest.TestCase):
             first.close()
             reopened = LobbyDatabase(path)
             self.assertIsNotNone(reopened.find_account("Alice"))
-            self.assertEqual(reopened.schema_version, SCHEMA_VERSION)
+            self.assertEqual(reopened.schema_version, latest_version("sqlite"))
             reopened.close()
 
 

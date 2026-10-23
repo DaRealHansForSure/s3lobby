@@ -15,13 +15,20 @@ describe that layout.
 - `s3lobby/connection.py`: the reliable layer for one client. No network access, testable with a
   fake clock.
 - `s3lobby/lobby.py`: players, rooms, zones, games; one handler per lobby message type.
-- `s3lobby/database.py`: the SQLite file: accounts with access codes, clans, news, chat themes,
-  board, sessions, games, game reports, settings. Schema versioned with PRAGMA user_version; a
-  schema change adds an entry to SCHEMA_UPGRADES.
+- `s3lobby/database.py`: LobbyDatabase, everything the lobby stores: accounts with access codes,
+  clans, news, chat themes, board, sessions, games, game reports, settings. Its SQL is written once
+  with `?` placeholders in the part of SQL that SQLite and MySQL share.
+- `s3lobby/backends.py`: where the data lives. `SqliteBackend` (a file, the default) and
+  `MysqlBackend` (MySQL 8.0.19+ or MariaDB 10.5+ through PyMySQL), chosen by the database location:
+  a path, or `mysql://user@host/name`. Placeholders, transactions, dict rows, upserts, key errors.
+- `s3lobby/migrations.py` and `s3lobby/schema/<dialect>/NNNN_name.sql`: the schema as numbered
+  migration files, recorded with checksums in the table `schema_migrations`. A schema change adds
+  the next number to every dialect folder (same number, same meaning); released files are never
+  edited. Old SQLite files that only had PRAGMA user_version are adopted.
 - `s3lobby/server.py`, `s3lobby/cli.py`, `s3lobby/admin.py`: asyncio UDP server, command line,
   administration subcommands.
 - `s3lobby/live.py`: the running lobby as JSON; the server writes it to the database once a second
-  when it changed, the web interface reads it. The two processes share nothing but the SQLite file.
+  when it changed, the web interface reads it. The two processes share nothing but the database.
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,
   `templates/`, `static/`). Public live lobby, everything else for admins only.
 - `docs/protocol.md`: the protocol as read from the game, with the S3.EXE address of every fact.
@@ -36,11 +43,18 @@ Run from this folder:
 - Administration: `python3 -m s3lobby account add NAME` and the other subcommands (`--help`)
 - Web interface: `.venv/bin/python -m s3lobby web --database s3lobby.sqlite3` (needs Flask)
 - All tests including the web ones: `.venv/bin/python -m unittest` (a `.venv` with `flask`)
+- The database and session tests against MySQL or MariaDB (needs `pymysql`; drops every table of
+  that database first): `S3LOBBY_TEST_DATABASE=mysql://user:password@127.0.0.1:3306/s3lobby_test
+  .venv/bin/python -m unittest`. A throwaway server: `podman run -d --rm -p 127.0.0.1:3306:3306
+  -e MYSQL_ROOT_PASSWORD=... -e MYSQL_DATABASE=s3lobby_test -e MYSQL_USER=... -e MYSQL_PASSWORD=...
+  docker.io/library/mysql:8.4` (or `mariadb:11.4` with `MARIADB_` variables).
+- Database: `python3 -m s3lobby database status|migrate|copy --to LOCATION`
 
 Python 3.10 or newer. The server and the command line use the standard library only; do not add
-dependencies. The one exception is Flask for `s3lobby/web/`, as the optional `web` extra: nothing
+dependencies. Two optional extras are the exceptions. Flask for `s3lobby/web/` (`web`): nothing
 outside `s3lobby/web/` imports it, `s3lobby/web/__init__.py` imports nothing (so test discovery
-works without Flask), and `cli.py` imports the web app only inside the `web` command.
+works without Flask), and `cli.py` imports the web app only inside the `web` command. PyMySQL for
+MySQL (`mysql`): imported only inside `MysqlBackend.__init__`, so SQLite needs nothing extra.
 
 ## Rules
 

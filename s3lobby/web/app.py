@@ -20,7 +20,7 @@ from s3lobby.web.storage import close_database
 from s3lobby.web.texts import format_moment, format_relative_moment
 
 # Environment variables read by create_app_from_environment, for running under a WSGI server.
-DATABASE_PATH_VARIABLE = "S3LOBBY_DATABASE"
+DATABASE_LOCATION_VARIABLE = "S3LOBBY_DATABASE"
 SECRET_KEY_VARIABLE = "S3LOBBY_WEB_SECRET"
 SECURE_COOKIES_VARIABLE = "S3LOBBY_WEB_SECURE_COOKIES"
 BEHIND_PROXY_VARIABLE = "S3LOBBY_WEB_BEHIND_PROXY"
@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 
 def create_app(
-    database_path: str,
+    database_location: str,
     secret_key: str | None = None,
     secure_cookies: bool = False,
     is_behind_proxy: bool = False,
@@ -57,7 +57,7 @@ def create_app(
         log.warning("no %s set: admins are logged out whenever the web interface restarts", SECRET_KEY_VARIABLE)
         secret_key = secrets.token_hex(SECRET_KEY_BYTES)
     app.config.update(
-        S3LOBBY_DATABASE=str(database_path),
+        S3LOBBY_DATABASE=str(database_location),
         SECRET_KEY=secret_key,
         MAX_CONTENT_LENGTH=MAX_REQUEST_BYTES,
         PERMANENT_SESSION_LIFETIME=SESSION_LIFETIME,
@@ -108,7 +108,7 @@ def create_app_from_environment() -> Flask:
             gunicorn "s3lobby.web.app:create_app_from_environment()"
     """
     return create_app(
-        database_path=os.environ.get(DATABASE_PATH_VARIABLE, DEFAULT_DATABASE_PATH),
+        database_location=os.environ.get(DATABASE_LOCATION_VARIABLE, DEFAULT_DATABASE_PATH),
         secret_key=os.environ.get(SECRET_KEY_VARIABLE),
         secure_cookies=is_variable_set(SECURE_COOKIES_VARIABLE),
         is_behind_proxy=is_variable_set(BEHIND_PROXY_VARIABLE),

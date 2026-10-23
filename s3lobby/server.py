@@ -20,6 +20,7 @@ import socket
 import time
 from dataclasses import dataclass
 
+from s3lobby.backends import describe_location
 from s3lobby.connection import ReliableConnection
 from s3lobby.constants import (
     ANNOUNCEMENT_POLL_INTERVAL_SECONDS,
@@ -66,7 +67,7 @@ class ServerSettings:
     port: int = DEFAULT_SERVER_PORT
     server_name: str = DEFAULT_SERVER_NAME
     public_host: str = ""
-    database_path: str = DEFAULT_DATABASE_PATH
+    database_location: str = DEFAULT_DATABASE_PATH
 
 
 class LobbyServer(asyncio.DatagramProtocol):
@@ -282,9 +283,9 @@ def local_ip_facing(client_address: Address) -> str:
 
 async def start_server(settings: ServerSettings) -> LobbyServer:
     """Open the database, bind the socket and start housekeeping; the server then runs until
-    close() is awaited. The database is opened here, on the event loop's thread, because SQLite
-    connections must stay on the thread that opened them."""
-    database = LobbyDatabase(settings.database_path)
+    close() is awaited. The database is opened here, on the event loop's thread, because a
+    database connection (SQLite or MySQL) must stay on the thread that opened it."""
+    database = LobbyDatabase(settings.database_location)
     # Nobody is connected at start: whatever a previous run left open has ended.
     database.close_open_sessions_and_games()
     loop = asyncio.get_running_loop()
@@ -305,6 +306,7 @@ async def serve_forever(settings: ServerSettings) -> None:
     server = await start_server(settings)
     host, port = server.bound_address
     log.info("Settlers III lobby server %r on UDP %s:%d", settings.server_name, host, port)
+    log.info("database: %s", describe_location(settings.database_location))
     try:
         await asyncio.Event().wait()
     finally:

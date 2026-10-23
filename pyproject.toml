@@ -9,7 +9,7 @@ description = "Lobby server for the online lobby of the original The Settlers II
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
-keywords = ["settlers", "settlers-3", "lobby", "server", "retro-gaming"]
+keywords = ["settlers", "settlers-3", "lobby", "server", "retro-gaming", "mysql", "sqlite"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -19,14 +19,18 @@ classifiers = [
 [project.optional-dependencies]
 # The web interface (s3lobby web); the lobby server itself needs nothing beyond the standard library.
 web = ["flask>=3.0"]
+# MySQL or MariaDB instead of the SQLite file (--database mysql://...). The rsa extra lets PyMySQL
+# log on with caching_sha2_password, MySQL 8's default, over a connection without TLS.
+mysql = ["pymysql[rsa]>=1.1"]
 
 [project.scripts]
 s3lobby = "s3lobby.cli:main"
 
 [tool.setuptools]
-packages = ["s3lobby", "s3lobby.web"]
+packages = ["s3lobby", "s3lobby.schema", "s3lobby.web"]
 
 [tool.setuptools.package-data]
+"s3lobby.schema" = ["sqlite/*.sql", "mysql/*.sql"]
 "s3lobby.web" = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.setuptools.dynamic]
