@@ -97,9 +97,10 @@ files: point the game at your server and log on.
 > DirectPlay (`winetricks directplay`), the GOG "Ultimate Collection" of The Settlers III in German
 > (game version 1.60), the server and the game on the same machine, at most two copies of the game
 > at once. One more machine in the same LAN ran the same game on Windows 10 Pro 64-bit (build
-> 19045) against that server. The automated tests also ran against MySQL 8.4 and MariaDB 11.4 in
+> 19045) against that server, and played a match with the Linux machine over the game's own
+> DirectPlay connection. The automated tests also ran against MySQL 8.4 and MariaDB 11.4 in
 > containers. Not tried yet: other releases or languages of the game, a server on Windows or
-> macOS, players on different networks, and a match between players on different machines.
+> macOS, and players on different networks.
 > Reports from other systems are welcome.
 
 Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine 10 on Linux, and
@@ -121,13 +122,16 @@ from Windows 10 in the LAN where noted:
   `scripts/game-language.sh` reporting that language
 - from Windows 10: logon, a chat group, a game opened from it and listed in a zone, a match with
   its reports, coming back, and the MessageZone with a board message read
+- two players on two machines, Windows 10 and Linux under Wine, in one match over the game's own
+  DirectPlay connection
 
 Implemented from the game's code, not yet tried with the real game: full games, another player
 joining a chat group with its password, the Home tab's news and statistics, the banner, the other
 chat commands, the game's Create Player button (`allow_create_player`), chat themes shown only
 to one language, and the ladder with the game's reports from two machines.
 
-Not tested yet with players on two machines: the game's own DirectPlay connection between them.
+Not tested yet: players on different networks, where the DirectPlay connection has to cross the
+internet and its routers.
 
 ## Known issues
 
@@ -679,8 +683,8 @@ The code follows the same layers:
 
 Planned or wished for, roughly in order:
 
-- **Tests with the real game** for everything marked as untried above, and with two players on
-  two machines.
+- **Tests with the real game** for everything marked as untried above, and with players on
+  different networks.
 - **A run with the real game for the ladder**: a Liga match between two machines, one where the
   loser quits, a Clanliga 2 on 2, and `ladder_enabled` on, before it can be on by default
   ([docs/ladder.md](docs/ladder.md), "To confirm in a run first").
