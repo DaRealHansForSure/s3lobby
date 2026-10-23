@@ -10,7 +10,12 @@ from datetime import timedelta
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from s3lobby.constants import MAX_ANNOUNCEMENT_LENGTH, MAX_GROUP_TEXT_LENGTH, MAX_TEXT_MESSAGE_BYTES
+from s3lobby.constants import (
+    DEVELOPMENT_PASSWORD,
+    MAX_ANNOUNCEMENT_LENGTH,
+    MAX_GROUP_TEXT_LENGTH,
+    MAX_TEXT_MESSAGE_BYTES,
+)
 from s3lobby.database import PLAYER_NAME_PATTERN, TRUE_SETTING_VALUES
 from s3lobby.server import DEFAULT_DATABASE_PATH
 from s3lobby.web import accounts, auth, content, games, lobby_view, server_settings
@@ -42,6 +47,7 @@ def create_app(
     secret_key: str | None = None,
     secure_cookies: bool = False,
     is_behind_proxy: bool = False,
+    is_development_mode: bool = False,
 ) -> Flask:
     """The web application for one database file.
 
@@ -50,7 +56,8 @@ def create_app(
     interface is reached through HTTPS. is_behind_proxy takes the client address from the reverse
     proxy's X-Forwarded-For header; without it every client would seem to be the proxy, and the
     limit on failed logons would lock everyone out at once. Only set it when a proxy is in front:
-    otherwise any client could claim any address.
+    otherwise any client could claim any address. is_development_mode also lets admins log on with
+    DEVELOPMENT_PASSWORD from this machine and its LAN, as `s3lobby serve --dev` does for the game.
     """
     app = Flask(__name__)
     if not secret_key:
@@ -65,7 +72,14 @@ def create_app(
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=secure_cookies,
         S3LOBBY_HTTPS_ONLY=secure_cookies,
+        S3LOBBY_DEVELOPMENT_MODE=is_development_mode,
     )
+    if is_development_mode:
+        log.warning(
+            "DEVELOPMENT MODE: every admin also logs on with the password %r from this machine and its "
+            "LAN. Never run this where others can reach it.",
+            DEVELOPMENT_PASSWORD,
+        )
     if secure_cookies:
         # The __Host- prefix makes browsers refuse the cookie unless it is secure, host-only and
         # for path /, so a sibling subdomain cannot plant or overwrite it.

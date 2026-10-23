@@ -37,6 +37,15 @@ log = logging.getLogger(__name__)
 ALL_CHECKS_KEY = "all"
 
 
+def is_development_client(client_ip: str) -> bool:
+    """True for this machine and its LAN, the only places the development password works from."""
+    try:
+        ip = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
+
+
 @dataclass(frozen=True)
 class LobbyOccupancy:
     """Who is in the lobby right now, as far as a logon decision needs to know."""
@@ -120,11 +129,7 @@ class LogonCheck:
         from the internet never gets in with it, even if the mode was left on by mistake."""
         if not self._is_development_mode or logon.password != DEVELOPMENT_PASSWORD:
             return False
-        try:
-            ip = ipaddress.ip_address(client_ip)
-        except ValueError:
-            return False
-        return ip.is_loopback or ip.is_private
+        return is_development_client(client_ip)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         self._failures_by_ip.forget_quiet_keys(now_seconds)

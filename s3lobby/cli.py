@@ -92,12 +92,18 @@ def run_web_interface(options: argparse.Namespace) -> int:
     from s3lobby.web.app import create_app
 
     configure_logging(options.verbose, log_file=None)
+    if options.dev and options.behind_proxy:
+        # A reverse proxy means the interface is reachable from the internet; a shared, well-known
+        # password must never meet that.
+        log.error("--dev cannot be combined with --behind-proxy")
+        return EXIT_FAILURE
     try:
         app = create_app(
             database_location=options.database,
             secret_key=os.environ.get(WEB_SECRET_VARIABLE),
             secure_cookies=options.secure_cookies,
             is_behind_proxy=options.behind_proxy,
+            is_development_mode=options.dev,
         )
         # Never the interactive debugger, even with FLASK_DEBUG set: it would run code for anyone.
         app.run(host=options.host, port=options.port, threaded=True, debug=False, use_debugger=False, use_reloader=False)
@@ -386,6 +392,12 @@ def add_web_command(commands: argparse._SubParsersAction, database_option: argpa
         "--behind-proxy",
         action="store_true",
         help="take the client address from the reverse proxy's X-Forwarded-For header",
+    )
+    web.add_argument(
+        "--dev",
+        action="store_true",
+        help=f"development mode: every admin also logs on with the password {DEVELOPMENT_PASSWORD}, "
+        "from this machine and its LAN only; never where others can reach it",
     )
     web.add_argument("--verbose", action="store_true", help="log every request")
 
