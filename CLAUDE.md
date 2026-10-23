@@ -130,7 +130,9 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
   branch `release/X.Y.Z` from `develop` with one commit `chore(release): X.Y.Z` that sets
   `__version__` in `s3lobby/__init__.py` and moves the `Unreleased` part of `CHANGELOG.md` into a
   section for the version (Keep a Changelog: Added, Changed, Fixed, Security, then `Key commits`
-  with at most three linked commits that matter most, and the version links at the end). It is merged into `main` (`Merge branch 'release/X.Y.Z'`), tagged there with an annotated
+  with at most three commits that matter most, shown and linked by their 7 character short
+  SHA, and the version links at the end). It is merged into `main` (`Merge branch
+  'release/X.Y.Z'`), tagged there with an annotated
   `vX.Y.Z`, and merged back into `develop`. Every change worth telling admins adds a line under
   `Unreleased` in `CHANGELOG.md` in the same commit.
 - Identity of this repository (stored in its local git config, the whole history was rewritten
