@@ -192,7 +192,8 @@ password field:
 s3lobby account add Alice
 s3lobby account code Alice --label "laptop"     # another code, e.g. for a second PC
 s3lobby account revoke-codes Alice
-s3lobby account ban Alice --hours 24 --reason "spam"
+s3lobby account ban Alice --hours 24 --reason "spam"   # online or not; an online player is removed
+s3lobby account kick Alice --reason "spam"             # remove from the running lobby; may log on again
 s3lobby account admin Alice                      # may use the admin chat commands
 ```
 
@@ -233,11 +234,18 @@ A line for every player in the running lobby, and a welcome line after each logo
 ```sh
 s3lobby announce "Server restart at 22:00"
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
+s3lobby setting set mark_admins true    # admins' rows in another colour; not yet tried with the game
 ```
 
-In the game, players can type `/who`, `/clan` and `/help` into the chat; admins also `/announce
-TEXT`. Answers and announcements show as `[Server]` lines. Match reports the game sends after a
-game are stored in the database.
+In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
+`/announce TEXT`, `/kick NAME [REASON]` and `/ban NAME HOURS [REASON]` (names may contain spaces).
+Answers and announcements show as `[Server]` lines. Match reports the game sends after a game are
+stored in the database.
+
+A removed player (a kick, a ban, a deleted account) gets the reason as a server line and is
+disconnected within a second; the game then says the connection to the lobby server dropped. A
+kicked player may log on again, a banned one is refused until the ban ends. When the server stops,
+every player is told at once instead of waiting a minute for a timeout.
 
 Ladder games ("Liga", "Clanliga") can be opened and played, but they are not ranked: Blue Byte's
 server kept the ladder, this one does not. Their players get a server line saying so, and during
@@ -250,7 +258,8 @@ the same from a browser.
 
 A small web application on the same database: a live view of the lobby for everyone, and pages for
 admins to manage accounts and access codes, clans, news, chat themes, the message board, settings
-and announcements, and to look through past games and match reports.
+and announcements, to remove players from the running lobby, and to look through past games and
+match reports.
 
 ```sh
 .venv/bin/pip install '.[web]'
@@ -312,6 +321,13 @@ access code.
 - The lobby only brings players together. The match itself runs over DirectPlay directly between
   the players, so whoever hosts a game needs DirectPlay's ports open as well: TCP 47624 and
   TCP and UDP 2300 to 2400.
+- Chat also goes directly between the players, to the addresses the server hands out. The server
+  gives every player addresses it can reach: a player on the server's own machine is shown at the
+  machine's LAN address, and, with `--public-host` set, players in the server's LAN are shown to
+  internet players at the public address. For an internet player to reach a LAN player there, the
+  router must forward that player's UDP port (the game uses 3343, or the next free port) and, to
+  host games, DirectPlay's ports to that player's machine. A public host name is looked up again
+  every five minutes, so a dynamic DNS name works.
 
 ## Running the game on Linux with Wine
 
@@ -377,6 +393,7 @@ The code follows the same layers:
 | `s3lobby/guards.py` | rate limits and a throttled log against flooding senders |
 | `s3lobby/lobby.py` | players, rooms, zones and games, and the answer to every request |
 | `s3lobby/server.py` | the UDP socket and one connection per client |
+| `s3lobby/addresses.py` | the address each player is shown to another, so chat and joins can reach it |
 | `s3lobby/database.py` | everything stored: accounts, clans, lobby content, statistics, settings |
 | `s3lobby/backends.py` | SQLite and MySQL behind one interface, chosen by the database location |
 | `s3lobby/migrations.py`, `s3lobby/schema/` | the schema as numbered migration files per database |

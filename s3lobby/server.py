@@ -20,6 +20,7 @@ import socket
 import time
 from dataclasses import dataclass
 
+from s3lobby.addresses import ViewerAddresses
 from s3lobby.backends import describe_location
 from s3lobby.connection import ReliableConnection
 from s3lobby.constants import (
@@ -33,6 +34,7 @@ from s3lobby.constants import (
     MAX_CONNECTIONS,
     MAX_CONNECTIONS_PER_IP,
     MAX_MESSAGES_PER_BLOCK,
+    PUBLIC_HOST_REFRESH_SECONDS,
     WARNING_INTERVAL_SECONDS,
     MessageType,
 )
@@ -80,6 +82,9 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._transport: asyncio.DatagramTransport | None = None
         self._housekeeping_task: asyncio.Task[None] | None = None
         self._lobby = Lobby(settings.server_name, outbox=self, database=database)
+        # The public host's IP, looked up at start and again every PUBLIC_HOST_REFRESH_SECONDS.
+        self._public_ip: str | None = None
+        self._addresses = ViewerAddresses(local_ip_facing, lambda: self._public_ip)
         self._datagram_rate = RateLimiter(DATAGRAMS_PER_SECOND_PER_ADDRESS, DATAGRAM_BURST_PER_ADDRESS)
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
         # Nothing written yet: the first check writes at once.
@@ -121,11 +126,26 @@ class LobbyServer(asyncio.DatagramProtocol):
     # LobbyOutbox, used by the lobby to reach clients.
 
     def send(self, client_address: Address, message: EncodableMessage) -> None:
+        """Queue a message for a client, with every player and host address in it as that client
+        can reach it (addresses.py)."""
         connection = self._connections.get(client_address)
         if connection is None:
             log.warning("%s: no connection to send %s on", client_address, type(message).__name__)
             return
-        connection.queue_lobby_message(message)
+        connection.queue_lobby_message(self._addresses.message_for_viewer(message, client_address))
+
+    def close_connection(self, client_address: Address) -> None:
+        """End the connection from the server's side: whatever is queued for the client goes out
+        first, then CloseConnection in a block of its own, retried until the client acknowledges
+        it. Closing an open connection moves the client to state 4 and on to its logout
+        (PP.ReceivedCloseConnection 0x606050, ConnectionClosed 0x5cc840)."""
+        connection = self._connections.get(client_address)
+        if connection is None or connection.is_closing:
+            return
+        self._send_due_datagrams(connection)
+        connection.begin_closing(monotonic_ms())
+        self._send_due_datagrams(connection)
+        log.info("%s: connection closed by the server", client_address)
 
     def server_address_text_for(self, client_address: Address) -> str:
         """The "host:port" a client should log on to: the configured public host, or else the local
@@ -141,11 +161,32 @@ class LobbyServer(asyncio.DatagramProtocol):
 
     # Lifecycle.
 
+    async def look_up_public_host(self) -> None:
+        """Resolve the configured public host to the IP internet clients are given for players in
+        this network. A failed lookup keeps the last IP, and leaves the addresses unchanged when
+        there is none yet."""
+        if not self._settings.public_host:
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            addresses = await loop.getaddrinfo(self._settings.public_host, None, family=socket.AF_INET)
+        except OSError as error:
+            log.warning("cannot look up the public host %r: %s", self._settings.public_host, error)
+            return
+        public_ip = addresses[0][4][0]
+        if public_ip != self._public_ip:
+            log.info("public host %r is at %s", self._settings.public_host, public_ip)
+        self._public_ip = public_ip
+
     def start_housekeeping(self) -> None:
         self._housekeeping_task = asyncio.get_running_loop().create_task(self._run_housekeeping())
 
     async def close(self) -> None:
-        """Stop housekeeping and close the socket; open connections simply end."""
+        """Stop housekeeping, tell every client the connection ends, and close the socket. The
+        game shows "The connection to the lobby server dropped." at once instead of noticing the
+        silence a minute later. The CloseConnection goes out once, without waiting for answers:
+        a client that misses it still times out as before."""
+        self._close_every_connection()
         if self._housekeeping_task is not None:
             self._housekeeping_task.cancel()
             try:
@@ -160,11 +201,16 @@ class LobbyServer(asyncio.DatagramProtocol):
     async def _run_housekeeping(self) -> None:
         last_announcement_poll_seconds = time.monotonic()
         last_live_state_check_seconds = time.monotonic()
+        last_public_host_lookup_seconds = time.monotonic()
         while True:
             await asyncio.sleep(HOUSEKEEPING_INTERVAL_SECONDS)
+            if time.monotonic() - last_public_host_lookup_seconds >= PUBLIC_HOST_REFRESH_SECONDS:
+                last_public_host_lookup_seconds = time.monotonic()
+                await self.look_up_public_host()
             if time.monotonic() - last_announcement_poll_seconds >= ANNOUNCEMENT_POLL_INTERVAL_SECONDS:
                 last_announcement_poll_seconds = time.monotonic()
                 self._lobby.send_pending_announcements()
+                self._lobby.carry_out_pending_kicks()
             if time.monotonic() - last_live_state_check_seconds >= LIVE_STATE_WRITE_INTERVAL_SECONDS:
                 last_live_state_check_seconds = time.monotonic()
                 self.write_live_state_when_due(last_live_state_check_seconds)
@@ -205,8 +251,11 @@ class LobbyServer(asyncio.DatagramProtocol):
         if connection is None:
             return
         received = connection.receive_block(messages, monotonic_ms())
-        for message in received.lobby_messages:
-            self._lobby.handle_message(client_address, message)
+        # A connection the server closed has no player any more; what the client still sends
+        # before it sees the CloseConnection (a logon, a join) must not bring one back.
+        if not connection.is_closing:
+            for message in received.lobby_messages:
+                self._lobby.handle_message(client_address, message)
         if received.is_close_requested and not connection.is_closing:
             log.info("%s: connection closed by the client", client_address)
             connection.begin_closing(monotonic_ms())
@@ -255,6 +304,12 @@ class LobbyServer(asyncio.DatagramProtocol):
         del self._connections[client_address]
         self._lobby.forget_client(client_address)
 
+    def _close_every_connection(self) -> None:
+        if self._transport is None:
+            return
+        for client_address in list(self._connections):
+            self.close_connection(client_address)
+
     def _send_due_datagrams(self, connection: ReliableConnection) -> None:
         for datagram in connection.take_datagrams_to_send(monotonic_ms()):
             if log.isEnabledFor(logging.DEBUG):
@@ -297,6 +352,7 @@ async def start_server(settings: ServerSettings) -> LobbyServer:
     except OSError:
         database.close()
         raise
+    await server.look_up_public_host()
     server.start_housekeeping()
     server.write_live_state_when_due(time.monotonic())
     return server

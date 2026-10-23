@@ -223,6 +223,15 @@ class AccountPagesTest(WebInterfaceTestCase):
         self.assertIsNone(self.database.find_account(PLAYER_NAME))
 
 
+    def test_player_is_removed_from_the_running_lobby_but_not_the_admin(self) -> None:
+        """The web interface shares only the database with the server: it queues the kick."""
+        self.post(f"/accounts/{self.admin.account_id}/kick")
+        self.assertEqual(self.database.take_pending_kicks(), [])
+        self.post(f"/accounts/{self.player.account_id}/kick")
+        [kick] = self.database.take_pending_kicks()
+        self.assertEqual(kick.account_id, self.player.account_id)
+
+
 class ContentAndSettingsPagesTest(WebInterfaceTestCase):
     def setUp(self) -> None:
         super().setUp()

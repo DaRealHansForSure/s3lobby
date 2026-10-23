@@ -12,6 +12,7 @@ import argparse
 from datetime import timedelta
 from pathlib import Path
 
+from s3lobby.commands import kick_reason
 from s3lobby.database import Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
 
 
@@ -72,7 +73,13 @@ def ban_account(database: LobbyDatabase, options: argparse.Namespace) -> None:
     account = require_account(database, options.name)
     until = utc_now() + timedelta(hours=options.hours)
     database.ban_account(account.account_id, until, options.reason)
-    print(f"{account.name!r} is banned until {until:%Y-%m-%d %H:%M} UTC.")
+    print(f"{account.name!r} is banned until {until:%Y-%m-%d %H:%M} UTC; if online, the server removes them.")
+
+
+def kick_account(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    account = require_account(database, options.name)
+    database.queue_kick(account.account_id, kick_reason(options.reason))
+    print(f"Queued; a running server removes {account.name!r} from the lobby within a second, if online.")
 
 
 def unban_account(database: LobbyDatabase, options: argparse.Namespace) -> None:

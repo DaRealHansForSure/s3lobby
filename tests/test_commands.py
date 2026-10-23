@@ -27,7 +27,8 @@ class ChatCommandsTest(unittest.TestCase):
         self.alice = self.database.create_account("Alice")
         self.online = ["Alice", "Bob"]
         self.announced: list[str] = []
-        self.commands = ChatCommands(self.database, lambda: self.online, self.record_announcement)
+        self.kicked: list[tuple[int, str]] = []
+        self.commands = ChatCommands(self.database, lambda: self.online, self.record_announcement, self.record_kick)
 
     def tearDown(self) -> None:
         self.database.close()
@@ -35,6 +36,10 @@ class ChatCommandsTest(unittest.TestCase):
     def record_announcement(self, text: str) -> int:
         self.announced.append(text)
         return len(self.online)
+
+    def record_kick(self, player_id: int, reason: str) -> bool:
+        self.kicked.append((player_id, reason))
+        return True
 
     def test_command_name_is_case_insensitive_and_the_slash_optional(self) -> None:
         self.assertEqual(split_command("/ANNOUNCE  Server restart at 22:00 "), ("announce", "Server restart at 22:00"))
@@ -55,6 +60,41 @@ class ChatCommandsTest(unittest.TestCase):
         self.assertEqual(self.announced, [])
         answer = self.commands.answer(Sender(1, "Alice", is_admin=True), "/announce hello")
         self.assertEqual((answer, self.announced), (("Announced to 2 player(s).",), ["hello"]))
+
+    def test_only_admins_kick_and_ban(self) -> None:
+        self.assertEqual(self.commands.answer(Sender(1, "Bob"), "/kick Alice"), ("Only admins may kick.",))
+        self.assertEqual(self.commands.answer(Sender(1, "Bob"), "/ban Alice 24"), ("Only admins may ban.",))
+        self.assertEqual(self.kicked, [])
+        self.assertIsNone(self.database.find_account("Alice").banned_until)
+
+    def test_kick_takes_a_name_with_spaces_and_a_reason(self) -> None:
+        legion = self.database.create_account("Roman Legion")
+        self.online.append("Roman Legion")
+        answer = self.commands.answer(Sender(99, "Boss", is_admin=True), "/kick roman legion spamming the chat")
+        self.assertEqual(answer, ("Removed Roman Legion from the lobby.",))
+        self.assertEqual(self.kicked, [(legion.account_id, "An admin removed you from the lobby: spamming the chat")])
+
+    def test_kick_needs_a_player_who_is_online(self) -> None:
+        answer = self.commands.answer(Sender(99, "Boss", is_admin=True), "/kick Carol")
+        self.assertIn("Usage", answer[0])
+        own_answer = self.commands.answer(Sender(self.alice.account_id, "Alice", is_admin=True), "/kick Alice")
+        self.assertEqual(own_answer, ("You cannot kick yourself.",))
+
+    def test_ban_bars_an_account_online_or_not_and_queues_its_removal(self) -> None:
+        carol = self.database.create_account("Carol")
+        answer = self.commands.answer(Sender(99, "Boss", is_admin=True), "/ban Carol 48 cheating")
+        self.assertEqual(answer, ("Carol is banned for 48 hour(s).",))
+        banned = self.database.find_account("Carol")
+        self.assertEqual(banned.ban_reason, "cheating")
+        [kick] = self.database.take_pending_kicks()
+        self.assertEqual(kick.account_id, carol.account_id)
+        self.assertIn("cheating", kick.reason)
+
+    def test_ban_needs_hours_in_range(self) -> None:
+        for command in ("/ban Alice", "/ban Alice soon", "/ban Alice 0", "/ban Nobody 5"):
+            with self.subTest(command=command):
+                self.assertIn("Usage", self.commands.answer(Sender(99, "Boss", is_admin=True), command)[0])
+        self.assertIsNone(self.database.find_account("Alice").banned_until)
 
     def test_unknown_command_points_to_help(self) -> None:
         self.assertIn("/help", self.commands.answer(Sender(1, "Alice"), "/dance")[0])

@@ -16,6 +16,7 @@ from datetime import timedelta
 from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
+from s3lobby.commands import kick_reason
 from s3lobby.database import Account, Clan, DatabaseError, utc_now
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.lobby_view import online_player_names
@@ -163,6 +164,21 @@ def ban_account(account_id: int) -> Response:
     apply_change(
         lambda: get_database().ban_account(account_id, until, form_text("reason")[:MAX_BAN_REASON_LENGTH]),
         f"{account.name} is banned for {ban_hours} hour(s).",
+    )
+    return redirect_to_account(account_id)
+
+
+@blueprint.post("/accounts/<int:account_id>/kick")
+def kick_account(account_id: int) -> Response:
+    """Remove the player from the running lobby; the server carries it out within a second. The
+    player may log on again: a ban is what keeps them out."""
+    account = require_account(account_id)
+    if is_own_account(account):
+        flash("You cannot remove yourself from the lobby.", "bad")
+        return redirect_to_account(account_id)
+    apply_change(
+        lambda: get_database().queue_kick(account_id, kick_reason("")),
+        f"{account.name} is removed from the lobby within a second.",
     )
     return redirect_to_account(account_id)
 

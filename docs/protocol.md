@@ -181,6 +181,19 @@ CloseConnection moves an open client (state 3) to 4 and tells its lobby layer, o
 (5) to 6. In other states it is a data error, as are AcknowledgeMessages or CloseConnection from a
 peer without a connection (0x608813).
 
+A CloseConnection from the server ends the lobby session cleanly (PP.ReceivedCloseConnection
+0x606050): the connection checks it is in sync first (PP.CheckInSync 0x606310, an error
+otherwise; *inferred*: no blocks of its own still waiting for acknowledgement), moves to state 4
+and calls the session's ConnectionClosed (0x5cc840) with both reasons 0. For the server's address
+that logs out (0x5cc918) and posts status 6 with value 7 (0x5cc972). The lobby screen shows
+status 6 as "The connection to the lobby server dropped." (0x44836a, text 0x900a7), a running
+match as "Lobby connection lost!" (0x540d39, text 0x90146).
+
+s3lobby closes connections this way when an admin removes a player (a kick, a ban of a player who
+is online, a deleted account) and when it stops. It sends the CloseConnection in a numbered block
+that acknowledges everything received so far, after the block with the reason for the player,
+and ignores lobby messages that still arrive on the closing connection.
+
 ## Lobby layer: message bodies
 
 Offsets count from the first byte after the header.
@@ -360,14 +373,22 @@ the AddGroupToGroup (assert `! vJoinedGroups.contains`) and drop the connection.
 - **0x25** (handler 0x5d5f60): 0x0c's fields, then u32 clan id and string clan name (readers
   0x5e6550, 0x5e6740). The room member list shows the clan name in its second column (0x449d34).
   With clan id 0 and an empty name it behaves exactly like 0x0c (0x5d5ea5).
-- **0x26** (handler 0x5d6520): 0x25 plus u32 player flags. Bit 0 colours the row; together with the
-  clan name "BB" it gets another colour (0x449e09..0x449eb5, *inferred*: Blue Byte staff).
+- **0x26** (handler 0x5d6520): 0x25 plus u32 player flags, right after the clan name (the flags
+  getter 0x5e7900 skips the three strings and 31 bytes of fixed fields). Bit 0 colours the row;
+  together with the clan name "BB" it gets another colour (0x449e09..0x449eb5, *inferred*: Blue
+  Byte staff). s3lobby sends it for admins with bit 0 when the setting `mark_admins` is on (off by
+  default: not yet seen in a run).
 - **0x0d RemovePlayerFromGroup**: u32 group id, u32 player id; size exactly 12. Sent by the client
   to leave (0x5ca5e0).
 
 The sockaddr in 0x0c matters: clients send room chat directly to each member's address (loop
 0x5c661e), and the client's own idea of its address is 0.0.0.0 (it binds INADDR_ANY). The server
 must fill in the address it sees datagrams come from.
+
+That address is right only for clients in the same network. s3lobby rewrites it, and the host
+address of a game block, for each receiving client (`s3lobby/addresses.py`): a player seen at
+127.0.0.1 is shown at the server machine's address that faces the receiver, and a player at a
+private address is shown to a receiver on the internet at the configured public host.
 
 ### Chat
 
