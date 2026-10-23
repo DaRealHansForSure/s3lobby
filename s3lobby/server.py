@@ -373,6 +373,7 @@ class LobbyServer(asyncio.DatagramProtocol):
             if time.monotonic() - last_ladder_evaluation_seconds >= LADDER_EVALUATION_INTERVAL_SECONDS:
                 last_ladder_evaluation_seconds = time.monotonic()
                 self._run_guarded("evaluating ladder games", self.evaluate_ladder_games)
+                self._run_guarded("writing the ladder's texts", self._lobby.write_ladder_texts)
             if time.monotonic() - last_live_state_check_seconds >= LIVE_STATE_WRITE_INTERVAL_SECONDS:
                 last_live_state_check_seconds = time.monotonic()
                 self._run_guarded(

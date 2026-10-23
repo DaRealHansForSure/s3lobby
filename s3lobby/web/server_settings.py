@@ -145,6 +145,25 @@ SETTING_FIELDS = (
         "Ladder: most custom seasons",
         "How many custom seasons may exist at once.",
     ),
+    SettingField(
+        Setting.LADDER_BOARD_MESSAGES,
+        "Ladder: board messages kept",
+        "The server writes season news and a weekly summary on the board under its own theme "
+        "(\"Liga\", \"Ladder\"); older messages than this many are deleted.",
+    ),
+    SettingField(
+        Setting.LADDER_NEWS_STANDINGS,
+        "Ladder: standings under the news",
+        "Add the top five and the running seasons under the Home tab's news. The game fetches the news "
+        "once per logon.",
+        is_checkbox=True,
+    ),
+    SettingField(
+        Setting.LADDER_LOGON_LINE,
+        "Ladder: a line at logon",
+        "Tell players who have a ladder result their rating and place when they log on.",
+        is_checkbox=True,
+    ),
 )
 
 

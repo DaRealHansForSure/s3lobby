@@ -59,6 +59,9 @@ CREATE TABLE ladder_seasons (
     CHECK (counts IN ('liga', 'clanliga', 'both')),
     FOREIGN KEY (created_by_account_id) REFERENCES accounts(id) ON DELETE SET NULL
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_bin;
+-- A board theme the server writes itself (the ladder's season news and weekly summaries): admins
+-- may delete its messages, nobody may post into it.
+ALTER TABLE board_themes ADD COLUMN is_server_written INTEGER NOT NULL DEFAULT 0;
 -- Texts the server wrote on its own (board messages, announcements), one row per event, so a restart
 -- never writes one twice.
 CREATE TABLE ladder_events (

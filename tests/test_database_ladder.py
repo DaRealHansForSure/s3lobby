@@ -147,6 +147,23 @@ class LadderDatabaseTest(LadderTestCase):
         self.assertTrue(self.database.record_ladder_event("season-end:1"))
         self.assertFalse(self.database.record_ladder_event("season-end:1"))
 
+    def test_nobody_posts_into_a_server_written_theme(self) -> None:
+        """The ladder's board theme holds the server's texts only; the server itself may post."""
+        theme = self.database.add_board_theme("English", "Ladder", is_server_written=True)
+        with self.assertRaises(DatabaseError):
+            self.database.post_board_message(theme.theme_id, "Hello", "body")
+        self.database.post_board_message(theme.theme_id, "Week 43", "body", is_by_server=True)
+        self.assertTrue(self.database.list_board_themes()[0].is_server_written)
+
+    def test_old_board_messages_are_deleted_but_the_newest(self) -> None:
+        """The server keeps its theme short: only the newest messages stay."""
+        theme = self.database.add_board_theme("English", "Ladder", is_server_written=True)
+        for number in range(5):
+            self.database.post_board_message(theme.theme_id, f"Week {number}", "body", is_by_server=True)
+        self.assertEqual(self.database.delete_board_messages_but_newest(theme.theme_id, 2), 3)
+        titles = [message.title for message in self.database.list_board_messages(theme.theme_id)]
+        self.assertEqual(titles, ["Week 3", "Week 4"])
+
     def test_ladder_settings_are_bounded(self) -> None:
         """A huge number of days would not fit a date; the ceiling is far below it."""
         with self.assertRaises(DatabaseError):

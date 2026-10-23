@@ -37,7 +37,8 @@ another project; its history was carried over, so the early commits describe tha
 - `s3lobby/live.py`: the running lobby as JSON; the server writes it to the database once a second
   when it changed, the web interface reads it. The two processes share nothing but the database.
 - `s3lobby/ladder.py`, `s3lobby/ladder_book.py`, `s3lobby/ladder_admin.py`: the ladder
-  (docs/ladder.md). `ladder.py` holds the rules as pure functions (when a game counts, Elo, seasons,
+  (docs/ladder.md), with `ladder_texts.py` for the texts it writes into the board, the news and the
+  chat (once per event, through `record_ladder_event`). `ladder.py` holds the rules as pure functions (when a game counts, Elo, seasons,
   standings, clan strength); `ladder_book.py` (LadderBook) feeds them from the database, stores
   results, and builds the views with names every front end shows; `ladder_admin.py` is `s3lobby
   ladder`. Ratings are never stored, always replayed from the results.
@@ -206,10 +207,6 @@ number can still slip in an ordinary action; admin commands are safe through /co
 
 ## Future work
 
-- The ladder's own texts (docs/ladder.md, step 4): the board theme the server writes (season
-  starts and ends, a weekly summary; plain text, line breaks only), the ladder block under the
-  news, the announcement when a custom season ends, the optional logon line, and the line about a
-  decided dispute at the next logon. Each written once per event through `record_ladder_event`.
 - A run with the real game for the ladder: a Liga match between two machines played to the end and
   one where the loser quits (does the stayer's report mark the leaver with slot state 3?), a
   Clanliga 2 on 2, and `ladder_enabled` on to see the game show 0x6c. Only then may the setting

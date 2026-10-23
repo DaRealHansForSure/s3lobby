@@ -21,6 +21,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - A public Ladder page beside the live lobby (top three, rating chart, standings with form and win
   rate, last results), a Ladder games page for admins (decide, void, seasons), the ladder's
   numbers on the Settings page, and the ladder result on each game's page.
+- While the ladder is on, the server writes it into the lobby: a board theme of its own ("Liga",
+  "Ladder") with season starts, season ends and a weekly summary, the top five under the news,
+  an announcement when a custom season ends, and at logon a line about a decided dispute and,
+  with `ladder_logon_line`, the player's place. Board themes the server writes cannot be posted
+  into. Settings `ladder_board_messages` and `ladder_news_standings`.
 - Setting `ladder_enabled` (off until a run confirms it): ladder reports that can count are
   answered with "Game status stored at the Lobby server." instead of "not valid for ladder", the
   "not ranked" line goes, and players hear their result after the match.

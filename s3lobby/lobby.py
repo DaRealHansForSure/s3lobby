@@ -56,6 +56,7 @@ from s3lobby.constants import (
     MAX_OPEN_GROUPS_PER_PLAYER,
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
+    NEWS_AUDIENCE_GERMAN,
     NEWS_TEXT_ID_BY_AUDIENCE,
     NO_BANNER_ID,
     PASSWORD_CHAT_GROUP_PARENT_ID,
@@ -97,6 +98,7 @@ from s3lobby.groups import (
 from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.ladder import report_can_count
 from s3lobby.ladder_book import LadderBook
+from s3lobby.ladder_texts import ENGLISH, GERMAN, LADDER_EVENT_MAX_AGE, LadderWriter, text_size
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
@@ -197,6 +199,7 @@ class Lobby:
         self._database = database
         self._logon_check = LogonCheck(database, is_development_mode=is_development_mode)
         self._ladder_book = LadderBook(database)
+        self._ladder_writer = LadderWriter(database, self._ladder_book)
         self._chat_commands = ChatCommands(
             database, self._online_player_names, self.announce, self.kick_player, outbox.reachability_of
         )
@@ -427,6 +430,7 @@ class Lobby:
         welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
         if welcome_message:
             self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
+        self._do_bookkeeping("telling a player about the ladder", lambda: self._tell_ladder_at_logon(player))
         # Only an accepted logon gets the network side's extra work (the reachability probe, a
         # forwarded port on the router); a refused one has returned above.
         self._outbox.player_logged_on(client_address)
@@ -740,7 +744,7 @@ class Lobby:
         for audience, news_text_id in NEWS_TEXT_ID_BY_AUDIENCE.items():
             news = self._database.find_news(audience)
             if text_id == news_text_id and news is not None:
-                return text_message(text_id, news.title, news.body)
+                return text_message(text_id, news.title, self._news_with_ladder(news.title, news.body, audience))
         # Board texts are numbered from BOARD_MESSAGE_TEXT_ID_BASE up: the base plus the message's
         # database id (see _send_board_message_ids).
         if text_id >= BOARD_MESSAGE_TEXT_ID_BASE:
@@ -749,6 +753,26 @@ class Lobby:
                 byline = f"{board_message.author or self._server_name}, {board_message.posted_at:%Y-%m-%d}"
                 return text_message(text_id, board_message.title, f"{byline}\n\n{board_message.body}")
         return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
+
+    def _news_with_ladder(self, title: str, body: str, audience: str) -> str:
+        """The admins' news, and under it the ladder's standings while the ladder is on (setting
+        ladder_news_standings). The admins' text is never cut: the ladder block loses lines from its
+        end until both fit the game's limit."""
+        is_wanted = self._is_ladder_enabled() and self._database.get_boolean_setting(Setting.LADDER_NEWS_STANDINGS)
+        if not is_wanted:
+            return body
+        language = GERMAN if audience == NEWS_AUDIENCE_GERMAN else ENGLISH
+        block = self._do_bookkeeping(
+            "adding the ladder to the news", lambda: self._ladder_writer.texts.news_lines(language)
+        )
+        if not block:
+            return body
+        news_lines = body.splitlines()
+        while block and text_size(title, [*news_lines, "", *block]) > MAX_TEXT_MESSAGE_BYTES:
+            block.pop()
+        if not block:
+            return body
+        return "\n".join([*news_lines, "", *block])
 
     def _store_game_status(self, client_address: Address, message: RawMessage) -> None:
         """A client reports on its match, once at the start and once when a single team is left
@@ -853,6 +877,39 @@ class Lobby:
                 player = self._players_by_id.get(account_id)
                 if player is not None:
                     self._outbox.send(player.address, answer)
+
+    def write_ladder_texts(self) -> None:
+        """Write the ladder's board texts that are due (season starts and ends, the weekly
+        summary) and announce a season's end to everyone online. Only while the ladder is on:
+        with it off the game is told that nothing is ranked."""
+        if not self._is_ladder_enabled():
+            return
+        written = self._ladder_writer.run()
+        for text in written.announcements:
+            self.announce(text)
+
+    def _tell_ladder_at_logon(self, player: Player) -> None:
+        """At logon, while the ladder is on: the player's place (setting ladder_logon_line), and how
+        an admin decided a disputed game of theirs since, once per decision."""
+        if not self._is_ladder_enabled():
+            return
+        lines = []
+        if self._database.get_boolean_setting(Setting.LADDER_LOGON_LINE):
+            place_line = self._ladder_writer.texts.logon_line(player.player_id)
+            if place_line is not None:
+                lines.append(place_line)
+        since = self._database.now() - LADDER_EVENT_MAX_AGE
+        for record in self._ladder_book.results():
+            # Only an admin's decisions, recent ones, and only for the player's own games.
+            is_admin_decision = bool(record.decided_by_name) and record.decided_at >= since
+            is_players_game = any(item.account_id == player.player_id for item in record.evaluation.players)
+            if not is_admin_decision or not is_players_game:
+                continue
+            # The result's row id is new with every decision, so a changed decision is told again.
+            if self._database.record_ladder_event(f"told-decision:{record.result_id}:{player.player_id}"):
+                lines.append(self._ladder_writer.texts.decision_line(record.evaluation, record.game_name))
+        if lines:
+            self._outbox.send(player.address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer(lines)))
 
     def _is_ladder_enabled(self) -> bool:
         """Whether the admins switched the ladder on (setting ladder_enabled): only then does the
