@@ -39,8 +39,6 @@ from s3lobby.constants import (
     BOARD_THEME_ID_SPAN,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
-    DEFAULT_CHAT_THEME_DESCRIPTION,
-    DEFAULT_CHAT_THEME_NAME,
     EMPTY_CHAT_GROUP_KEEP_SECONDS,
     FIRST_GAME_GROUP_ID,
     FIRST_PRINTABLE_CHARACTER,
@@ -76,6 +74,8 @@ from s3lobby.constants import (
 )
 from s3lobby.commands import ChatCommands, fit_answer
 from s3lobby.database import (
+    BUILT_IN_CHAT_THEMES,
+    MAX_CHAT_THEME_ID,
     Clan,
     DatabaseError,
     LobbyDatabase,
@@ -1210,16 +1210,17 @@ class Lobby:
 
     def _sync_chat_themes(self) -> None:
         """Bring the chat theme groups listed in ChatZone in line with the database: themes added
-        while the server runs appear, removed ones disappear once nobody is in them. With no theme
-        configured a default one is offered, since players open chat groups inside a theme."""
+        while the server runs appear, removed ones disappear once nobody is in them. General is
+        always listed, since the game joins the theme it was in last as soon as the tab opens."""
         chat_zone = self._groups[CHAT_ZONE_GROUP_ID]
         wanted = {}
+        for built_in in BUILT_IN_CHAT_THEMES:
+            wanted[built_in.group_id] = (built_in.name, built_in.description)
         for theme in self._database.list_chat_themes():
+            if theme.theme_id > MAX_CHAT_THEME_ID:
+                log.warning("chat theme %d %r not listed: its id is beyond the chat theme range", theme.theme_id, theme.name)
+                continue
             wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description)
-        # The default theme takes the base id itself: generated database ids start at 1, so a theme
-        # added later never gets the id of a default theme that still has players in it.
-        if not wanted:
-            wanted[CHAT_THEME_GROUP_ID_BASE] = (DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION)
 
         for group in self._groups_listed_in(CHAT_ZONE_GROUP_ID):
             is_removed = group.group_id not in wanted

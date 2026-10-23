@@ -344,8 +344,11 @@ MAX_BOARD_THEMES_PER_LANGUAGE = 400
 # Text ids of MessageZone messages: this base plus the message's database id, far from the news ids.
 BOARD_MESSAGE_TEXT_ID_BASE = 0x10000
 
-# Offered on the ChatZone tab when no chat theme is configured: without any theme players could not
-# open chat groups at all.
+# Always listed on the ChatZone tab, whatever themes admins add, and not editable: the game
+# remembers the last theme it was in and joins it again as soon as the tab opens, so a theme that
+# disappears makes that join fail with "Der Wechsel in die Gruppe hat nicht geklappt" (seen in a
+# run, after "General" was dropped once an admin had added a theme). General keeps the id it has
+# always had, the base itself; database themes take the base plus their id, which starts at 1.
 DEFAULT_CHAT_THEME_NAME = "General"
 DEFAULT_CHAT_THEME_DESCRIPTION = "Talk about anything"
 

@@ -14,7 +14,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.constants import BOARD_LANGUAGES, NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER, NEWS_AUDIENCES
-from s3lobby.database import BoardMessage, BoardTheme, News, is_whole_number_text
+from s3lobby.database import BUILT_IN_CHAT_THEMES, BoardMessage, BoardTheme, News, is_whole_number_text
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.storage import apply_change, get_database
 from s3lobby.web.texts import form_multiline_text, form_text
@@ -88,8 +88,10 @@ def set_news(audience: str) -> Response:
 
 @blueprint.get("/chat-themes")
 def list_chat_themes() -> str:
-    """The ChatZone themes page."""
-    return render_template("chat_themes.html", themes=get_database().list_chat_themes())
+    """The ChatZone themes page: the built-in themes, which cannot be changed, and the admins' own."""
+    return render_template(
+        "chat_themes.html", built_in_themes=BUILT_IN_CHAT_THEMES, themes=get_database().list_chat_themes()
+    )
 
 
 @blueprint.post("/chat-themes")

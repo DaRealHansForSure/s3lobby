@@ -14,7 +14,7 @@ from pathlib import Path
 
 from s3lobby.commands import kick_reason
 from s3lobby.constants import NEWS_AUDIENCES
-from s3lobby.database import Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
+from s3lobby.database import BUILT_IN_CHAT_THEMES, Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
 
 
 class AdminError(Exception):
@@ -200,7 +200,9 @@ def remove_chat_theme(database: LobbyDatabase, options: argparse.Namespace) -> N
 
 
 def list_chat_themes(database: LobbyDatabase, options: argparse.Namespace) -> None:
-    """Print every chat theme with its description."""
+    """Print every chat theme with its description, the built-in ones first."""
+    for built_in in BUILT_IN_CHAT_THEMES:
+        print(f"{built_in.name}  {built_in.description}  (built in)")
     for theme in database.list_chat_themes():
         print(f"{theme.name}  {theme.description}".rstrip())
 

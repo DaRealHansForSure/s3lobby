@@ -62,6 +62,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
+- "General" stays on the ChatZone tab when admins add their own themes. The game joins the theme
+  it was in last as soon as the tab opens, and failed with "Der Wechsel in die Gruppe hat nicht
+  geklappt" once General was gone (seen in a run). It can no longer be added a second time.
 - A kicked or banned player can read the reason: the connection now closes a few seconds after
   the reason line instead of at once, which sent the game straight to its "connection dropped"
   dialog (seen in a run). The others still see the player leave at once.
