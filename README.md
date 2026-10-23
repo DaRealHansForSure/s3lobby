@@ -88,15 +88,18 @@ files: point the game at your server and log on.
 ## Status
 
 > [!NOTE]
-> **Tested on one system only.** Everything below that says "tested" ran on this one machine:
+> **Tested on two systems only.** Everything below that says "tested" ran on this server machine:
 > Ubuntu 26.04.1 LTS (Linux 7.0, GNOME on Wayland), Python 3.14, Wine 10.0 with Microsoft's
 > DirectPlay (`winetricks directplay`), the GOG "Ultimate Collection" of The Settlers III in German
 > (game version 1.60), the server and the game on the same machine, at most two copies of the game
-> at once. The automated tests also ran against MySQL 8.4 and MariaDB 11.4 in containers. Not
-> tried yet: the game on Windows, other releases or languages of the game, a server on Windows or
-> macOS, and players on different machines or networks. Reports from other systems are welcome.
+> at once. One more machine in the same LAN ran the same game on Windows 10 Pro 64-bit (build
+> 19045) against that server. The automated tests also ran against MySQL 8.4 and MariaDB 11.4 in
+> containers. Not tried yet: other releases or languages of the game, a server on Windows or
+> macOS, players on different networks, and a match between players on different machines.
+> Reports from other systems are welcome.
 
-Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine 10 on Linux:
+Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine 10 on Linux, and
+from Windows 10 in the LAN where noted:
 
 - patch check, lobby server list and logon with accounts made on the server
 - the lobby rooms and the game zones, switching between them
@@ -106,9 +109,11 @@ Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine
   lobby (two copies of the game on one machine)
 - clans shown in the member lists, and a clan's row coloured by the server
 - server lines, and the web interface with every page
+- from Windows 10: logon, a chat group, a game opened from it and listed in a zone, a match with
+  its reports, coming back, and the MessageZone with a board message read
 
 Implemented from the game's code, not yet tried with the real game: full games, joining a chat
-group with a password, the Home tab's news and statistics, the banner, the MessageZone, the chat
+group with a password, the Home tab's news and statistics, the banner, the chat
 commands, and kicks and bans of players who are online.
 
 Not tested yet with players on two machines: the game's own DirectPlay connection between them.
