@@ -382,6 +382,17 @@ must fill in the address it sees datagrams come from.
   it as `Banner\Banner.png` and stores the pair (0x448998). Only Blue Byte's old FTP host got a
   special login (0x465a0f).
 
+### The ChatZone tab
+
+The ChatZone (group 2) lists chat themes: groups whose name and second text fill the theme list's
+name and "Description" columns (0x44711d, 0x447186). A player chooses a theme by joining it, and
+sees the chat groups listed inside. A player opens a chat group with AddGroupToGroup2 under the
+theme, group id 0xffffffff, flags 0x301073 (with 0x1000 when it has a password), maximum players
+0xffffffff (no limit) and the password as third text (0x4546cb). Joining one sends the password as
+the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 ("Das Passwort
+stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
+Without any theme listed, players cannot open chat groups at all.
+
 ### Other
 
 - **0x1f GameStatus** (0x540500): u32 group id, 3 x u32 (flags with 1 = league game, winning team,

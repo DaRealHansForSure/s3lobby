@@ -252,11 +252,17 @@ def log_on(client: FakeGameClient) -> int:
 
 
 def join_group(client: FakeGameClient, group_id: int, player_id: int) -> None:
-    """Join a group the way the game asks: its own address unknown, its name left empty."""
+    """Join a group the way the game asks: its own address unknown, its name left empty. Waits for
+    the group to arrive with parent 0; other announcements stay unread."""
     client.send(AddPlayerToGroup(group_id, player_id, player_address=("0.0.0.0", 0), player_name=""))
-    announcement = GroupAnnouncement.decode(client.receive_next(MessageType.ADD_GROUP_TO_GROUP))
-    if (announcement.parent_id, announcement.group_id) != (JOINED_GROUP_PARENT_ID, group_id):
-        raise AssertionError(f"expected group {group_id} announced with parent 0, got {announcement}")
+
+    def is_joined_announcement(message: RawMessage) -> bool:
+        if message.message_type != MessageType.ADD_GROUP_TO_GROUP:
+            return False
+        announcement = GroupAnnouncement.decode(message)
+        return (announcement.parent_id, announcement.group_id) == (JOINED_GROUP_PARENT_ID, group_id)
+
+    client.receive_matching(is_joined_announcement)
 
 
 def receive_member_entry(client: FakeGameClient, group_id: int, player_id: int | None = None) -> AddPlayerToGroup:

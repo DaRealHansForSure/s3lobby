@@ -10,6 +10,8 @@ from __future__ import annotations
 import unittest
 
 from s3lobby.constants import (
+    CHAT_THEME_GROUP_ID_BASE,
+    CHAT_ZONE_GROUP_ID,
     FIRST_GAME_GROUP_ID,
     GAME_BLOCK_SIZE_BY_MESSAGE_TYPE,
     GROUP_COUNTERS_FULL,
@@ -42,7 +44,8 @@ from tests.support import (
 )
 
 OTHER_ZONE_ID = 31
-CHAT_THEME_PARENT_ID = 2
+# The theme the ChatZone offers when none is configured; chat groups are opened inside a theme.
+CHAT_THEME_PARENT_ID = CHAT_THEME_GROUP_ID_BASE
 GAME_BLOCK_REMAINDER_SIZE = GAME_BLOCK_SIZE_BY_MESSAGE_TYPE[MessageType.UPDATE_GROUP_2] - 16
 
 
@@ -156,9 +159,15 @@ class GameTest(LobbyTestCase):
 
 
 class GroupRulesTest(LobbyTestCase):
+    def player_in_chat_theme(self, player_name: str, nonce: int) -> tuple[FakeGameClient, int]:
+        """A player on the ChatZone tab who chose the default chat theme."""
+        client, player_id = self.player_in_room(player_name, nonce, CHAT_ZONE_GROUP_ID)
+        join_group(client, CHAT_THEME_PARENT_ID, player_id)
+        return client, player_id
+
     def test_chat_group_password_is_checked_and_never_shown(self) -> None:
-        alice, _ = self.player_in_room("Alice", 17, CHAT_THEME_PARENT_ID)
-        bob, bob_id = self.player_in_room("Bob", 42, CHAT_THEME_PARENT_ID)
+        alice, _ = self.player_in_chat_theme("Alice", 17)
+        bob, bob_id = self.player_in_chat_theme("Bob", 42)
         open_chat_group(alice, CHAT_THEME_PARENT_ID, "Romans only", password="hunter")
         shown_to_bob = receive_announcement(bob)
         self.assertEqual(shown_to_bob.third_text, "")
@@ -182,8 +191,8 @@ class GroupRulesTest(LobbyTestCase):
         bob.assert_nothing_arrives(MessageType.ADD_GROUP_TO_GROUP_2)
 
     def test_oversized_names_are_not_passed_on(self) -> None:
-        alice, _ = self.player_in_room("Alice", 17, CHAT_THEME_PARENT_ID)
-        bob, _ = self.player_in_room("Bob", 42, CHAT_THEME_PARENT_ID)
+        alice, _ = self.player_in_chat_theme("Alice", 17)
+        bob, _ = self.player_in_chat_theme("Bob", 42)
         open_chat_group(alice, CHAT_THEME_PARENT_ID, "X" * (MAX_GROUP_TEXT_LENGTH + 1), password="")
         bob.assert_nothing_arrives(MessageType.ADD_GROUP_TO_GROUP_2)
 

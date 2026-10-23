@@ -214,9 +214,20 @@ GAME_ZONE_NAMES = {
 # (seen in a run: CreateGame 0x5ca7d0 sends 0xffffffff).
 SERVER_ASSIGNS_GROUP_ID = 0xFFFFFFFF
 
-# This server's choice: game ids start here, far above the room and zone ids the client uses on
-# its own (1 to 3 for the lobby rooms, 30 to 38 for the game zones), so the two never collide.
-FIRST_GAME_GROUP_ID = 0x10000
+# This server's choice of id ranges for the groups it makes, far above the ids the client uses on
+# its own (1 to 4 for the tabs, 30 to 38 for the game zones), so nothing ever collides:
+# chat themes and MessageZone themes add their database id to their base, MessageZone language
+# groups their position in BOARD_LANGUAGES, and games and chat groups players open count up from
+# FIRST_GAME_GROUP_ID.
+CHAT_THEME_GROUP_ID_BASE = 0x10000
+BOARD_LANGUAGE_GROUP_ID_BASE = 0x20000
+BOARD_THEME_GROUP_ID_BASE = 0x30000
+FIRST_GAME_GROUP_ID = 0x100000
+
+# Offered on the ChatZone tab when no chat theme is configured: without any theme players could not
+# open chat groups at all.
+DEFAULT_CHAT_THEME_NAME = "General"
+DEFAULT_CHAT_THEME_DESCRIPTION = "Talk about anything"
 
 
 class GroupFlag(IntFlag):

@@ -28,6 +28,10 @@ from typing import Protocol
 
 from s3lobby.constants import (
     BANNER_URL_PREFIX,
+    CHAT_THEME_GROUP_ID_BASE,
+    CHAT_ZONE_GROUP_ID,
+    DEFAULT_CHAT_THEME_DESCRIPTION,
+    DEFAULT_CHAT_THEME_NAME,
     FIRST_GAME_GROUP_ID,
     GAME_ZONE_NAMES,
     HOME_GROUP_ID,
@@ -476,6 +480,8 @@ class Lobby:
         log.info("player %d %r joins group %d", player.player_id, player.name, group.group_id)
         if group.group_id == HOME_GROUP_ID:
             group.announcement = replace(group.announcement, flags=self._home_flags())
+        if group.group_id == CHAT_ZONE_GROUP_ID:
+            self._sync_chat_themes()
         self._outbox.send(player.address, group.announcement.under_parent(JOINED_GROUP_PARENT_ID))
         for member in self._members_of(group):
             self._outbox.send(player.address, member_entry(group.group_id, member))
@@ -636,6 +642,31 @@ class Lobby:
 
     def _groups_listed_in(self, parent_id: int) -> list[Group]:
         return [group for group in self._groups.values() if parent_id in group.listed_in_parent_ids]
+
+    # The ChatZone tab.
+
+    def _sync_chat_themes(self) -> None:
+        """Bring the chat theme groups listed in ChatZone in line with the database: themes added
+        while the server runs appear, removed ones disappear once nobody is in them. With no theme
+        configured a default one is offered, since players open chat groups inside a theme."""
+        chat_zone = self._groups[CHAT_ZONE_GROUP_ID]
+        wanted = {}
+        for theme in self._database.list_chat_themes():
+            wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description)
+        if not wanted:
+            wanted[CHAT_THEME_GROUP_ID_BASE] = (DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION)
+
+        for group in self._groups_listed_in(CHAT_ZONE_GROUP_ID):
+            is_removed = group.group_id not in wanted
+            if is_removed and not group.member_ids:
+                self._unlist_group_from(group, CHAT_ZONE_GROUP_ID)
+                self._groups.pop(group.group_id, None)
+        for group_id, (name, description) in wanted.items():
+            if group_id in self._groups:
+                continue
+            theme = Group(announcement=room_announcement(group_id, name, description_text=description), kind=GroupKind.ROOM)
+            self._groups[group_id] = theme
+            self._list_group_in(theme, chat_zone)
 
     # Built-in groups and lookups.
 
