@@ -163,6 +163,11 @@ class ResultCode(IntEnum):
     NOT_A_CLAN_MEMBER = 0x6D
 
     # Group answers.
+    # A chat group was opened; value = its id. The Result handler posts status 1/0 with the value
+    # (0x5d052d), and the lobby screen in the ChatZone takes the group with that id as its channel
+    # when it has none (LM.PollStatus 0x452577: CGroup 0x5da8a0 copied to LM+0x490 by 0x5db590).
+    # Chat, whisper and "Erzeuge Spiel" go to that channel (LM.SendChat 0x454140).
+    CHAT_GROUP_OPENED = 0x0C
     # Dialog "Der Wechsel in die Gruppe hat nicht geklappt" (joining a group failed).
     GROUP_CHANGE_FAILED = 0x0B
     # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.

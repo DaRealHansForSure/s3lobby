@@ -255,6 +255,18 @@ class GroupRulesTest(LobbyTestCase):
         bob.send(AddPlayerToGroup(shown_to_bob.group_id, bob_id, ("0.0.0.0", 0), "", extra_text="hunter"))
         self.assertEqual(receive_announcement(bob).parent_id, JOINED_GROUP_PARENT_ID)
 
+    def test_chat_group_creator_is_told_the_group_as_channel(self) -> None:
+        """After opening a chat group the game's lobby screen has no channel until Result 0xc
+        names the group (0x452577). Without it the creator sat in the group without name and
+        members, and chat, whisper and new games did nothing until leaving and joining it again
+        (seen in a run)."""
+        alice, _ = self.player_in_chat_theme("Alice", 17)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "test", password="")
+        joined = receive_announcement(alice)
+        self.assertEqual(joined.parent_id, JOINED_GROUP_PARENT_ID)
+        channel = Result.decode(alice.receive_next(MessageType.RESULT))
+        self.assertEqual((channel.code, channel.value), (ResultCode.CHAT_GROUP_OPENED, joined.group_id))
+
     def test_wrong_group_passwords_are_limited_per_player(self) -> None:
         """Each join carries one guess and a datagram holds hundreds: without a limit a password
         falls to trying."""

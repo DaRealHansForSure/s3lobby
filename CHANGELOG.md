@@ -6,6 +6,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+### Fixed
+
+- A player who opens a chat group now gets it as their channel at once: the server answers
+  with Result 0xc, so chat, whisper and new games work without leaving and joining again.
+
 ### Added
 
 - `scripts/stop.sh` stops every running lobby server and web interface cleanly, `--force`

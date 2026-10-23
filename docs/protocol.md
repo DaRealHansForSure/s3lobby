@@ -256,6 +256,9 @@ Offsets count from the first byte after the header.
   | 9 | patch check: no patch |
   | 8 | patch check: failed |
   | 0x64, 0x65 | private chat accepted / refused (client to client, value = player id) |
+  | 0xc | a chat group was opened, value = its id: status 1/0 (0x5d052d); in the ChatZone a lobby screen without a channel takes the group with that id as its channel (LM.PollStatus 0x452577 copies a CGroup with that id, 0x5da8a0, to LM+0x490 by 0x5db590) |
+  | 0xb | dialog "Der Wechsel in die Gruppe hat nicht geklappt" (status 2/5, 0x5d0557) |
+  | 0x62 | dialog "Das Passwort stimmte nicht", value = group id (status 2/6, 0x5d0542) |
 
   The texts live in `GFX/siedler3_09.*.dat`: at offset 0x5c a u16 text count (374) and a u16
   language count (8), from 0x60 one u32 file offset per text, all texts of language 0 (German)
@@ -448,6 +451,12 @@ theme, group id 0xffffffff, flags 0x301073 (with 0x1000 when it has a password),
 0xffffffff (no limit) and the password as third text (0x4546cb). Joining one sends the password as
 the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 ("Das Passwort
 stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
+The creator's lobby screen leaves the ChatZone with an empty channel (CreateChatGroup 0x4542c0
+switches to zone 3 with an empty CGroup, 0x4520e0). Chat, whisper and "Erzeuge Spiel" go to the
+channel's group id (LM.SendChat 0x454140 sends to LM+0x490), so the server answers the new group
+with Result 0xc, value = its id, after the group (parent 0) and the creator's member entry; the
+screen then takes it as its channel (0x452577). Without it the channel stayed without name and
+members and nothing worked until the player left and joined the group again (seen in a run).
 Without any theme listed, players cannot open chat groups at all.
 
 ### The MessageZone tab

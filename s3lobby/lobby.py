@@ -527,6 +527,11 @@ class Lobby:
         # The creator's client does not count itself in the new group (CreateGame 0x5ca7d0): it is
         # in once the server announces the group to it with parent 0, like after any other join.
         self._add_player_to_group(player, group)
+        if group.kind == GroupKind.CHAT_GROUP:
+            # Opening a chat group leaves the creator's lobby screen without a channel until this
+            # Result names it (0x452577); without it chat, whisper and new games went nowhere
+            # until the player left the group and joined it again (seen in a run).
+            self._outbox.send(player.address, Result(ResultCode.CHAT_GROUP_OPENED, value=group_id))
         self._list_group_in(group, parent)
         self._tell_about_ladder(group, [player])
 
