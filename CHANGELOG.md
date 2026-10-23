@@ -6,6 +6,30 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+### Added
+
+- A ladder for Liga and Clanliga ([docs/ladder.md](docs/ladder.md)). The server evaluates every
+  ladder game once its reports are in: it counts when the players' reports agree, the match lasted
+  long enough (`ladder_minimum_minutes`) and the players joined it in the lobby; disagreeing
+  reports make it disputed, and two copies of one installation, computer opponents, a restart
+  during the game or a fourth result between the same sides in a day make it void. Elo ratings
+  for players (Liga) and clans (Clanliga), a clan strength from its members' Liga ratings, an
+  infinite season and custom seasons admins create (migration 0010).
+- `s3lobby ladder`: standings and results per season as text, JSON (with a format number) or CSV;
+  show, decide and void a game's result; create, change, end and delete custom seasons.
+- Chat commands `/rank`, `/top`, `/clanrank` and `/seasons`, limited per player.
+- A public Ladder page beside the live lobby (top three, rating chart, standings with form and win
+  rate, last results), a Ladder games page for admins (decide, void, seasons), the ladder's
+  numbers on the Settings page, and the ladder result on each game's page.
+- Setting `ladder_enabled` (off until a run confirms it): ladder reports that can count are
+  answered with "Game status stored at the Lobby server." instead of "not valid for ladder", the
+  "not ranked" line goes, and players hear their result after the match.
+
+### Changed
+
+- Putting a member into the clan it is in already keeps the date it joined.
+- A settings form that does not send a field keeps that setting's stored value.
+
 ## [0.10.0] - 2026-10-23
 
 ### Fixed

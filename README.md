@@ -68,7 +68,10 @@ files: point the game at your server and log on.
 - **Accounts made by the server's admins**: players log on with an access code instead of a
   self-chosen password; codes are stored as salted scrypt hashes only.
 - **Server lines in the game's chat**: welcome message, announcements, and the chat commands
-  `/who`, `/clan`, `/help` and, for admins, `/announce`.
+  `/who`, `/clan`, `/help`, the ladder's `/rank`, `/top`, `/clanrank` and `/seasons`, and, for
+  admins, `/announce`, `/kick` and `/ban`.
+- **A ladder for Liga and Clanliga**: Elo ratings for players and clans, an infinite season and
+  custom seasons, disputes decided by admins, standings on the web, in the chat and as JSON.
 - **Web interface**: a public live view of the lobby, and administration of accounts, clans, news,
   themes, the board, settings and announcements. Every game gets a page with its setup, teams,
   winners and time of play, decoded from the reports the game sends; every account a list of its
@@ -131,7 +134,9 @@ Not tested yet with players on two machines: the game's own DirectPlay connectio
 - **Chat typed on the MessageZone screen reaches nobody.** This is a bug of the game itself
   (`docs/protocol.md`, "The MessageZone tab"), which only a patched S3.EXE could fix. The board's
   messages work. The setting `board_chat_hint` tells players so once per logon.
-- **Ladder games are played but not ranked.** See the [Roadmap](#roadmap).
+- **The ladder is not yet tried with the real game.** It ranks every ladder game, but the game
+  is only told that a result was stored once an admin switches `ladder_enabled` on; until a run
+  confirms that answer it stays off, and the game still shows "Game not valid for ladder."
 
 ## Quick start
 
@@ -315,9 +320,31 @@ disconnected within a second; the game then says the connection to the lobby ser
 kicked player may log on again, a banned one is refused until the ban ends. When the server stops,
 every player is told at once instead of waiting a minute for a timeout.
 
-Ladder games ("Liga", "Clanliga") can be opened and played, but they are not ranked: Blue Byte's
-server kept the ladder, this one does not. Their players get a server line saying so, and during
-the match the game shows "Game not valid for ladder." instead of a ranked result.
+### The ladder
+
+Ladder games ("Liga" 1 on 1, "Clanliga" clan against clan) are ranked by the server, as Blue
+Byte's server once did: the game keeps no ladder itself, it only reports each match. A match
+counts when every player's game reports the same winner, it lasted long enough, and the players
+joined it in the lobby; reports that disagree make it disputed until an admin decides. Ratings are
+Elo, everyone starts at 1000, and they are always recomputed from the results, so a decision or a
+changed setting applies at once. An infinite season always runs; admins can add custom seasons
+(cups, tournaments) that count only their dates. The rules in full: [docs/ladder.md](docs/ladder.md).
+
+```sh
+s3lobby ladder standings                    # players' Liga ranking, infinite season
+s3lobby ladder standings --ladder clanliga --season "Autumn Cup" --format json
+s3lobby ladder results --state disputed
+s3lobby ladder decide 42 --winner 1 --by Alice
+s3lobby ladder void 42 --reason "played on a broken map"
+s3lobby ladder season add "Autumn Cup" --start 2026-10-01 --end 2026-11-30 --counts liga
+s3lobby setting set ladder_enabled true      # tell the game results are stored (untried)
+```
+
+In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat. Standings and results
+also come out as JSON or CSV (`--format`), for tools of your own. Until `ladder_enabled` is on, the
+game is told "Game not valid for ladder." and players hear that ladder games are not ranked, while
+the server ranks in the background; with it on, the game shows "Game status stored at the Lobby
+server." and players hear their result after the match.
 
 Every command takes `--database` and works while the server runs. The web interface below does
 the same from a browser.
@@ -554,13 +581,10 @@ Planned or wished for, roughly in order:
 
 - **Tests with the real game** for everything marked as untried above, and with two players on
   two machines.
-- **Ladder games ("Liga", "Clanliga") with a real ranking.** The game already reports each ladder
-  match to the server with its players, teams, races and the winning team. s3lobby stores those
-  reports but ranks nothing yet and answers "Game not valid for ladder." The plan: count the
-  results per player and per clan, show the standings on the web interface and the Home tab, and
-  confirm valid ladder results to the game (Result 0x6c) once the reports are trusted enough,
-  for example only when every player of a match sent a matching report. The concept is in
-  [docs/ladder.md](docs/ladder.md).
+- **The ladder in the lobby's own texts**: the board theme the server writes (season starts and
+  ends, a weekly summary), the standings under the news, an announcement when a custom season
+  ends, and a line at logon for ladder players ([docs/ladder.md](docs/ladder.md), "Texts the
+  server writes into the lobby"). Then a run with the real game to switch `ladder_enabled` on.
 - **What a match tells the lobby** is all that a ranking can use: the game reports each match
   twice, at the start and when one team is left, with its slots, teams, races and the winning team
   (the only team that still has a finished military building). The match itself runs between the

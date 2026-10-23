@@ -181,8 +181,9 @@ class ResultCode(IntEnum):
     # shows answers to GameStatus only during a ladder game (0x540a18) and ignores them otherwise.
     GAME_STATUS_STORED = 0x6C
     # Answer to GameStatus of a ladder game: 0x90149 "Game status inconsistencies. Game not valid for
-    # ladder." (Result handler 0x5d056c, shown in the match at 0x540b89). This server keeps no
-    # ladder, so it gives this answer to every ladder report.
+    # ladder." (Result handler 0x5d056c, shown in the match at 0x540b89). Given to every ladder
+    # report while the ladder is switched off (setting ladder_enabled), and to a report that can
+    # never count while it is on.
     GAME_NOT_VALID_FOR_LADDER = 0x6A
 
 
@@ -400,8 +401,8 @@ class LadderType(IntEnum):
     """The last value of a long game block: what the host picked under "Normal Game",
     "Ladder: 1 on 1" and "Ladder Game: Clans" in the game setup (radio buttons 0x4848b4..0x48493b,
     passed by CreateGame at 0x46180b..0x46181e). The game list shows "Liga" and "Clanliga" for 1 and
-    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server keeps no
-    ladder."""
+    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server ranks
+    them itself (s3lobby/ladder.py)."""
 
     NONE = 0
     INDIVIDUAL = 1
@@ -545,8 +546,8 @@ LIVE_STATE_STALE_SECONDS = 30.0
 # in; the id only names the group in the client's chat log file (0x5d2420).
 ANNOUNCEMENT_GROUP_ID = 0
 
-# Server line for the players of a ladder game: Blue Byte's server ranked ladder games, this one
-# keeps no ladder.
+# Server line for the players of a ladder game while the ladder is switched off (setting
+# ladder_enabled): the server ranks in the background, but the game is told nothing counts.
 LADDER_NOT_SUPPORTED_TEXT = "Ladder games are not supported on this server: you can play, but the result is not ranked."
 
 # Server line for a player who opens the MessageZone (setting board_chat_hint). The game looks up the

@@ -595,12 +595,15 @@ once per logon, as a server line, that chat there reaches nobody (off until a ru
   status stored at the Lobby server." (0x540a3e), 0x6a as "Game status inconsistencies. Game not
   valid for ladder." (0x540b89). For other games it ignores the answer.
 
-  s3lobby keeps no ladder. It stores every report as sent and answers 0x6c, except for a ladder
-  game (flag 1), which it answers with 0x6a, so the game tells the players during the match
-  that the result does not count. Before that, every player of a ladder game gets one server line
-  (ChatCommandAnswer to group 0) saying that ladder games are not ranked: the host when opening
-  the game or when an UpdateGroup with a new description turns it into a ladder game, a joiner
-  when joining. The description decides, as the host rewrites it on every change of the setup;
+  s3lobby stores every report as sent and ranks ladder games itself (s3lobby/ladder.py,
+  docs/ladder.md). It answers 0x6c, except for a ladder game (flag 1): with the setting
+  `ladder_enabled` off (the default until a run confirms the answer) every ladder report gets 0x6a,
+  so the game tells the players that the result does not count, and every player of a ladder game
+  gets one server line (ChatCommandAnswer to group 0) saying that ladder games are not ranked: the
+  host when opening the game or when an UpdateGroup with a new description turns it into a ladder
+  game, a joiner when joining. With it on, a ladder report that can count (two teams, no computer
+  opponents, not marked invalid by the game) gets 0x6c, and the players hear the result once every
+  report is in (*inferred* that the game shows 0x6c as intended: untried). The description decides, as the host rewrites it on every change of the setup;
   the game block keeps the choice made when the game was opened.
 
 ## Session sequence
