@@ -19,6 +19,7 @@ class Sender:
     player_id: int
     name: str
     is_admin: bool = False
+    address: tuple[str, int] = ("192.168.1.20", 3343)
 
 
 class ChatCommandsTest(unittest.TestCase):
@@ -95,6 +96,21 @@ class ChatCommandsTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn("Usage", self.commands.answer(Sender(99, "Boss", is_admin=True), command)[0])
         self.assertIsNone(self.database.find_account("Alice").banned_until)
+
+    def test_net_tells_an_internet_player_whether_the_router_changed_the_port(self) -> None:
+        """Chat goes straight between players; a player whose router rewrote the game's port
+        misses chat from players they have not written to, and needs to know what to forward."""
+        changed = self.commands.answer(Sender(1, "Alice", address=("84.75.10.4", 61012)), "/net")
+        self.assertEqual(changed[0], "The server sees you at 84.75.10.4:61012.")
+        self.assertIn("changed the game's port 3343 to 61012", " ".join(changed))
+        kept = self.commands.answer(Sender(1, "Alice", address=("84.75.10.4", 3343)), "/net")
+        self.assertIn("kept port 3343", " ".join(kept))
+        self.assertIn("TCP 47624", " ".join(kept))
+
+    def test_net_tells_a_player_in_the_servers_network_that_nothing_is_needed(self) -> None:
+        answer = self.commands.answer(Sender(1, "Alice"), "/net")
+        self.assertIn("server's own network", " ".join(answer))
+        self.assertNotIn("Forward", " ".join(answer))
 
     def test_unknown_command_points_to_help(self) -> None:
         self.assertIn("/help", self.commands.answer(Sender(1, "Alice"), "/dance")[0])

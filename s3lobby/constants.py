@@ -21,6 +21,13 @@ DEFAULT_SERVER_PORT = 3344
 # server never needs it: it always answers to the address a datagram came from.
 GAME_CLIENT_FIRST_PORT = 3343
 
+# DirectPlay's ports, which a game's host needs reachable for the match itself: the game hands the
+# match to DirectPlay (JoinLobbyGame 0x467e00), whose TCP/IP provider listens for session lookups on
+# TCP 47624 and runs sessions in TCP and UDP 2300 to 2400 (Microsoft's DirectPlay documentation).
+DIRECTPLAY_ENUMERATION_PORT = 47624
+DIRECTPLAY_FIRST_GAME_PORT = 2300
+DIRECTPLAY_LAST_GAME_PORT = 2400
+
 # Byte layout.
 
 # Every message starts with [type u8][always 0 u8][size u16], and the size counts these 4 bytes too.

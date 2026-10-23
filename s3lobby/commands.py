@@ -8,6 +8,7 @@ Commands:
     /help               what this server offers
     /who                who is online
     /clan               your clan and which of its members are online
+    /net                the address the server sees you at, and what to forward on your router
     /announce TEXT      (admins) a line for every player in the lobby
     /kick NAME [REASON]          (admins) remove a player from the lobby; they may log on again
     /ban NAME HOURS [REASON]     (admins) bar an account, online or not; an online player is removed
@@ -18,12 +19,20 @@ start of the argument that names a player.
 
 from __future__ import annotations
 
+import ipaddress
 import textwrap
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Protocol
 
+from s3lobby.constants import (
+    DIRECTPLAY_ENUMERATION_PORT,
+    DIRECTPLAY_FIRST_GAME_PORT,
+    DIRECTPLAY_LAST_GAME_PORT,
+    GAME_CLIENT_FIRST_PORT,
+)
 from s3lobby.database import LobbyDatabase, utc_now
+from s3lobby.wire import Address
 
 COMMAND_PREFIX = "/"
 # Answers stay short: the chat shows each line on its own, and a long answer would push the
@@ -40,6 +49,7 @@ class CommandSender(Protocol):
     player_id: int
     name: str
     is_admin: bool
+    address: Address
 
 
 class ChatCommands:
@@ -69,6 +79,8 @@ class ChatCommands:
                 lines = self._who()
             case "clan":
                 lines = self._clan(sender)
+            case "net":
+                lines = describe_network(sender.address)
             case "announce":
                 lines = self._announce_for(sender, argument)
             case "kick":
@@ -83,6 +95,7 @@ class ChatCommands:
         lines = [
             "/who: who is online",
             "/clan: your clan and its members online",
+            "/net: your address as the server sees it, and what to forward on your router",
         ]
         if sender.is_admin:
             lines.append("/announce TEXT: a line for every player in the lobby")
@@ -153,6 +166,35 @@ def split_command(command_text: str) -> tuple[str, str]:
     stripped = command_text.strip().removeprefix(COMMAND_PREFIX)
     command_name, _, argument = stripped.partition(" ")
     return command_name.lower(), argument.strip()
+
+
+def describe_network(address: Address) -> list[str]:
+    """What the server can tell a player about their connection. Chat goes straight between the
+    players, and most home routers drop data from someone the player has not written to yet: a
+    player who forwards the game's port receives everyone's chat from the first line on.
+
+    The game binds UDP 3343, or the next free port (0x5c4b55). A different port as the server sees
+    it means a router rewrote it, so others cannot know the way in without a forwarding."""
+    host, port = address
+    lines = [f"The server sees you at {host}:{port}."]
+    if not ipaddress.ip_address(host).is_global:
+        lines.append("You are in the server's own network: the server shows you to others at an address they can reach.")
+        return lines
+    if port != GAME_CLIENT_FIRST_PORT:
+        lines.append(
+            f"Your router changed the game's port {GAME_CLIENT_FIRST_PORT} to {port}: chat from players you have "
+            f"not written to may not reach you. Forward UDP port {GAME_CLIENT_FIRST_PORT} to this PC to fix it."
+        )
+    else:
+        lines.append(
+            f"Your router kept port {GAME_CLIENT_FIRST_PORT}. If chat from others does not arrive until you write "
+            f"to them, forward UDP port {GAME_CLIENT_FIRST_PORT} to this PC."
+        )
+    lines.append(
+        f"To host games, also forward TCP {DIRECTPLAY_ENUMERATION_PORT} and TCP and UDP "
+        f"{DIRECTPLAY_FIRST_GAME_PORT} to {DIRECTPLAY_LAST_GAME_PORT}."
+    )
+    return lines
 
 
 def kick_reason(reason: str) -> str:
