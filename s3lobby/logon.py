@@ -13,6 +13,7 @@ All checks together are budgeted too: each costs a scrypt hash on the event loop
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import time
 from collections.abc import Callable
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 from s3lobby.constants import (
     ACCESS_CODE_CHECK_BURST,
     ACCESS_CODE_CHECKS_PER_SECOND,
+    DEVELOPMENT_PASSWORD,
     LOGON_FAILURE_BURST,
     LOGON_FAILURES_PER_SECOND,
     LogonFlag,
@@ -62,9 +64,17 @@ class RefusedLogon:
 class LogonCheck:
     """Checks logons against the database, and limits failed attempts."""
 
-    def __init__(self, database: LobbyDatabase, clock_seconds: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        database: LobbyDatabase,
+        clock_seconds: Callable[[], float] = time.monotonic,
+        is_development_mode: bool = False,
+    ) -> None:
+        """is_development_mode also accepts DEVELOPMENT_PASSWORD for every account, from private and
+        local addresses only (s3lobby serve --dev)."""
         self._database = database
         self._clock_seconds = clock_seconds
+        self._is_development_mode = is_development_mode
         self._failures_by_ip = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._failures_by_name_and_ip = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._access_code_checks = RateLimiter(ACCESS_CODE_CHECKS_PER_SECOND, ACCESS_CODE_CHECK_BURST)
@@ -93,6 +103,9 @@ class LogonCheck:
             # names have accounts.
             hash_access_code(logon.password)
             is_known = False
+        elif self._is_development_logon(logon, client_ip):
+            log.warning("development mode: %r logged on with the development password", account.name)
+            is_known = True
         else:
             is_known = self._database.check_access_code(account.account_id, logon.password)
         if not is_known:
@@ -101,6 +114,17 @@ class LogonCheck:
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "unknown account or wrong access code")
 
         return self._decide_for_known_account(account, logon, occupancy)
+
+    def _is_development_logon(self, logon: Logon, client_ip: str) -> bool:
+        """The development password, in development mode, from this machine or its LAN: a client
+        from the internet never gets in with it, even if the mode was left on by mistake."""
+        if not self._is_development_mode or logon.password != DEVELOPMENT_PASSWORD:
+            return False
+        try:
+            ip = ipaddress.ip_address(client_ip)
+        except ValueError:
+            return False
+        return ip.is_loopback or ip.is_private
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         self._failures_by_ip.forget_quiet_keys(now_seconds)

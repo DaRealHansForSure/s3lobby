@@ -415,6 +415,11 @@ DEFAULT_BAN_HOURS = 24
 # Characters below this are control characters, which no text for the game may hold.
 FIRST_PRINTABLE_CHARACTER = " "
 
+# Development mode (s3lobby serve --dev): every account also logs on with this password, from this
+# machine or its LAN only. For testing with the game without copying access codes; never on a
+# server others can reach.
+DEVELOPMENT_PASSWORD = "1234"
+
 # Admin chat commands wait this long for /confirm with a code of this many digits.
 CONFIRMATION_SECONDS = 60
 CONFIRMATION_CODE_DIGITS = 4

@@ -8,6 +8,7 @@ from datetime import timedelta
 from s3lobby.constants import (
     ACCESS_CODE_CHECK_BURST,
     ACCESS_CODE_CHECKS_PER_SECOND,
+    DEVELOPMENT_PASSWORD,
     LOGON_FAILURE_BURST,
     LOGON_PROTOCOL_VERSION,
     LogonFlag,
@@ -103,6 +104,21 @@ class LogonCheckTest(unittest.TestCase):
         self.assert_refused_with(refusal, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
         self.clock.now_seconds += ACCESS_CODE_CHECK_BURST / ACCESS_CODE_CHECKS_PER_SECOND
         self.assertIsInstance(self.check.decide(logon(), CLIENT_IP, EMPTY_LOBBY), AcceptedLogon)
+
+    def test_development_mode_accepts_its_password_only_from_this_network(self) -> None:
+        """For testing with the game without copying codes; a client from the internet must never
+        get in with a password everybody knows, even if the mode is left on by mistake."""
+        development_check = LogonCheck(self.database, clock_seconds=self.clock, is_development_mode=True)
+        accepted = development_check.decide(logon(access_code=DEVELOPMENT_PASSWORD), CLIENT_IP, EMPTY_LOBBY)
+        self.assertIsInstance(accepted, AcceptedLogon)
+        from_the_internet = development_check.decide(logon(access_code=DEVELOPMENT_PASSWORD), "84.75.10.4", EMPTY_LOBBY)
+        self.assert_refused_with(from_the_internet, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+        unknown_name = development_check.decide(logon(name="Nobody", access_code=DEVELOPMENT_PASSWORD), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(unknown_name, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+
+    def test_development_password_means_nothing_without_the_mode(self) -> None:
+        refusal = self.check.decide(logon(access_code=DEVELOPMENT_PASSWORD), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(refusal, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
 
     def test_banned_account_is_told_so_only_after_a_correct_code(self) -> None:
         self.database.ban_account(self.alice.account_id, utc_now() + timedelta(hours=1), "spam")
