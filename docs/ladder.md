@@ -1,8 +1,6 @@
 # The ladder ("Liga" and "Clanliga")
 
-Status: built, except the texts the server writes on its own (board, news, announcements, the
-logon line and the line about a decided dispute; see "Building it in steps"), and not yet tried
-with the real game. This document describes how s3lobby ranks ladder games with the data the
+Status: built (steps 1 to 4 below), not yet tried with the real game. This document describes how s3lobby ranks ladder games with the data the
 unmodified game already sends. Facts about the game cite `docs/protocol.md` or an S3.EXE address;
 everything else is design. The owner's decisions of 2026-10-23 are listed at the end and built into
 the text.
@@ -10,7 +8,8 @@ the text.
 Where it lives: the rules in `s3lobby/ladder.py` (pure functions), reading and writing the
 database in `s3lobby/ladder_book.py` (LadderBook), the server's evaluation in `Lobby.evaluate_ladder_games`
 every 30 seconds, `s3lobby ladder` in `s3lobby/ladder_admin.py`, the chat commands in
-`s3lobby/commands.py`, the web pages in `s3lobby/web/ladder_pages.py`.
+`s3lobby/commands.py`, the web pages in `s3lobby/web/ladder_pages.py`, the lobby texts in
+`s3lobby/ladder_texts.py` (written by `Lobby.write_ladder_texts` in the same housekeeping step).
 
 ## What the game gives us
 
@@ -366,12 +365,14 @@ styles, so the real pages can take them over into `app.css` as they are.
 3. **Tell the game.** With `ladder_enabled` on, valid end reports get 0x6c and the "not ranked"
    line goes away. Off by default until a run with the real game shows the message (project rule
    for anything the game has not seen from this server).
-4. **The lobby's own texts** (still to build): the board theme with season starts, season ends and
-   a weekly summary, the ladder block under the news, the announcement when a custom season ends,
-   the optional logon line, and the line about a decided dispute at the next logon.
+4. **The lobby's own texts**: the board theme with season starts, season ends and a weekly summary,
+   the ladder block under the news, the announcement when a custom season ends, the optional
+   logon line, and the line about a decided dispute at the next logon. Only while `ladder_enabled`
+   is on.
 
-Steps 1 to 3 are built (2026-10-23): evaluation, standings, chat commands, the command line, the
-web pages, and the answer to the game behind `ladder_enabled`.
+All four steps are built (2026-10-23). The weekly summary covers the last full week, Monday to
+Sunday in UTC; an event older than a week (a season created afterwards for past dates, a ladder
+switched on long after a season ended) is noted without a text.
 
 ## To confirm in a run first
 

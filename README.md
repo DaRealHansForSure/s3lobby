@@ -340,7 +340,11 @@ s3lobby ladder season add "Autumn Cup" --start 2026-10-01 --end 2026-11-30 --cou
 s3lobby setting set ladder_enabled true      # tell the game results are stored (untried)
 ```
 
-In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat. Standings and results
+In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat. While the ladder is
+on, the server also writes it where the game has room for text: a MessageZone theme of its own
+("Liga" in German, "Ladder" otherwise) with season starts, season ends and a weekly summary, the
+top five under the Home tab's news, an announcement when a custom season ends, and lines at logon
+about a decided dispute (and, with `ladder_logon_line`, the player's place). Standings and results
 also come out as JSON or CSV (`--format`), for tools of your own. Until `ladder_enabled` is on, the
 game is told "Game not valid for ladder." and players hear that ladder games are not ranked, while
 the server ranks in the background; with it on, the game shows "Game status stored at the Lobby
@@ -581,10 +585,9 @@ Planned or wished for, roughly in order:
 
 - **Tests with the real game** for everything marked as untried above, and with two players on
   two machines.
-- **The ladder in the lobby's own texts**: the board theme the server writes (season starts and
-  ends, a weekly summary), the standings under the news, an announcement when a custom season
-  ends, and a line at logon for ladder players ([docs/ladder.md](docs/ladder.md), "Texts the
-  server writes into the lobby"). Then a run with the real game to switch `ladder_enabled` on.
+- **A run with the real game for the ladder**: a Liga match between two machines, one where the
+  loser quits, a Clanliga 2 on 2, and `ladder_enabled` on, before it can be on by default
+  ([docs/ladder.md](docs/ladder.md), "To confirm in a run first").
 - **What a match tells the lobby** is all that a ranking can use: the game reports each match
   twice, at the start and when one team is left, with its slots, teams, races and the winning team
   (the only team that still has a finished military building). The match itself runs between the
