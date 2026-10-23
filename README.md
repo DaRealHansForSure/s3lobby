@@ -87,6 +87,26 @@ s3lobby board post 1 --title "Saturday cup" --text "8 pm, 1 vs 1"
 s3lobby setting list
 ```
 
+The Home tab shows the news for the game's language (German, or the other text for every other
+language) and a statistics table of players and games. An advert banner can be shown too: the game
+downloads it by anonymous FTP whenever the banner id changes.
+
+```
+s3lobby setting set banner_url ftp://192.168.1.10/banner.png
+s3lobby setting set banner_id 2
+```
+
+A line for every player in the running lobby, and a welcome line after each logon:
+
+```
+s3lobby announce "Server restart at 22:00"
+s3lobby setting set welcome_message "Welcome to our LAN lobby!"
+```
+
+In the game, players can type `/who`, `/clan` and `/help` into the chat; admins also `/announce
+TEXT`. Answers and announcements show as `[Server]` lines. Match reports the game sends after a
+game are stored in the database.
+
 Every command takes `--database` and works while the server runs.
 
 ## Pointing the game at the server

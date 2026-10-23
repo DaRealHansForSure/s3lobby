@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 from s3lobby.connection import ReliableConnection
 from s3lobby.constants import (
+    ANNOUNCEMENT_POLL_INTERVAL_SECONDS,
     DATAGRAM_BURST_PER_ADDRESS,
     DATAGRAMS_PER_SECOND_PER_ADDRESS,
     DEFAULT_SERVER_PORT,
@@ -149,8 +150,12 @@ class LobbyServer(asyncio.DatagramProtocol):
         self._database.close()
 
     async def _run_housekeeping(self) -> None:
+        last_announcement_poll_seconds = time.monotonic()
         while True:
             await asyncio.sleep(HOUSEKEEPING_INTERVAL_SECONDS)
+            if time.monotonic() - last_announcement_poll_seconds >= ANNOUNCEMENT_POLL_INTERVAL_SECONDS:
+                last_announcement_poll_seconds = time.monotonic()
+                self._lobby.send_pending_announcements()
             now_ms = monotonic_ms()
             for client_address, connection in list(self._connections.items()):
                 if connection.is_finished(now_ms):

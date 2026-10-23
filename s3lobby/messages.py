@@ -801,28 +801,107 @@ class GetImageList:
 
 
 @dataclass(frozen=True)
-class EmptyImageList:
-    """0x1c: the answer to GetImageList without any images (handler 0x5d4e50).
+class ImageEntry:
+    """One entry of an image list: the game's lobby banner. The game compares the two ids with the
+    ones it stored (registry values BannerId and BannerSubId) and, when they differ and banner_id is
+    not 0, downloads url by anonymous FTP as Banner\\Banner.png (0x449938, 0x465a0f)."""
 
-    Layout of the full message: u32 group id, u32 count, then per image two u32 and a string whose
-    meanings are unknown. This server has no images to offer, so it always sends a count of 0.
-    """
+    banner_id: int
+    banner_sub_id: int
+    url: str
+
+
+@dataclass(frozen=True)
+class ImageList:
+    """0x1c: the answer to GetImageList (handler 0x5d4e50): u32 group id, u32 count, then per entry
+    u32 banner id, u32 banner sub id and the url. Only the Home tab uses it, and only its last
+    entry; the client stores it on the group, which must be one it is in (0x5dbf00)."""
 
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.IMAGE_LIST
     group_id: int
+    images: tuple[ImageEntry, ...] = ()
 
     def encode(self) -> RawMessage:
-        image_count = 0
-        return FieldWriter().write_u32(self.group_id).write_u32(image_count).to_message(self.MESSAGE_TYPE)
+        writer = FieldWriter().write_u32(self.group_id).write_u32(len(self.images))
+        for image in self.images:
+            writer.write_u32(image.banner_id).write_u32(image.banner_sub_id).write_string(image.url)
+        return writer.to_message(self.MESSAGE_TYPE)
 
     @classmethod
-    def decode(cls, message: RawMessage) -> EmptyImageList:
+    def decode(cls, message: RawMessage) -> ImageList:
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         group_id = reader.read_u32()
         image_count = reader.read_u32()
-        if image_count != 0:
-            raise ProtocolError(f"image list with {image_count} images, only empty lists are supported")
-        return cls(group_id=group_id)
+        images = []
+        for _ in range(image_count):
+            images.append(ImageEntry(banner_id=reader.read_u32(), banner_sub_id=reader.read_u32(), url=reader.read_string()))
+        return cls(group_id=group_id, images=tuple(images))
+
+
+@dataclass(frozen=True)
+class TextIdList:
+    """0x14: the ids of the texts a group offers (handler 0x5d7d60); size exactly 12 + 4 per id. On
+    the Home tab the client picks the news text from it, in the MessageZone a theme's messages. The
+    group must be one the client is in (0x5d81a6)."""
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.TEXT_ID_LIST
+    group_id: int
+    text_ids: tuple[int, ...]
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter().write_u32(self.group_id).write_u32(len(self.text_ids))
+        for text_id in self.text_ids:
+            writer.write_u32(text_id)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> TextIdList:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        group_id = reader.read_u32()
+        text_count = reader.read_u32()
+        text_ids = tuple(reader.read_u32() for _ in range(text_count))
+        return cls(group_id=group_id, text_ids=text_ids)
+
+
+@dataclass(frozen=True)
+class ServerStatistics:
+    """0x1b: the statistics table on the Home tab (0x448d20), stored on every joined group with
+    GroupFlag RECEIVES_STATISTICS (0x5d997d). No group id; six u32 in the order shown: players
+    online, players in the last hour, players in the last day, games open, games in the last hour,
+    games in the last day (cells 0x448dfc..0x44921d). A first value of 0 shows "-"."""
+
+    MESSAGE_TYPE: ClassVar[MessageType] = MessageType.SERVER_STATISTICS
+    players_online: int
+    players_last_hour: int
+    players_last_day: int
+    games_open: int
+    games_last_hour: int
+    games_last_day: int
+
+    def encode(self) -> RawMessage:
+        writer = FieldWriter()
+        for value in (
+            self.players_online,
+            self.players_last_hour,
+            self.players_last_day,
+            self.games_open,
+            self.games_last_hour,
+            self.games_last_day,
+        ):
+            writer.write_u32(value)
+        return writer.to_message(self.MESSAGE_TYPE)
+
+    @classmethod
+    def decode(cls, message: RawMessage) -> ServerStatistics:
+        reader = open_message_body(message, {cls.MESSAGE_TYPE})
+        return cls(
+            players_online=reader.read_u32(),
+            players_last_hour=reader.read_u32(),
+            players_last_day=reader.read_u32(),
+            games_open=reader.read_u32(),
+            games_last_hour=reader.read_u32(),
+            games_last_day=reader.read_u32(),
+        )
 
 
 @dataclass(frozen=True)
@@ -843,8 +922,10 @@ class GetTextMessage:
 
 @dataclass(frozen=True)
 class TextMessage:
-    """0x15: the answer to GetTextMessage (handler 0x5d8270). The text id must match the request.
-    Layout: u32 text id, string title, u32 line count, the lines."""
+    """0x15: the answer to GetTextMessage (handler 0x5d8270): u32 text id, string title, u32 line
+    count, the lines. The client takes it only for the id it is waiting for (0x5d8483) and only
+    with a non-empty title (0x5cb642), and keeps it for the rest of its session (0x60bbe0). It shows
+    the title, an empty line, then the lines (0x4497ff)."""
 
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.TEXT_MESSAGE
     text_id: int

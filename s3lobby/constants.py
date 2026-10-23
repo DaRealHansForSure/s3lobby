@@ -84,6 +84,8 @@ class MessageType(IntEnum):
     OWN_PLAYER_WITH_CLAN = 0x24
     ADD_PLAYER_TO_GROUP_WITH_CLAN = 0x25
     GROUP_COUNTERS = 0x1A
+    TEXT_ID_LIST = 0x14
+    SERVER_STATISTICS = 0x1B
 
 
 # Messages the reliable layer consumes itself; everything else is handed to the lobby.
@@ -156,6 +158,9 @@ class ResultCode(IntEnum):
     # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
     WRONG_GROUP_PASSWORD = 0x62
 
+    # Answer to GameStatus: the game shows 0x90148 "Game status stored at the Lobby server." (0x540a3e).
+    GAME_STATUS_STORED = 0x6C
+
 
 class LogonFlag(IntFlag):
     """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
@@ -212,9 +217,23 @@ GAME_ZONE_NAMES = {
 # (seen in a run: CreateGame 0x5ca7d0 sends 0xffffffff).
 SERVER_ASSIGNS_GROUP_ID = 0xFFFFFFFF
 
-# This server's choice: game ids start here, far above the room and zone ids the client uses on
-# its own (1 to 3 for the lobby rooms, 30 to 38 for the game zones), so the two never collide.
-FIRST_GAME_GROUP_ID = 0x10000
+# This server's choice of id ranges for the groups it makes, far above the ids the client uses on
+# its own (1 to 4 for the tabs, 30 to 38 for the game zones), so nothing ever collides:
+# chat themes and MessageZone themes add their database id to their base, MessageZone language
+# groups their position in BOARD_LANGUAGES, and games and chat groups players open count up from
+# FIRST_GAME_GROUP_ID.
+CHAT_THEME_GROUP_ID_BASE = 0x10000
+BOARD_LANGUAGE_GROUP_ID_BASE = 0x20000
+BOARD_THEME_GROUP_ID_BASE = 0x30000
+FIRST_GAME_GROUP_ID = 0x100000
+
+# Text ids of MessageZone messages: this base plus the message's database id, far from the news ids.
+BOARD_MESSAGE_TEXT_ID_BASE = 0x10000
+
+# Offered on the ChatZone tab when no chat theme is configured: without any theme players could not
+# open chat groups at all.
+DEFAULT_CHAT_THEME_NAME = "General"
+DEFAULT_CHAT_THEME_DESCRIPTION = "Talk about anything"
 
 
 class GroupFlag(IntFlag):
@@ -274,10 +293,24 @@ BOARD_LANGUAGES = ("German", "English", "Italian", "French", "Polish", "Spanish"
 BOARD_FALLBACK_LANGUAGE = "English"
 BOARD_LANGUAGE_GROUP_PREFIX = "MessageThemes"
 
-# The Home tab shows one of two news texts, picked by the language of the game (0x45351b..0x453606).
+# The Home tab shows one of two news texts, picked by the language of the game (0x45351b..0x453606):
+# it looks for text id 0x91 in a German game and 0x92 in any other, in the list of text ids the
+# server sends for the Home group, and falls back to the list's first entry.
 NEWS_AUDIENCE_GERMAN = "german"
 NEWS_AUDIENCE_OTHER = "other"
 NEWS_AUDIENCES = (NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER)
+NEWS_TEXT_ID_BY_AUDIENCE = {NEWS_AUDIENCE_GERMAN: 0x91, NEWS_AUDIENCE_OTHER: 0x92}
+
+# A text message (0x15) counts as delivered only with a non-empty title (0x5cb642); without one the
+# page stays at "Loading message" for good. This title answers ids the server does not know.
+UNKNOWN_TEXT_TITLE = "Not available"
+
+# Keeps a text message within one unfragmented datagram on any network; longer texts are cut.
+MAX_TEXT_MESSAGE_BYTES = 1200
+
+# The banner's url must start like this; the game skips the first six characters and splits the rest
+# into host and path at the first slash (0x449938).
+BANNER_URL_PREFIX = "ftp://"
 
 # Logon attempts: a token bucket per IP and per account name, drawn on by failed attempts only, so
 # a LAN party behind one router can log on together while guessing access codes stays hopeless.
@@ -300,6 +333,13 @@ KEEPALIVE_INTERVAL_MS = 3_000
 # This server's choice: how long a connection closed by the client is kept for retransmissions of
 # the server's own CloseConnection before it is forgotten.
 CLOSING_LINGER_MS = 10_000
+
+# How often the server looks for announcements queued in the database by another process.
+ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
+
+# Group id of a server line sent to every player: the line shows in whatever room the player is
+# in; the id only names the group in the client's chat log file (0x5d2420).
+ANNOUNCEMENT_GROUP_ID = 0
 
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.

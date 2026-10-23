@@ -27,20 +27,40 @@ from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from s3lobby.constants import (
+    ANNOUNCEMENT_GROUP_ID,
+    BANNER_URL_PREFIX,
+    BOARD_FALLBACK_LANGUAGE,
+    BOARD_LANGUAGE_GROUP_ID_BASE,
+    BOARD_LANGUAGE_GROUP_PREFIX,
+    BOARD_LANGUAGES,
+    BOARD_MESSAGE_TEXT_ID_BASE,
+    BOARD_THEME_GROUP_ID_BASE,
+    CHAT_THEME_GROUP_ID_BASE,
+    CHAT_ZONE_GROUP_ID,
+    DEFAULT_CHAT_THEME_DESCRIPTION,
+    DEFAULT_CHAT_THEME_NAME,
     FIRST_GAME_GROUP_ID,
     GAME_ZONE_NAMES,
+    HOME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
     MAX_CHAT_COMMAND_LENGTH,
     MAX_OPEN_GROUPS_PER_PLAYER,
+    MAX_TEXT_MESSAGE_BYTES,
+    MESSAGE_ZONE_GROUP_ID,
+    NEWS_TEXT_ID_BY_AUDIENCE,
     PRIVATE_CHAT_GROUP_ID,
     SERVER_ASSIGNS_GROUP_ID,
+    TEXT_ENCODING,
+    UNKNOWN_TEXT_TITLE,
     WARNING_INTERVAL_SECONDS,
+    GroupFlag,
     MessageType,
     ResultCode,
 )
-from s3lobby.database import Clan, LobbyDatabase
+from s3lobby.commands import ChatCommands, fit_answer
+from s3lobby.database import Clan, LobbyDatabase, Setting
 from s3lobby.groups import (
     Group,
     GroupKind,
@@ -59,13 +79,14 @@ from s3lobby.messages import (
     ChatCommandAnswer,
     ChatMessage,
     CheckFileVersion,
-    EmptyImageList,
     EncodableMessage,
     GameStatus,
     GetImageList,
     GetTextMessage,
     GroupAnnouncement,
     GroupUpdate,
+    ImageEntry,
+    ImageList,
     LobbyServerEntry,
     LobbyServerList,
     Logon,
@@ -74,6 +95,8 @@ from s3lobby.messages import (
     RemoveGroupFromGroup,
     RemovePlayerFromGroup,
     Result,
+    ServerStatistics,
+    TextIdList,
     TextMessage,
 )
 from s3lobby.wire import Address, ProtocolError, RawMessage
@@ -122,6 +145,7 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database)
+        self._chat_commands = ChatCommands(database, self._online_player_names, self.announce)
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
@@ -146,7 +170,7 @@ class Lobby:
             MessageType.CHAT_COMMAND: self._answer_chat_command,
             MessageType.GET_IMAGE_LIST: self._answer_image_list,
             MessageType.GET_TEXT_MESSAGE: self._answer_text_message,
-            MessageType.GAME_STATUS: self._log_game_status,
+            MessageType.GAME_STATUS: self._store_game_status,
         }
         self._open_built_in_rooms()
 
@@ -178,6 +202,21 @@ class Lobby:
         log.info("player %d %r left the lobby", player.player_id, player.name)
         for group_id in list(player.group_ids):
             self._remove_player_from_group(player, group_id, is_player_told=False)
+        self._send_statistics_to_home()
+
+    def announce(self, text: str) -> int:
+        """Send a server line to every player in the lobby; returns how many it reached."""
+        message = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([text]))
+        players = list(self._players_by_id.values())
+        for player in players:
+            self._outbox.send(player.address, message)
+        log.info("announced to %d player(s): %r", len(players), text)
+        return len(players)
+
+    def send_pending_announcements(self) -> None:
+        """Send what another process (the command line, a web interface) queued in the database."""
+        for text in self._database.take_pending_announcements():
+            self.announce(text)
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
         """Let the per client warning and logon limits forget clients that went quiet."""
@@ -240,6 +279,10 @@ class Lobby:
         # without a check (0x5ca46b), so OwnPlayer is not optional either.
         self._outbox.send(client_address, Result(ResultCode.LOGON_ACCEPTED))
         self._outbox.send(client_address, own_player_message(player))
+        self._send_statistics_to_home()
+        welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
+        if welcome_message:
+            self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
 
     def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
         account = decision.account
@@ -353,6 +396,7 @@ class Lobby:
         )
         if group.kind == GroupKind.GAME:
             group.game_record_id = self._database.record_game_opened(announcement.name, player.player_id)
+            self._send_statistics_to_home()
         self._groups[group_id] = group
         log.info(
             "player %d %r opens %s %d %r in group %d",
@@ -425,20 +469,53 @@ class Lobby:
         command = ChatCommand.decode(message)
         if len(command.command) > MAX_CHAT_COMMAND_LENGTH:
             raise ProtocolError(f"chat command of {len(command.command)} characters")
-        answer = ChatCommandAnswer(group_id=command.group_id, lines=(f"Unknown command: {command.command}",))
-        self._outbox.send(client_address, answer)
+        player = self._find_logged_on_player(client_address)
+        if player is None:
+            return
+        log.info("player %d %r: %r", player.player_id, player.name, command.command)
+        lines = self._chat_commands.answer(player, command.command)
+        self._outbox.send(client_address, ChatCommandAnswer(group_id=command.group_id, lines=lines))
 
     def _answer_image_list(self, client_address: Address, message: RawMessage) -> None:
+        # Only the Home tab shows an image: the banner, when one is configured.
         request = GetImageList.decode(message)
-        self._outbox.send(client_address, EmptyImageList(group_id=request.group_id))
+        images = ()
+        banner = self._configured_banner()
+        if request.group_id == HOME_GROUP_ID and banner is not None:
+            images = (banner,)
+        self._outbox.send(client_address, ImageList(group_id=request.group_id, images=images))
 
     def _answer_text_message(self, client_address: Address, message: RawMessage) -> None:
         request = GetTextMessage.decode(message)
-        self._outbox.send(client_address, TextMessage(text_id=request.text_id))
+        self._outbox.send(client_address, self._text_message_for(request.text_id))
 
-    def _log_game_status(self, client_address: Address, message: RawMessage) -> None:
+    def _text_message_for(self, text_id: int) -> TextMessage:
+        """The text with this id: the news for one audience, or a placeholder for unknown ids,
+        always with a title, since a text without one leaves the client waiting for good."""
+        for audience, news_text_id in NEWS_TEXT_ID_BY_AUDIENCE.items():
+            news = self._database.find_news(audience)
+            if text_id == news_text_id and news is not None:
+                return text_message(text_id, news.title, news.body)
+        if text_id >= BOARD_MESSAGE_TEXT_ID_BASE:
+            board_message = self._database.find_board_message(text_id - BOARD_MESSAGE_TEXT_ID_BASE)
+            if board_message is not None:
+                byline = f"{board_message.author or self._server_name}, {board_message.posted_at:%Y-%m-%d}"
+                return text_message(text_id, board_message.title, f"{byline}\n\n{board_message.body}")
+        return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
+
+    def _store_game_status(self, client_address: Address, message: RawMessage) -> None:
+        """A client reports how its match went (sent from 0x540500). The report is kept as the
+        client wrote it, for a ladder to read later, and the client is told it was stored."""
         status = GameStatus.decode(message)
-        log.info("%s: game status for group %d: %s", client_address, status.group_id, status.rest_of_body.hex())
+        player = self._find_logged_on_player(client_address)
+        if player is None:
+            return
+        self._database.store_game_report(player.player_id, status.group_id, message.body)
+        log.info("player %d %r reported the match of group %d", player.player_id, player.name, status.group_id)
+        self._outbox.send(client_address, Result(ResultCode.GAME_STATUS_STORED))
+
+    def _online_player_names(self) -> list[str]:
+        return [player.name for player in self._players_by_id.values()]
 
     # Membership.
 
@@ -447,6 +524,14 @@ class Lobby:
         members and what is listed in it; the members get the newcomer; whoever sees the group in
         a parent gets its new counters."""
         log.info("player %d %r joins group %d", player.player_id, player.name, group.group_id)
+        if group.group_id == HOME_GROUP_ID:
+            group.announcement = replace(group.announcement, flags=self._home_flags())
+        if group.group_id == CHAT_ZONE_GROUP_ID:
+            self._sync_chat_themes()
+        if group.group_id == MESSAGE_ZONE_GROUP_ID:
+            self._sync_board_languages()
+        if is_board_language_group(group.group_id):
+            self._sync_board_themes(language_of_board_group(group.group_id))
         self._outbox.send(player.address, group.announcement.under_parent(JOINED_GROUP_PARENT_ID))
         for member in self._members_of(group):
             self._outbox.send(player.address, member_entry(group.group_id, member))
@@ -457,6 +542,60 @@ class Lobby:
         for child in self._groups_listed_in(group.group_id):
             self._show_group(player, child, group.group_id)
         self._send_counters_to_viewers(group)
+        if group.group_id == HOME_GROUP_ID:
+            self._send_home_page(player)
+        if is_board_theme_group(group.group_id):
+            self._send_board_message_ids(player, group.group_id - BOARD_THEME_GROUP_ID_BASE)
+
+    # The Home tab.
+
+    def _send_home_page(self, player: Player) -> None:
+        """What the Home tab shows: the statistics table, and the ids of the news texts there are.
+        The client then picks the id for its language and asks for that text."""
+        self._outbox.send(player.address, self._statistics())
+        news_text_ids = []
+        for audience, text_id in NEWS_TEXT_ID_BY_AUDIENCE.items():
+            if self._database.find_news(audience) is not None:
+                news_text_ids.append(text_id)
+        self._outbox.send(player.address, TextIdList(group_id=HOME_GROUP_ID, text_ids=tuple(news_text_ids)))
+
+    def _send_statistics_to_home(self) -> None:
+        home = self._groups[HOME_GROUP_ID]
+        members = self._members_of(home)
+        if not members:
+            return
+        statistics = self._statistics()
+        for member in members:
+            self._outbox.send(member.address, statistics)
+
+    def _statistics(self) -> ServerStatistics:
+        numbers = self._database.collect_statistics()
+        return ServerStatistics(
+            players_online=numbers.players_online,
+            players_last_hour=numbers.players_last_hour,
+            players_last_day=numbers.players_last_day,
+            games_open=numbers.games_open,
+            games_last_hour=numbers.games_last_hour,
+            games_last_day=numbers.games_last_day,
+        )
+
+    def _configured_banner(self) -> ImageEntry | None:
+        url = self._database.get_setting(Setting.BANNER_URL)
+        if not url.startswith(BANNER_URL_PREFIX):
+            return None
+        return ImageEntry(
+            banner_id=self._database.get_integer_setting(Setting.BANNER_ID),
+            banner_sub_id=self._database.get_integer_setting(Setting.BANNER_SUB_ID),
+            url=url,
+        )
+
+    def _home_flags(self) -> int:
+        """Home receives the statistics, and asks for its image list when a banner is configured.
+        Worked out on every join, so a banner set while the server runs shows on the next visit."""
+        flags = GroupFlag.RECEIVES_STATISTICS
+        if self._configured_banner() is not None:
+            flags |= GroupFlag.REQUESTS_IMAGES
+        return flags
 
     def _remove_player_from_group(self, player: Player, group_id: int, is_player_told: bool) -> None:
         """Take a player out of a group and tell the remaining members.
@@ -516,6 +655,7 @@ class Lobby:
         self._groups.pop(group.group_id, None)
         if group.game_record_id is not None:
             self._database.record_game_closed(group.game_record_id)
+            self._send_statistics_to_home()
         log.info("%s %d %r closed", group.kind.value, group.group_id, group.announcement.name)
 
     def _show_group(self, player: Player, group: Group, parent_id: int) -> None:
@@ -554,6 +694,75 @@ class Lobby:
 
     def _groups_listed_in(self, parent_id: int) -> list[Group]:
         return [group for group in self._groups.values() if parent_id in group.listed_in_parent_ids]
+
+    # The ChatZone tab.
+
+    def _sync_chat_themes(self) -> None:
+        """Bring the chat theme groups listed in ChatZone in line with the database: themes added
+        while the server runs appear, removed ones disappear once nobody is in them. With no theme
+        configured a default one is offered, since players open chat groups inside a theme."""
+        chat_zone = self._groups[CHAT_ZONE_GROUP_ID]
+        wanted = {}
+        for theme in self._database.list_chat_themes():
+            wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description)
+        if not wanted:
+            wanted[CHAT_THEME_GROUP_ID_BASE] = (DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION)
+
+        for group in self._groups_listed_in(CHAT_ZONE_GROUP_ID):
+            is_removed = group.group_id not in wanted
+            if is_removed and not group.member_ids:
+                self._unlist_group_from(group, CHAT_ZONE_GROUP_ID)
+                self._groups.pop(group.group_id, None)
+        for group_id, (name, description) in wanted.items():
+            if group_id in self._groups:
+                continue
+            theme = Group(announcement=room_announcement(group_id, name, description_text=description), kind=GroupKind.ROOM)
+            self._groups[group_id] = theme
+            self._list_group_in(theme, chat_zone)
+
+    # The MessageZone tab.
+
+    def _sync_board_languages(self) -> None:
+        """List one group per language that has board themes, named as the client looks for them
+        ("MessageThemes" + language), and always the English one the client falls back to."""
+        message_zone = self._groups[MESSAGE_ZONE_GROUP_ID]
+        languages_with_themes = {theme.language for theme in self._database.list_board_themes()}
+        languages_with_themes.add(BOARD_FALLBACK_LANGUAGE)
+        for index, language in enumerate(BOARD_LANGUAGES):
+            group_id = BOARD_LANGUAGE_GROUP_ID_BASE + index
+            if language in languages_with_themes and group_id not in self._groups:
+                name = BOARD_LANGUAGE_GROUP_PREFIX + language
+                language_group = Group(announcement=room_announcement(group_id, name), kind=GroupKind.ROOM)
+                self._groups[group_id] = language_group
+                self._list_group_in(language_group, message_zone)
+
+    def _sync_board_themes(self, language: str) -> None:
+        """List the board themes of one language in its language group; themes removed from the
+        database disappear once nobody is in them."""
+        language_group_id = BOARD_LANGUAGE_GROUP_ID_BASE + BOARD_LANGUAGES.index(language)
+        language_group = self._groups[language_group_id]
+        wanted = {}
+        for theme in self._database.list_board_themes():
+            if theme.language == language:
+                wanted[BOARD_THEME_GROUP_ID_BASE + theme.theme_id] = theme
+        for group in self._groups_listed_in(language_group_id):
+            if group.group_id not in wanted and not group.member_ids:
+                self._unlist_group_from(group, language_group_id)
+                self._groups.pop(group.group_id, None)
+        for group_id, theme in wanted.items():
+            if group_id in self._groups:
+                continue
+            announcement = room_announcement(group_id, theme.name, description_text=theme.description)
+            theme_group = Group(announcement=announcement, kind=GroupKind.ROOM)
+            self._groups[group_id] = theme_group
+            self._list_group_in(theme_group, language_group)
+
+    def _send_board_message_ids(self, player: Player, theme_id: int) -> None:
+        """The ids of a theme's messages; the client asks for each text when it shows it."""
+        messages = self._database.list_board_messages(theme_id)
+        text_ids = tuple(BOARD_MESSAGE_TEXT_ID_BASE + message.message_id for message in messages)
+        group_id = BOARD_THEME_GROUP_ID_BASE + theme_id
+        self._outbox.send(player.address, TextIdList(group_id=group_id, text_ids=text_ids))
 
     # Built-in groups and lookups.
 
@@ -601,3 +810,29 @@ def member_entry(group_id: int, player: Player) -> EncodableMessage:
         clan_id=player.shown_clan.clan_id,
         clan_name=player.shown_clan.name,
     )
+
+
+def text_message(text_id: int, title: str, body: str) -> TextMessage:
+    """A text message with the body split into lines, cut to fit one unfragmented datagram."""
+    lines = []
+    used_bytes = len(title) + 1
+    for line in body.splitlines():
+        line_bytes = len(line.encode(TEXT_ENCODING, errors="replace")) + 1
+        if used_bytes + line_bytes > MAX_TEXT_MESSAGE_BYTES:
+            log.warning("text %#x %r cut to %d bytes", text_id, title, MAX_TEXT_MESSAGE_BYTES)
+            break
+        lines.append(line)
+        used_bytes += line_bytes
+    return TextMessage(text_id=text_id, title=title, lines=tuple(lines))
+
+
+def is_board_language_group(group_id: int) -> bool:
+    return BOARD_LANGUAGE_GROUP_ID_BASE <= group_id < BOARD_LANGUAGE_GROUP_ID_BASE + len(BOARD_LANGUAGES)
+
+
+def language_of_board_group(group_id: int) -> str:
+    return BOARD_LANGUAGES[group_id - BOARD_LANGUAGE_GROUP_ID_BASE]
+
+
+def is_board_theme_group(group_id: int) -> bool:
+    return BOARD_THEME_GROUP_ID_BASE <= group_id < FIRST_GAME_GROUP_ID

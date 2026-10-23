@@ -355,17 +355,68 @@ must fill in the address it sees datagrams come from.
 - **0x1e ChatMessage2**: u32 group id (0 = private), u32 sender player id, u32 kind (0 normal,
   1 whisper), string text. Client to client.
 - **0x0b**: u32 group id, u32 player id, string text (older form).
-- **0x22 ChatCommand**: u32 group id, u32 0, string command; unknown slash commands go to the
-  server. **0x23** answers with u32 group id, u32 unused, u32 n, n strings, shown as `[Server]`.
+- **0x22 ChatCommand**: u32 group id, u32 0, string command; the client handles /MSG, /WHISPER,
+  /IGNORE, /UNIGNORE and /CHATLOG itself (0x5c67a0) and sends every other slash command to the
+  server (0x5c859c). **0x23** answers with u32 group id, u32 unused, u32 n, n strings; the handler
+  (0x5d2420) only checks it comes from the server and turns each string into a chat line from
+  player 0, which passes the chat filter for any group (0x453f56) and shows as `[Server]: text` in
+  the chat room view (0x44a43c), or as an in-game message during a match (0x541042). The group id
+  only names the group in the client's chat log file, so one 0x23 per client reaches it wherever it
+  is: this is how a server makes announcements. 0x0b and 0x1e cannot be used for that: their
+  handlers require a sender who is a member of a joined group and drop the connection otherwise
+  (0x5d107e, 0x5d1e8e).
+
+### The Home tab
+
+- When a client joins Home (group 1) the server sends the statistics and the list of news text ids.
+  Home is announced with flag 0x80, and with 0x4000000 when there is a banner.
+- **0x1b statistics** (handler 0x5d96b0, table 0x448d20): six u32, no group id, stored on every
+  joined group with flag 0x80: players online, players in the last hour, players in the last day,
+  games open, games in the last hour, games in the last day (cells 0x448dfc..0x44921d). A first
+  value of 0 shows "-".
+- **0x14 text id list** (handler 0x5d7d60): u32 group id, u32 n, n u32; size exactly 12 + 4n; the
+  group must be joined (0x5d81a6). On Home the client picks id 0x91 in a German game and 0x92 in
+  any other, falling back to the list's first entry (0x45351b..0x453606), then sends:
+- **0x16 GetTextMessage**: u32 text id. **0x15** answers u32 text id, string title, u32 n, n
+  strings. The client takes it only for the id it waits for (0x5d8483), only with a non-empty title
+  (0x5cb642; without one the page stays at "Loading message"), and keeps it for the session
+  (0x60bbe0). It shows the title, an empty line, then the lines (0x4497ff). Without a list entry it
+  shows "No message of the day present" (0x4497c3).
+- **0x1d GetImageList**: u32 group id, sent for joined groups with flag 0x4000000 (0x5d3261).
+  **0x1c** answers u32 group id, u32 n, n x (u32 banner id, u32 banner sub id, string url). Only
+  Home uses it, and only the last entry: when the banner id is not 0 and the pair differs from the
+  registry values BannerId and BannerSubId, the client downloads the url by anonymous FTP (it skips
+  the first six characters, "ftp://", and splits host and path at the first slash, 0x449938), saves
+  it as `Banner\Banner.png` and stores the pair (0x448998). Only Blue Byte's old FTP host got a
+  special login (0x465a0f).
+
+### The ChatZone tab
+
+The ChatZone (group 2) lists chat themes: groups whose name and second text fill the theme list's
+name and "Description" columns (0x44711d, 0x447186). A player chooses a theme by joining it, and
+sees the chat groups listed inside. A player opens a chat group with AddGroupToGroup2 under the
+theme, group id 0xffffffff, flags 0x301073 (with 0x1000 when it has a password), maximum players
+0xffffffff (no limit) and the password as third text (0x4546cb). Joining one sends the password as
+the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 ("Das Passwort
+stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
+Without any theme listed, players cannot open chat groups at all.
+
+### The MessageZone tab
+
+The MessageZone (group 4) is a message board. Inside it the client looks for a group named
+`MessageThemes` followed by its language (German, English, Italian, French, Polish, Spanish,
+Korean), falling back to `MessageThemesEnglish` (0x453831, 0x4539ce), and joins it. The groups
+listed in that language group are the themes; a theme's text id list (0x14) holds its messages
+(0x453bb8), which the client asks for one by one with 0x16 and shows with a header built from its
+own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
+theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
 
 ### Other
 
-- **0x16 GetTextMessage**: u32 text id. **0x15** answers u32 text id, string, u32 n, n strings.
-- **0x1d GetImageList**: u32 group id. **0x1c** answers u32 group id, u32 n, n x (u32, u32, string).
-- **0x14**: u32 group id, u32 n, n x u32; size exactly 12 + 4n.
-- **0x1a**: u32 group id, 3 x u32. **0x1b**: 6 x u32. Meanings unknown.
 - **0x1f GameStatus** (0x540500): u32 group id, 3 x u32 (flags with 1 = league game, winning team,
-  ...), string, u32 n, n x 6 u32 per player. No answer expected.
+  ...), string, u32 n, n x 6 u32 per player. No answer expected; Result 0x6c shows "Game status
+  stored at the Lobby server" in the game, 0x6a "Game status inconsistencies. Game not valid for
+  ladder" (0x540a3e).
 
 ## Session sequence
 
