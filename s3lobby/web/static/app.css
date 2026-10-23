@@ -246,21 +246,27 @@ a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--ac
 .toolbar .form-actions { margin-top: 0; }
 .toolbar .field { margin-bottom: 0; }
 
-/* The admin area's navigation: groups named in small capitals before their pages, and a line
-   that sets the admin row apart from the public pages' one. */
+/* The admin area's navigation: one unit per group (its label, then its pages) that never breaks
+   apart, a wide gap between the groups, and labels drawn as small tags so they never pass for links. */
 .app-nav-bar--admin { box-shadow: inset 0 -1px 0 var(--border); }
 .app-nav-group {
-  padding-block: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  white-space: nowrap;
+}
+.app-nav-group-label {
+  padding: 0.1rem var(--space-2);
+  border-radius: var(--radius-tag);
+  background: var(--surface-alt);
+  color: var(--text-muted);
   font-size: var(--size-xs);
   font-weight: 600;
   text-transform: uppercase;
-  color: var(--text-muted);
-  white-space: nowrap;
 }
-.app-nav-group:not(:first-child) { margin-left: var(--space-3); }
 /* The admin row has more pages than fit one line on a laptop: it wraps instead of scrolling, so
    every group stays in sight. */
-.app-nav-bar--admin .app-nav { flex-wrap: wrap; column-gap: var(--space-4); row-gap: 0; }
+.app-nav-bar--admin .app-nav { flex-wrap: wrap; column-gap: var(--space-6); row-gap: var(--space-1); }
 
 /* The settings page: one card per group of settings, their fields side by side. */
 .settings-group { margin-bottom: var(--space-5); }
