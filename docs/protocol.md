@@ -382,6 +382,11 @@ The sockaddr in 0x0c matters: clients send room chat directly to each member's a
 0x5c661e), and the client's own idea of its address is 0.0.0.0 (it binds INADDR_ANY). The server
 must fill in the address it sees datagrams come from.
 
+That address is right only for clients in the same network. s3lobby rewrites it, and the host
+address of a game block, for each receiving client (`s3lobby/addresses.py`): a player seen at
+127.0.0.1 is shown at the server machine's address that faces the receiver, and a player at a
+private address is shown to a receiver on the internet at the configured public host.
+
 ### Chat
 
 - **0x1e ChatMessage2**: u32 group id (0 = private), u32 sender player id, u32 kind (0 normal,

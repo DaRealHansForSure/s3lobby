@@ -320,6 +320,13 @@ access code.
 - The lobby only brings players together. The match itself runs over DirectPlay directly between
   the players, so whoever hosts a game needs DirectPlay's ports open as well: TCP 47624 and
   TCP and UDP 2300 to 2400.
+- Chat also goes directly between the players, to the addresses the server hands out. The server
+  gives every player addresses it can reach: a player on the server's own machine is shown at the
+  machine's LAN address, and, with `--public-host` set, players in the server's LAN are shown to
+  internet players at the public address. For an internet player to reach a LAN player there, the
+  router must forward that player's UDP port (the game uses 3343, or the next free port) and, to
+  host games, DirectPlay's ports to that player's machine. A public host name is looked up again
+  every five minutes, so a dynamic DNS name works.
 
 ## Running the game on Linux with Wine
 
@@ -385,6 +392,7 @@ The code follows the same layers:
 | `s3lobby/guards.py` | rate limits and a throttled log against flooding senders |
 | `s3lobby/lobby.py` | players, rooms, zones and games, and the answer to every request |
 | `s3lobby/server.py` | the UDP socket and one connection per client |
+| `s3lobby/addresses.py` | the address each player is shown to another, so chat and joins can reach it |
 | `s3lobby/database.py` | everything stored: accounts, clans, lobby content, statistics, settings |
 | `s3lobby/backends.py` | SQLite and MySQL behind one interface, chosen by the database location |
 | `s3lobby/migrations.py`, `s3lobby/schema/` | the schema as numbered migration files per database |
