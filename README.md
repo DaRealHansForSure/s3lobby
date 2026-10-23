@@ -9,6 +9,7 @@
 [![Tests](https://github.com/DaRealHansForSure/s3lobby/actions/workflows/tests.yml/badge.svg)](https://github.com/DaRealHansForSure/s3lobby/actions/workflows/tests.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?logo=python&logoColor=white)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-17603f)
+[![MIT License](https://img.shields.io/badge/license-MIT-17603f)](LICENSE)
 ![SQLite, MySQL, MariaDB](https://img.shields.io/badge/database-SQLite%20%7C%20MySQL%20%7C%20MariaDB-1b3a6b)
 ![UDP 3344](https://img.shields.io/badge/protocol-UDP%203344-6d5a10)
 ![The Settlers III](https://img.shields.io/badge/game-The%20Settlers%20III%20(1998)-dec470)
@@ -425,4 +426,8 @@ the behaviour of a legally owned copy, for interoperability.
 
 ## License
 
-Not chosen yet.
+s3lobby is released under the [MIT License](LICENSE). Copyright (c) 2026 DaRealHansForSure.
+
+The protocol was reverse engineered from the original game and the code written from scratch by
+DaRealHansForSure. You may use, change and share it, also in your own projects, as long as you
+keep the copyright notice and name the author. A link back to this repository is appreciated.
