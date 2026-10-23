@@ -12,12 +12,13 @@ from datetime import timedelta
 from s3lobby.constants import LadderState, LadderType, SeasonCounts
 from s3lobby.database import DELETED_ACCOUNT_ID, DatabaseError, LobbyDatabase, Setting
 from s3lobby.ladder import Evaluation, ResultPlayer
+from s3lobby.ladder_book import LadderBook, count_same_day_results
 from tests.databases import database_location_for_test
 from tests.test_database import START, SteppingClock
 
 
-class LadderDatabaseTest(unittest.TestCase):
-    """LobbyDatabase's ladder methods on a fresh database per test."""
+class LadderTestCase(unittest.TestCase):
+    """A fresh database per test with Alice and Bob in a Liga game; holds no tests itself."""
 
     def setUp(self) -> None:
         """A fresh database with two accounts in a Liga game."""
@@ -46,6 +47,10 @@ class LadderDatabaseTest(unittest.TestCase):
                 ResultPlayer(self.bob, None, 1, 1, 1, False, True),
             ),
         )
+
+
+class LadderDatabaseTest(LadderTestCase):
+    """LobbyDatabase's ladder methods."""
 
     def test_a_result_reads_back_with_its_players(self) -> None:
         """What is stored is what the ratings are computed from."""
@@ -147,6 +152,47 @@ class LadderDatabaseTest(unittest.TestCase):
             self.database.set_setting(Setting.LADDER_ACTIVE_DAYS, "4000000000")
         self.database.set_setting(Setting.LADDER_MINIMUM_MINUTES, "15")
         self.assertEqual(self.database.get_ladder_settings().minimum_minutes, 15)
+
+
+class LadderBookTest(LadderTestCase):
+    """LadderBook: admins deciding and voiding results, and the pair limit's count."""
+
+    def test_an_admin_decides_a_disputed_game(self) -> None:
+        """Bob's team is named the winner: the result counts for Bob, and names the admin."""
+        self.database.store_ladder_result(self.evaluation(LadderState.DISPUTED, "the reports name different winners"))
+        book = LadderBook(self.database)
+        decided = book.decide(self.game_id, winning_team=1, admin_account_id=self.alice)
+        self.assertEqual(decided.state, LadderState.COUNTED)
+        self.assertEqual([player.account_id for player in decided.players if player.has_won], [self.bob])
+        self.assertEqual(book.ratings().liga[self.bob].won, 1)
+
+    def test_a_team_that_did_not_play_cannot_win(self) -> None:
+        """Only a team of the match can be named."""
+        self.database.store_ladder_result(self.evaluation(LadderState.DISPUTED))
+        with self.assertRaises(ValueError):
+            LadderBook(self.database).decide(self.game_id, winning_team=5, admin_account_id=self.alice)
+
+    def test_a_voided_result_leaves_every_rating(self) -> None:
+        """Voiding takes the result out; the ratings follow at once."""
+        self.database.store_ladder_result(self.evaluation())
+        book = LadderBook(self.database)
+        book.void(self.game_id, "", admin_account_id=self.alice)
+        self.assertEqual(book.ratings().liga, {})
+        self.assertEqual(self.database.find_ladder_result(self.game_id).evaluation.reason, "voided by an admin")
+
+    def test_a_game_without_a_result_cannot_be_decided(self) -> None:
+        """Deciding needs a result to change."""
+        with self.assertRaises(LookupError):
+            LadderBook(self.database).void(self.game_id, "", admin_account_id=None)
+
+    def test_the_pair_count_takes_the_same_day_and_pair_only(self) -> None:
+        """Two earlier wins between Alice and Bob that day count; one the day before does not."""
+        today = self.evaluation()
+        earlier_today = (today, today)
+        yesterday = Evaluation(
+            9, LadderType.INDIVIDUAL, LadderState.COUNTED, played_at=START - timedelta(days=1), players=today.players
+        )
+        self.assertEqual(count_same_day_results(today, earlier_today + (yesterday,)), 2)
 
 
 if __name__ == "__main__":

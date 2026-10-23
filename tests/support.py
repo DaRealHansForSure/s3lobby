@@ -59,6 +59,8 @@ RECEIVE_TIMEOUT_SECONDS = 2.0
 SILENCE_CHECK_SECONDS = 0.5
 SERVER_START_TIMEOUT_SECONDS = 5.0
 MAX_DATAGRAM_BUFFER = 0x10000
+# The serial number every fake client logs on with, unless a test gives it another.
+SERIAL_NUMBER = "0497-2584-2194-4356-2336"
 
 # Whole message sizes, header included, that the real client asserts when it reads a message.
 # A server message of another size makes the game drop the connection.
@@ -124,6 +126,11 @@ class BackgroundServer:
         """The loopback address and port the server listens on."""
         return self._server.bound_address
 
+    def evaluate_ladder_games(self) -> None:
+        """Run the server's ladder evaluation now instead of at its next interval."""
+        future = asyncio.run_coroutine_threadsafe(run_now(self._server.evaluate_ladder_games), self._loop)
+        future.result(timeout=SERVER_START_TIMEOUT_SECONDS)
+
     def close_abandoned_chat_groups(self, seconds_from_now: float) -> None:
         """Run the server's chat group housekeeping as if seconds_from_now had passed."""
         future = asyncio.run_coroutine_threadsafe(
@@ -135,10 +142,14 @@ class BackgroundServer:
 class FakeGameClient:
     """Speaks the connection layer like the game does and collects the lobby messages it receives."""
 
-    def __init__(self, server_address: Address, player_name: str, nonce: int) -> None:
+    def __init__(
+        self, server_address: Address, player_name: str, nonce: int, serial_number: str = SERIAL_NUMBER
+    ) -> None:
         """Bind a socket on a free loopback port and get ready to open the connection with block 1; nothing is
-        sent yet."""
+        sent yet. serial_number is the one the client logs on with; every client shares one unless a
+        test gives it another (the ladder tells installations apart by it)."""
         self.player_name = player_name
+        self.serial_number = serial_number
         self._server_address = server_address
         self._nonce = nonce
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -272,7 +283,6 @@ def check_size_the_client_asserts(message: RawMessage) -> None:
 
 GAME_VERSION = 160
 ACCESS_CODE = "TESTCODE2345"
-SERIAL_NUMBER = "0497-2584-2194-4356-2336"
 EDITION_MISSION_AND_GOLD = 4
 # Index of German in the game's text archive: the GOG copy used for the runs is German.
 GERMAN_LANGUAGE_INDEX = 0
@@ -303,7 +313,7 @@ def logon_request(client: FakeGameClient, access_code: str = ACCESS_CODE, flags:
         player_name=client.player_name if name is None else name,
         password=access_code,
         flags=flags,
-        serial_number=SERIAL_NUMBER,
+        serial_number=client.serial_number,
     )
 
 
@@ -413,9 +423,9 @@ class LobbyTestCase(unittest.TestCase):
         self.database.close()
         self.database_folder.cleanup()
 
-    def new_client(self, player_name: str, nonce: int) -> FakeGameClient:
+    def new_client(self, player_name: str, nonce: int, serial_number: str = SERIAL_NUMBER) -> FakeGameClient:
         """A fake game client for this test's server, closed again in tearDown."""
-        client = FakeGameClient(self.server.address, player_name, nonce)
+        client = FakeGameClient(self.server.address, player_name, nonce, serial_number)
         self.clients.append(client)
         return client
 

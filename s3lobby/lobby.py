@@ -89,11 +89,13 @@ from s3lobby.groups import (
     game_row_colour,
     is_ladder_game,
     kind_of_new_group,
+    ladder_type_of,
     room_announcement,
     stored_game_announcement,
     with_real_host_address,
 )
 from s3lobby.guards import RateLimiter, ThrottledLogger
+from s3lobby.ladder_book import LadderBook
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
@@ -193,6 +195,7 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database, is_development_mode=is_development_mode)
+        self._ladder_book = LadderBook(database)
         self._chat_commands = ChatCommands(
             database, self._online_player_names, self.announce, self.kick_player, outbox.reachability_of
         )
@@ -574,7 +577,11 @@ class Lobby:
             group.game_record_id = self._do_bookkeeping(
                 "recording the game's opening",
                 lambda: self._database.record_game_opened(
-                    readable_text(announcement.name), player.player_id, group_id, stored_game_announcement(announcement)
+                    readable_text(announcement.name),
+                    player.player_id,
+                    group_id,
+                    stored_game_announcement(announcement),
+                    ladder_type_of(announcement),
                 ),
             )
             self._send_statistics_to_home()
@@ -789,8 +796,10 @@ class Lobby:
         if game_record_id is None:
             return
         announcement = stored_game_announcement(group.announcement)
+        ladder_type = ladder_type_of(group.announcement)
         self._do_bookkeeping(
-            "recording the game's setup", lambda: self._database.record_game_announcement(game_record_id, announcement)
+            "recording the game's setup",
+            lambda: self._database.record_game_announcement(game_record_id, announcement, ladder_type),
         )
 
     def _record_game_player(self, group: Group, player: Player) -> None:
@@ -799,9 +808,25 @@ class Lobby:
         if game_record_id is None or player.player_id in group.recorded_player_ids:
             return
         group.recorded_player_ids.add(player.player_id)
+        # The ladder needs the clan the player shows now (Clanliga) and which copy of the game it
+        # plays (two copies of one installation never count against each other).
+        clan_id = player.shown_clan.clan_id if player.shown_clan is not None else None
+        installation = group.installation_of(player.serial_number)
         self._do_bookkeeping(
-            "recording a game's player", lambda: self._database.record_game_player(game_record_id, player.player_id)
+            "recording a game's player",
+            lambda: self._database.record_game_player(game_record_id, player.player_id, clan_id, installation),
         )
+
+    def evaluate_ladder_games(self) -> None:
+        """Turn ladder games whose reports are in (or whose time ran out) into results. The games
+        this server still has open are passed on, so a game left open by an earlier run of the
+        server can be told apart from one still being played."""
+        open_game_ids = [
+            group.game_record_id
+            for group in self._groups.values()
+            if group.kind == GroupKind.GAME and group.game_record_id is not None
+        ]
+        self._ladder_book.evaluate_waiting_games(open_game_ids)
 
     def _online_player_names(self) -> list[str]:
         """The names of everyone logged on, for the chat commands."""

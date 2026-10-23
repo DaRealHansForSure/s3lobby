@@ -14,6 +14,9 @@ from s3lobby.constants import (
     FIRST_GAME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
     LOGON_PROTOCOL_VERSION,
+    GameStatusFlag,
+    LadderState,
+    LadderType,
     LogonFlag,
     MessageType,
     PlayerFlag,
@@ -25,11 +28,13 @@ from s3lobby.messages import (
     AddPlayerToGroupWithClan,
     AddPlayerToGroupWithFlags,
     CheckFileVersion,
+    GameStatus,
     GetLobbyServerList,
     GroupAnnouncement,
     LobbyServerList,
     Logon,
     Logout,
+    MatchReportPlayer,
     MessageId,
     OpenConnection,
     OwnPlayerWithClan,
@@ -37,6 +42,7 @@ from s3lobby.messages import (
     RemovePlayerFromGroup,
     Result,
 )
+from tests.test_groups import game_description, receive_announcement
 from tests.support import (
     ACCESS_CODE,
     EDITION_MISSION_AND_GOLD,
@@ -309,6 +315,57 @@ class ForgedDatagramTest(LobbyTestCase):
         with mock.patch("s3lobby.server.RECONNECT_AFTER_QUIET_MS", 0):
             alice.send_raw(MessageId(1), OpenConnection(200))
             bob.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
+
+
+
+# A 30 minute match on the game's clock (one tick every 64 ms), well over the ladder's minimum.
+THIRTY_MINUTES_OF_TICKS = 28_125
+OTHER_SERIAL_NUMBER = "1111-2222-3333-4444-5555"
+
+
+class LadderEvaluationTest(LobbyTestCase):
+    """The ladder turns a Liga match into a result once both players reported and left. Nothing
+    breaks in the game without it, the game only reports; without it the server ranks nothing."""
+
+    def play_liga_match(self, bob_serial: str) -> int:
+        """Alice hosts a Liga game, Bob (on bob_serial) joins, both report Alice's win after 30
+        minutes, both leave the game. Returns the game's record id."""
+        alice, alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        bob = self.new_client("Bob", 42, bob_serial)
+        bob_id = log_on(bob)
+        join_group(bob, GAME_ZONE_ID, bob_id)
+        open_game(alice, GAME_ZONE_ID, LadderType.INDIVIDUAL, game_description(is_ladder_game=True))
+        game = receive_announcement(alice)
+        bob.send(AddPlayerToGroup(game.group_id, bob_id, ("0.0.0.0", 0), ""))
+        receive_announcement(bob)
+        slots = (MatchReportPlayer(0, alice_id, 0, 0, 0, 0), MatchReportPlayer(0, bob_id, 1, 0, 1, 1))
+        report = GameStatus(game.group_id, GameStatusFlag.LADDER_GAME, 0, THIRTY_MINUTES_OF_TICKS, "\\Random", slots)
+        # Each reports, then leaves the game; the server confirms the leave, and the game closes
+        # with its last player.
+        for client, player_id in ((alice, alice_id), (bob, bob_id)):
+            client.send(report)
+            client.receive_next(MessageType.RESULT)
+            client.send(RemovePlayerFromGroup(game.group_id, player_id))
+            client.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
+        [record] = self.database.list_recent_games(limit=1)
+        return record.game_id
+
+    def test_a_reported_liga_match_counts_for_its_winner(self) -> None:
+        """Both reports agree, the match was long enough, the players use different copies of the
+        game: Alice's win counts."""
+        game_id = self.play_liga_match(OTHER_SERIAL_NUMBER)
+        self.server.evaluate_ladder_games()
+        result = self.database.find_ladder_result(game_id)
+        self.assertEqual(result.evaluation.state, LadderState.COUNTED)
+        winners = [player.account_id for player in result.evaluation.players if player.has_won]
+        self.assertEqual(winners, [self.database.find_account("Alice").account_id])
+
+    def test_two_copies_of_one_installation_do_not_count(self) -> None:
+        """Bob logs on with Alice's serial number: one installation against itself is void."""
+        game_id = self.play_liga_match(SERIAL_NUMBER)
+        self.server.evaluate_ladder_games()
+        result = self.database.find_ladder_result(game_id)
+        self.assertEqual(result.evaluation.reason, "players on both sides share one game installation")
 
 
 if __name__ == "__main__":

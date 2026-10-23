@@ -557,6 +557,10 @@ BOARD_CHAT_HINT_TEXT = (
 # retries at the same pace keeps the server's retries as punctual as the game's.
 HOUSEKEEPING_INTERVAL_SECONDS = 0.25
 
+# How often the server looks at ladder games waiting for a result (s3lobby/ladder.py). A result is
+# due minutes after a match at the earliest, so half a minute is soon enough and costs nothing.
+LADDER_EVALUATION_INTERVAL_SECONDS = 30.0
+
 # The client picks its connection nonce as rand() % 255 + 1 (0x604404); the server does the same.
 CONNECTION_NONCE_MIN = 1
 CONNECTION_NONCE_MAX = 255

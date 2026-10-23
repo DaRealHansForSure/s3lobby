@@ -1391,6 +1391,10 @@ class LobbyDatabase:
 
     # The ladder (s3lobby/ladder.py): results, custom seasons, and the events the server wrote about.
 
+    def now(self) -> datetime:
+        """The time by the database's clock, the one every stored time comes from; tests move it."""
+        return self._clock()
+
     def get_ladder_settings(self) -> LadderSettings:
         """The ladder's numbers as the admins set them."""
         return LadderSettings(

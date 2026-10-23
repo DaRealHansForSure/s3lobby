@@ -31,6 +31,7 @@ from s3lobby.constants import (
     MAX_GROUP_TEXT_LENGTH,
     UNLIMITED_PLAYERS,
     GroupFlag,
+    LadderType,
     MessageType,
 )
 from s3lobby.messages import GameBlock, GameDescription, GameSettings, GroupAnnouncement, GroupCounters, GroupUpdate
@@ -70,6 +71,16 @@ class Group:
     empty_since_seconds: float | None = None
     # Players of a ladder game who were told that this server keeps no ladder (each hears it once).
     ladder_notice_player_ids: set[int] = field(default_factory=set)
+    # The game installations of the players who joined, by serial number: each serial gets a number
+    # the first time a player with it joins, so the ladder can tell two copies of one installation
+    # apart without the serial numbers ever being stored.
+    installation_by_serial: dict[str, int] = field(default_factory=dict)
+
+    def installation_of(self, serial_number: str) -> int:
+        """The number of the game installation with this serial number within this game."""
+        if serial_number not in self.installation_by_serial:
+            self.installation_by_serial[serial_number] = len(self.installation_by_serial) + 1
+        return self.installation_by_serial[serial_number]
 
     @property
     def group_id(self) -> int:
@@ -132,6 +143,23 @@ def is_ladder_game(announcement: GroupAnnouncement) -> bool:
         return description.is_ladder_game
     settings = game_settings_of(announcement)
     return settings is not None and settings.is_ladder_game
+
+
+def ladder_type_of(announcement: GroupAnnouncement) -> int | None:
+    """The ladder a game is now (LadderType INDIVIDUAL or CLANS), None for a normal game.
+
+    The description says whether the game is a ladder game now (the host rewrites it on every
+    change, 0x454db0); only the game block says which ladder, and it keeps the choice made when the
+    game was opened (docs/protocol.md). A game opened as a normal game and switched to a ladder
+    game later has a block naming none; it counts as Liga (inferred: Liga is the ladder the zone
+    "League 1 vs 1" is for). A host switching between Liga and Clanliga after opening cannot be
+    seen; the Clanliga rules then void a game that was not one."""
+    if not is_ladder_game(announcement):
+        return None
+    settings = game_settings_of(announcement)
+    if settings is None or not settings.is_ladder_game:
+        return LadderType.INDIVIDUAL
+    return settings.ladder_type
 
 
 def room_announcement(group_id: int, name: str, flags: int = 0, description_text: str = "") -> GroupAnnouncement:
