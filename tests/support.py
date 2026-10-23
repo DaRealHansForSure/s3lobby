@@ -222,6 +222,8 @@ GAME_VERSION = 160
 ACCESS_CODE = "TESTCODE2345"
 SERIAL_NUMBER = "0497-2584-2194-4356-2336"
 EDITION_MISSION_AND_GOLD = 4
+# Index of German in the game's text archive: the GOG copy used for the runs is German.
+GERMAN_LANGUAGE_INDEX = 0
 LOBBY_ROOM_ID = 3
 GAME_ZONE_ID = 30
 UNKNOWN_HOST_ADDRESS = ("0.0.0.0", 3343)
@@ -231,7 +233,7 @@ GAME_BLOCK_REMAINDER_SIZE = 16 + 5 * 4
 
 def go_to_lobby_server(client: FakeGameClient) -> None:
     """The patch check and the server list, then a new connection for the logon, like the game."""
-    client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
+    client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, language_index=GERMAN_LANGUAGE_INDEX))
     Result.decode(client.receive_next(MessageType.RESULT))
     client.send(GetLobbyServerList())
     LobbyServerList.decode(client.receive_next(MessageType.LOBBY_SERVER_LIST))

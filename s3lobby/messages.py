@@ -17,6 +17,7 @@ from typing import ClassVar, Protocol
 
 from s3lobby.constants import (
     GAME_BLOCK_SIZE_BY_MESSAGE_TYPE,
+    GAME_LANGUAGES,
     GROUP_ANNOUNCEMENT_MESSAGE_TYPES,
     GROUP_UPDATE_MESSAGE_TYPES,
     SOCKET_ADDRESS_SIZE,
@@ -166,18 +167,26 @@ class CheckFileVersion:
     """0x11: the client's first question to every configured server (constructor 0x5e8380).
 
     game_version is 160 in the last release (global 0x6970f0). edition says which add-ons are
-    installed: 2 Mission CD, 3 Gold/Plus, 4 both (global 0x7a7ff8). The third value comes from the
-    game's configuration (offset 0x28) and its meaning is unknown.
+    installed: 2 Mission CD, 3 Gold/Plus, 4 both (global 0x7a7ff8). language_index is the game's
+    language, an index into GAME_LANGUAGES (configuration offset 0x28, getter 0x4120a0, passed at
+    0x43af70; a German game sends 0, seen in a run).
     """
 
     MESSAGE_TYPE: ClassVar[MessageType] = MessageType.CHECK_FILE_VERSION
     game_version: int
     edition: int
-    unknown_setting: int
+    language_index: int
+
+    @property
+    def language_name(self) -> str:
+        """The language's name, or "language N" for an index the game's text archive does not have."""
+        if 0 <= self.language_index < len(GAME_LANGUAGES):
+            return GAME_LANGUAGES[self.language_index]
+        return f"language {self.language_index}"
 
     def encode(self) -> RawMessage:
         writer = FieldWriter()
-        writer.write_u32(self.game_version).write_u32(self.edition).write_u32(self.unknown_setting)
+        writer.write_u32(self.game_version).write_u32(self.edition).write_u32(self.language_index)
         return writer.to_message(self.MESSAGE_TYPE)
 
     @classmethod
@@ -186,7 +195,7 @@ class CheckFileVersion:
         return cls(
             game_version=reader.read_u32(),
             edition=reader.read_u32(),
-            unknown_setting=reader.read_u32(),
+            language_index=reader.read_u32(),
         )
 
 

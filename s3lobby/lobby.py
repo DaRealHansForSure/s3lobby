@@ -253,10 +253,11 @@ class Lobby:
         # a minimum size) and only needed to offer an FTP patch.
         request = CheckFileVersion.decode(message)
         log.info(
-            "%s: patch check, game version %d, edition %d: no patch needed",
+            "%s: patch check, game version %d, edition %d, %s: no patch needed",
             client_address,
             request.game_version,
             request.edition,
+            request.language_name,
         )
         self._outbox.send(client_address, Result(ResultCode.NO_PATCH_NEEDED))
 

@@ -33,6 +33,7 @@ from tests.support import (
     EDITION_MISSION_AND_GOLD,
     GAME_VERSION,
     GAME_ZONE_ID,
+    GERMAN_LANGUAGE_INDEX,
     LOBBY_ROOM_ID,
     SERIAL_NUMBER,
     UNKNOWN_HOST_ADDRESS,
@@ -51,7 +52,7 @@ class LobbySessionTest(LobbyTestCase):
         """Without Result NO_PATCH_NEEDED the client stops with "patch check failed"; an empty
         server list stops it with error 0x1e."""
         client = self.new_client("Alice", nonce=17)
-        client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
+        client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, language_index=GERMAN_LANGUAGE_INDEX))
         self.assertEqual(Result.decode(client.receive_next(MessageType.RESULT)).code, ResultCode.NO_PATCH_NEEDED)
 
         client.send(GetLobbyServerList())
@@ -65,7 +66,7 @@ class LobbySessionTest(LobbyTestCase):
         LOGON_ACCEPTED establishes: the other order drops the connection."""
         client = self.new_client("Alice", nonce=17)
         log_on_messages = {MessageType.RESULT, MessageType.OWN_PLAYER}
-        client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, unknown_setting=0))
+        client.send(CheckFileVersion(game_version=GAME_VERSION, edition=EDITION_MISSION_AND_GOLD, language_index=GERMAN_LANGUAGE_INDEX))
         client.receive_next(MessageType.RESULT)
         client.close_connection()
 

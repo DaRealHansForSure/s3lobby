@@ -112,6 +112,11 @@ class MessageLayoutTest(unittest.TestCase):
         self.assertEqual(logon.serial_number, "0497-2584-2194-4356-2336")
         self.assertNotIn("1234", repr(logon))
 
+    def test_version_check_names_the_language_of_the_game(self) -> None:
+        self.assertEqual(CheckFileVersion(160, 4, 0).language_name, "German")
+        self.assertEqual(CheckFileVersion(160, 4, 7).language_name, "Japanese")
+        self.assertEqual(CheckFileVersion(160, 4, 8).language_name, "language 8")
+
     def test_sizes_the_client_asserts(self) -> None:
         cases = {
             Result(ResultCode.LOGON_ACCEPTED): 12,

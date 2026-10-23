@@ -187,7 +187,10 @@ Offsets count from the first byte after the header.
 ### Patch check (index server)
 
 - **0x11 CheckFileVersion** (constructor 0x5e8380): u32 version (0xa0 = 160, global 0x6970f0),
-  u32 edition ([0x7a7ff8]: 2 Mission CD, 3 Plus, 4 both), u32 unknown (config + 0x28).
+  u32 edition ([0x7a7ff8]: 2 Mission CD, 3 Plus, 4 both), u32 language (config + 0x28, passed at
+  0x43af70): the index into the languages of the game's text archive, 0 German, 1 English,
+  2 Italian, 3 French, 4 Polish, 5 Spanish, 6 Korean, 7 Japanese. At start the game clamps it to the
+  archive's language count (0x42e94b..0x42e97b). A German game sends 0 (seen in a run).
 - **Answer**: Result (below) with code 9 means "no patch" (0x5cffe1): the handler marks the answer
   as received and takes the sender as server (0x5cff1c, 0x5cff27); the patch flag stays 0.
 - **0x12 patch information** (0x5ccc50) is the alternative answer: u32 patch flag (0 = no patch),

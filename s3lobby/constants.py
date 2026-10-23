@@ -287,6 +287,11 @@ GAME_BLOCK_SIZE_BY_MESSAGE_TYPE = {
     MessageType.UPDATE_GROUP_2: 0x34,
 }
 
+# The languages of the game's text archive (GFX/siedler3_09.*.dat), in the archive's order. The game
+# keeps the index of its language in its configuration (offset 0x28) and clamps it to the archive's
+# language count at start (0x42e94b..0x42e97b); CheckFileVersion reports it as its third value.
+GAME_LANGUAGES = ("German", "English", "Italian", "French", "Polish", "Spanish", "Korean", "Japanese")
+
 # The languages the MessageZone tab knows. The client looks for a group named "MessageThemes"
 # followed by its own language, and falls back to English (0x453831, 0x4539ce).
 BOARD_LANGUAGES = ("German", "English", "Italian", "French", "Polish", "Spanish", "Korean")
