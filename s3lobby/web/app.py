@@ -18,11 +18,14 @@ from s3lobby.constants import (
 )
 from s3lobby.database import PLAYER_NAME_PATTERN, TRUE_SETTING_VALUES
 from s3lobby.server import DEFAULT_DATABASE_PATH
-from s3lobby.web import accounts, auth, content, games, ladder_pages, lobby_view, server_settings
+from s3lobby.web import accounts, admin_home, auth, content, games, ladder_pages, lobby_view, server_settings
 from s3lobby.web.auth import install_logon_failure_limiter
 from s3lobby.web.security import add_security_headers, check_csrf_token
 from s3lobby.web.storage import close_database
 from s3lobby.web.texts import format_moment, format_relative_moment
+
+# Where the admin area lives; the public pages are outside it.
+ADMIN_PATH_PREFIX = "/admin"
 
 # Environment variables read by create_app_from_environment, for running under a WSGI server.
 DATABASE_LOCATION_VARIABLE = "S3LOBBY_DATABASE"
@@ -99,17 +102,19 @@ def create_app(
     app.context_processor(auth.template_context)
     app.context_processor(text_limits)
 
+    # The public pages: the same for everyone, logged on or not.
+    for blueprint in (lobby_view.blueprint, auth.blueprint, ladder_pages.public_blueprint):
+        app.register_blueprint(blueprint)
+    # Everything for admins lives under ADMIN_PATH_PREFIX, each blueprint sending visitors to the logon.
     for blueprint in (
-        lobby_view.blueprint,
-        auth.blueprint,
+        admin_home.blueprint,
         accounts.blueprint,
         content.blueprint,
         server_settings.blueprint,
         games.blueprint,
-        ladder_pages.public_blueprint,
         ladder_pages.admin_blueprint,
     ):
-        app.register_blueprint(blueprint)
+        app.register_blueprint(blueprint, url_prefix=ADMIN_PATH_PREFIX)
     return app
 
 
