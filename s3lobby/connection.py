@@ -120,6 +120,12 @@ class ReliableConnection:
         self._silence_timeout_ms = DEFAULT_SILENCE_TIMEOUT_MS
         self._closing_since_ms: int | None = None
 
+    @property
+    def is_confirmed_by_client(self) -> bool:
+        """True once the client acknowledged one of the server's blocks: it proved it receives at
+        the address it claims, which a forged sender address cannot."""
+        return self._is_confirmed_by_client
+
     def age_ms(self, now_ms: int) -> int:
         return now_ms - self._opened_at_ms
 

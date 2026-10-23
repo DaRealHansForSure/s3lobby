@@ -17,6 +17,7 @@ import asyncio
 import ipaddress
 import logging
 import math
+import signal
 import socket
 import time
 from collections.abc import Callable, Coroutine
@@ -100,6 +101,7 @@ class LobbyServer(asyncio.DatagramProtocol):
         # Probes whether players on the internet can be reached directly, from a second socket.
         self._prober: ReachabilityProber | None = None
         self._reachability: dict[Address, Reachability] = {}
+        self._probes_waiting_for_confirmation: set[Address] = set()
         self._datagram_rate = RateLimiter(DATAGRAMS_PER_SECOND_PER_ADDRESS, DATAGRAM_BURST_PER_ADDRESS)
         self._warnings = ThrottledLogger(log, WARNING_INTERVAL_SECONDS)
         # Nothing written yet: the first check writes at once.
@@ -159,10 +161,22 @@ class LobbyServer(asyncio.DatagramProtocol):
             self._run_in_background(self._forwarding.forward_player(client_address))
 
     def check_reachability(self, client_address: Address) -> None:
+        """Probe the player once their connection is confirmed: before that the address is only
+        claimed, and a forged one must not make the server send to somebody else."""
         if self._prober is None:
             return
         self._reachability[client_address] = Reachability.CHECKING
-        self._prober.probe(client_address)
+        self._probes_waiting_for_confirmation.add(client_address)
+
+    def _send_confirmed_probes(self) -> None:
+        for client_address in list(self._probes_waiting_for_confirmation):
+            connection = self._connections.get(client_address)
+            if connection is None:
+                self._probes_waiting_for_confirmation.discard(client_address)
+                continue
+            if connection.is_confirmed_by_client:
+                self._probes_waiting_for_confirmation.discard(client_address)
+                self._prober.probe(client_address)
 
     def reachability_of(self, client_address: Address) -> Reachability:
         return self._reachability.get(client_address, Reachability.NOT_CHECKED)
@@ -251,22 +265,31 @@ class LobbyServer(asyncio.DatagramProtocol):
         """Stop housekeeping, tell every client the connection ends, and close the socket. The
         game shows "The connection to the lobby server dropped." at once instead of noticing the
         silence a minute later. The CloseConnection goes out once, without waiting for answers:
-        a client that misses it still times out as before."""
-        self._close_every_connection()
-        if self._prober is not None:
-            self._prober.close()
-        if self._forwarding is not None:
-            await self._forwarding.stop()
+        a client that misses it still times out as before.
+
+        Housekeeping and the router tasks stop first, so nothing new starts while the rest shuts
+        down, and the database is closed even when an earlier step fails."""
+        try:
+            self._close_every_connection()
+            await self._stop_tasks()
+            if self._prober is not None:
+                self._prober.close()
+            if self._forwarding is not None:
+                await self._forwarding.stop()
+            if self._transport is not None:
+                self._transport.close()
+            self._database.clear_live_state()
+        finally:
+            self._database.close()
+
+    async def _stop_tasks(self) -> None:
+        tasks = list(self._background_tasks)
         if self._housekeeping_task is not None:
-            self._housekeeping_task.cancel()
-            try:
-                await self._housekeeping_task
-            except asyncio.CancelledError:
-                pass
-        if self._transport is not None:
-            self._transport.close()
-        self._database.clear_live_state()
-        self._database.close()
+            tasks.append(self._housekeeping_task)
+        for task in tasks:
+            task.cancel()
+        # The tasks' own exceptions, cancellation included, are theirs: the stop goes on.
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _run_housekeeping(self) -> None:
         """Retries, timeouts and the periodic work, every HOUSEKEEPING_INTERVAL_SECONDS.
@@ -296,6 +319,7 @@ class LobbyServer(asyncio.DatagramProtocol):
                     "writing the live lobby", lambda: self.write_live_state_when_due(last_live_state_check_seconds)
                 )
             self._run_guarded("serving connections", self._serve_connections)
+            self._run_guarded("sending reachability probes", self._send_confirmed_probes)
             self._run_guarded("pruning limits", self._forget_quiet_keys)
 
     def _run_guarded(self, step: str, action: Callable[[], None]) -> None:
@@ -351,9 +375,7 @@ class LobbyServer(asyncio.DatagramProtocol):
 
     def _receive_datagram(self, data: bytes, client_address: Address) -> None:
         """Parse and act on one datagram; raises ProtocolError when it breaks a rule."""
-        messages = decode_block(data)
-        if len(messages) > MAX_MESSAGES_PER_BLOCK:
-            raise ProtocolError(f"{len(messages)} messages in one datagram")
+        messages = decode_block(data, MAX_MESSAGES_PER_BLOCK)
         if log.isEnabledFor(logging.DEBUG):
             log.debug("%s -> %s", client_address, ", ".join(describe_for_log(m) for m in messages))
 
@@ -467,22 +489,34 @@ async def start_server(settings: ServerSettings) -> LobbyServer:
     except OSError:
         database.close()
         raise
+    try:
+        await attach_helpers(server, settings)
+        await server.look_up_public_host()
+        server.start_housekeeping()
+        server.write_live_state_when_due(time.monotonic())
+    except BaseException:
+        # Whatever was opened so far (socket, probe socket, router mappings, database) is closed.
+        await server.close()
+        raise
+    return server
+
+
+async def attach_helpers(server: LobbyServer, settings: ServerSettings) -> None:
+    """The reachability probe's socket, and the router's forwarding with --upnp."""
+    loop = asyncio.get_running_loop()
     # The probe socket only needs to be another port of this machine: any free one will do.
     _, prober = await loop.create_datagram_endpoint(
         lambda: ReachabilityProber(server.record_reachability), local_addr=(settings.bind_host, ANY_FREE_PORT)
     )
     server.attach_prober(prober)
-    if settings.use_upnp:
-        forwarding = RouterForwarding(server.bound_address[1])
-        external_ip = await forwarding.start()
-        if external_ip is None:
-            await forwarding.stop()
-        else:
-            server.attach_forwarding(forwarding, external_ip)
-    await server.look_up_public_host()
-    server.start_housekeeping()
-    server.write_live_state_when_due(time.monotonic())
-    return server
+    if not settings.use_upnp:
+        return
+    forwarding = RouterForwarding(server.bound_address[1])
+    external_ip = await forwarding.start()
+    if external_ip is None:
+        await forwarding.stop()
+        return
+    server.attach_forwarding(forwarding, external_ip)
 
 
 async def serve_forever(settings: ServerSettings) -> None:
@@ -490,7 +524,20 @@ async def serve_forever(settings: ServerSettings) -> None:
     host, port = server.bound_address
     log.info("Settlers III lobby server %r on UDP %s:%d", settings.server_name, host, port)
     log.info("database: %s", describe_location(settings.database_location))
+    stop_requested = asyncio.Event()
+    watch_for_stop_signal(stop_requested)
     try:
-        await asyncio.Event().wait()
+        await stop_requested.wait()
+        log.info("stopping")
     finally:
         await server.close()
+
+
+def watch_for_stop_signal(stop_requested: asyncio.Event) -> None:
+    """SIGTERM, as systemctl stop or docker stop send it, stops the server the same clean way as
+    Ctrl+C: players are told, router mappings removed. Windows has no such signal handlers."""
+    loop = asyncio.get_running_loop()
+    try:
+        loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
+    except (NotImplementedError, RuntimeError):
+        log.debug("no SIGTERM handler on this platform")
