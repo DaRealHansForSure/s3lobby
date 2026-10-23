@@ -14,7 +14,7 @@ from pathlib import Path
 
 from s3lobby.commands import kick_reason
 from s3lobby.constants import NEWS_AUDIENCES
-from s3lobby.database import Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
+from s3lobby.database import BUILT_IN_CHAT_THEMES, Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
 
 
 class AdminError(Exception):
@@ -186,7 +186,7 @@ def show_news(database: LobbyDatabase, options: argparse.Namespace) -> None:
 
 def add_chat_theme(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Add a theme to the list on the ChatZone tab."""
-    theme = database.add_chat_theme(options.name, options.description)
+    theme = database.add_chat_theme(options.name, options.description, options.language)
     print(f"Chat theme {theme.name!r} added.")
 
 
@@ -200,9 +200,13 @@ def remove_chat_theme(database: LobbyDatabase, options: argparse.Namespace) -> N
 
 
 def list_chat_themes(database: LobbyDatabase, options: argparse.Namespace) -> None:
-    """Print every chat theme with its description."""
+    """Print every chat theme with its description and, for a theme of one language, that
+    language; the built-in ones first."""
+    for built_in in BUILT_IN_CHAT_THEMES:
+        print(f"{built_in.name}  {built_in.description}  (built in)")
     for theme in database.list_chat_themes():
-        print(f"{theme.name}  {theme.description}".rstrip())
+        language_note = f"  ({theme.language} games only)" if theme.language else ""
+        print(f"{theme.name}  {theme.description}{language_note}".rstrip())
 
 
 # MessageZone board.
@@ -245,12 +249,17 @@ def remove_board_message(database: LobbyDatabase, options: argparse.Namespace) -
 
 
 def queue_announcement(database: LobbyDatabase, options: argparse.Namespace) -> None:
-    """Queue a line for every player in the running lobby.
+    """Queue a line for every player in the running lobby, or with --to for one player only.
 
     The server polls the queue and sends it within a second; lines queued while no server runs
-    are dropped at its next start."""
-    database.queue_announcement(options.text)
-    print("Queued; a running server sends it to every player in the lobby within a second.")
+    are dropped at its next start. A line for one player reaches them only if they are online then."""
+    if not options.to:
+        database.queue_announcement(options.text)
+        print("Queued; a running server sends it to every player in the lobby within a second.")
+        return
+    account = require_account(database, options.to)
+    database.queue_announcement(options.text, account_id=account.account_id)
+    print(f"Queued; a running server sends it to {account.name} within a second, if online.")
 
 
 # Settings.

@@ -8,25 +8,34 @@ from datetime import timedelta
 from s3lobby.constants import (
     ACCESS_CODE_CHECK_BURST,
     ACCESS_CODE_CHECKS_PER_SECOND,
+    ACCOUNT_CREATION_BURST,
     DEVELOPMENT_PASSWORD,
     LOGON_FAILURE_BURST,
     LOGON_PROTOCOL_VERSION,
+    MIN_CHOSEN_PASSWORD_LENGTH,
     LogonFlag,
     ResultCode,
 )
-from s3lobby.database import LobbyDatabase, Setting, utc_now
+from s3lobby.database import CHOSEN_IN_GAME_LABEL, LobbyDatabase, Setting, utc_now
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import Logon
 
 ACCESS_CODE = "TESTCODE2345"
 SERIAL_NUMBER = "0497-2584-2194-4356-2336"
 CLIENT_IP = "10.0.0.2"
+OTHER_CLIENT_IP = "10.0.0.3"
+CHOSEN_PASSWORD = "my own secret"
 EMPTY_LOBBY = LobbyOccupancy(player_count=0, casefolded_player_names=frozenset(), serial_numbers=frozenset())
 
 
 def logon(name: str = "Alice", access_code: str = ACCESS_CODE, flags: int = 0) -> Logon:
     """A Logon as the game sends it, with the shared serial number."""
     return Logon(LOGON_PROTOCOL_VERSION, name, access_code, flags, SERIAL_NUMBER)
+
+
+def create(name: str, password: str = CHOSEN_PASSWORD) -> Logon:
+    """A Logon from the game's "Create Player" dialog with a password the player chose."""
+    return logon(name=name, access_code=password, flags=LogonFlag.CREATE_PLAYER)
 
 
 class FixedClock:
@@ -90,12 +99,76 @@ class LogonCheckTest(unittest.TestCase):
             self.check.decide(logon(access_code="WRONG"), CLIENT_IP, EMPTY_LOBBY), ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE
         )
 
-    def test_create_player_from_the_game_is_refused_even_for_a_free_name(self) -> None:
-        """The game's "create player" button is not offered: accounts are made on the server side, so the
-        request is refused and no account is created."""
-        decision = self.check.decide(logon(name="Newcomer", flags=LogonFlag.CREATE_PLAYER), CLIENT_IP, EMPTY_LOBBY)
+    def test_code_with_a_byte_windows_1252_leaves_undefined_is_refused_not_raised(self) -> None:
+        """The game sends any byte it was typed; 0x81 arrives as a surrogate, which once made the hash
+        raise instead of the logon being refused."""
+        undefined_byte_code = b"TEST\x81CODE".decode("cp1252", errors="surrogateescape")
+        decision = self.check.decide(logon(access_code=undefined_byte_code), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(decision, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+
+    def test_create_player_from_the_game_is_refused_while_switched_off(self) -> None:
+        """The game's "Create Player" button is off by default: accounts are made on the server side, so
+        the request is refused and no account is created."""
+        decision = self.check.decide(create(name="Newcomer"), CLIENT_IP, EMPTY_LOBBY)
         self.assert_refused_with(decision, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
         self.assertIsNone(self.database.find_account("Newcomer"))
+
+    def test_create_player_makes_an_account_with_the_chosen_password(self) -> None:
+        """Switched on, a free name gets an account and is let in; the chosen password is the account's
+        access code from then on, labelled so admins can tell it from issued codes."""
+        self.database.set_setting(Setting.ALLOW_CREATE_PLAYER, "true")
+        decision = self.check.decide(create(name="Newcomer"), CLIENT_IP, EMPTY_LOBBY)
+        self.assertIsInstance(decision, AcceptedLogon)
+        self.assertEqual(decision.account.name, "Newcomer")
+        codes = self.database.list_access_codes(decision.account.account_id)
+        self.assertEqual([code.label for code in codes], [CHOSEN_IN_GAME_LABEL])
+        again = self.check.decide(logon(name="Newcomer", access_code=CHOSEN_PASSWORD), CLIENT_IP, EMPTY_LOBBY)
+        self.assertIsInstance(again, AcceptedLogon)
+
+    def test_create_player_with_a_taken_name_never_says_the_name_is_taken(self) -> None:
+        """Result 2 would show "There is already a player with this name" and so tell anyone which names
+        have accounts; a taken name gets the wrong code refusal instead, and its account is unchanged."""
+        self.database.set_setting(Setting.ALLOW_CREATE_PLAYER, "true")
+        decision = self.check.decide(create(name="Alice"), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(decision, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+        self.assertEqual(len(self.database.list_access_codes(self.alice.account_id)), 1)
+
+    def test_create_player_with_a_taken_name_and_its_code_logs_on(self) -> None:
+        """A player who presses Create again with their own name and code is simply logged on, as an
+        ordinary logon would be: nothing different happens for a taken name."""
+        self.database.set_setting(Setting.ALLOW_CREATE_PLAYER, "true")
+        decision = self.check.decide(create(name="Alice", password=ACCESS_CODE), CLIENT_IP, EMPTY_LOBBY)
+        self.assertIsInstance(decision, AcceptedLogon)
+        self.assertEqual(decision.account.account_id, self.alice.account_id)
+
+    def test_create_player_with_a_short_password_is_refused(self) -> None:
+        """The game only refuses an empty password; a shorter one than MIN_CHOSEN_PASSWORD_LENGTH would be
+        guessed quickly, so it is refused and no account is made."""
+        self.database.set_setting(Setting.ALLOW_CREATE_PLAYER, "true")
+        short_password = CHOSEN_PASSWORD[: MIN_CHOSEN_PASSWORD_LENGTH - 1]
+        decision = self.check.decide(create(name="Newcomer", password=short_password), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(decision, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+        self.assertIsNone(self.database.find_account("Newcomer"))
+
+    def test_create_player_with_an_invalid_name_gets_the_name_text(self) -> None:
+        """The game's name rule is public, so a create request with a name breaking it gets the game's
+        own text for an invalid name, as a logon does."""
+        self.database.set_setting(Setting.ALLOW_CREATE_PLAYER, "true")
+        decision = self.check.decide(create(name="New2"), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(decision, ResultCode.INVALID_PLAYER_NAME)
+
+    def test_one_address_creates_only_a_few_accounts_at_once(self) -> None:
+        """After ACCOUNT_CREATION_BURST accounts from one address the next is refused, so one machine
+        cannot fill the database with names; another address still may create one."""
+        self.database.set_setting(Setting.ALLOW_CREATE_PLAYER, "true")
+        names = ["Newcomer " + letter for letter in "ABCDEFGH"[: ACCOUNT_CREATION_BURST + 1]]
+        for name in names[:ACCOUNT_CREATION_BURST]:
+            self.assertIsInstance(self.check.decide(create(name=name), CLIENT_IP, EMPTY_LOBBY), AcceptedLogon)
+        refused = self.check.decide(create(name=names[-1]), CLIENT_IP, EMPTY_LOBBY)
+        self.assert_refused_with(refused, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+        self.assertIsNone(self.database.find_account(names[-1]))
+        elsewhere = self.check.decide(create(name=names[-1]), OTHER_CLIENT_IP, EMPTY_LOBBY)
+        self.assertIsInstance(elsewhere, AcceptedLogon)
 
     def test_name_breaking_the_game_rule_gets_its_own_text(self) -> None:
         """A name the game itself would not allow gets the game's own text for an invalid name instead of the

@@ -6,6 +6,102 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-24
+
+### Added
+
+- Scripts for testing with the real game: `scripts/run-game-wine.sh` starts a copy under Wine in a
+  window of its own, and `scripts/game-language.sh` sets the language a test copy reports, for the
+  chat themes of one language.
+- Chat themes for one language: a theme can be shown only to games of that language (web form
+  "Shown to", `chat-theme add --language`). The lobby learns a game's language from its patch
+  check. A new lobby starts with the rooms the game's manual describes: Meeting Room, Beginners
+  and one per language (Deutsch, English, Français, Italiano, Polski, Español), each only for its
+  own language. Admins may remove them; General always stays.
+- The game's "Create Player" button can make accounts: setting `allow_create_player`, off by
+  default (Settings, Logons). The password typed in the game becomes the account's access code
+  (at least 8 characters, any case); each address creates at most three accounts at once, then
+  one an hour. A taken name is never reported as taken (the game's Result 2): every refusal is
+  the wrong password one, and a player's own password on their own name simply logs on.
+- A ladder for Liga and Clanliga ([docs/ladder.md](docs/ladder.md)). The server evaluates every
+  ladder game once its reports are in: it counts when the players' reports agree, the match lasted
+  long enough (`ladder_minimum_minutes`) and the players joined it in the lobby; disagreeing
+  reports make it disputed, and two copies of one installation, computer opponents, a restart
+  during the game or a fourth result between the same sides in a day make it void. Elo ratings
+  for players (Liga) and clans (Clanliga), a clan strength from its members' Liga ratings, an
+  infinite season and custom seasons admins create (migration 0010).
+- `s3lobby ladder`: standings and results per season as text, JSON (with a format number) or CSV;
+  show, decide and void a game's result; create, change, end and delete custom seasons.
+- Chat commands `/rank`, `/top`, `/clanrank` and `/seasons`, limited per player.
+- A public Ladder page beside the live lobby (top three, rating chart, standings with form and win
+  rate, last results), a Ladder games page for admins (decide, void, seasons), the ladder's
+  numbers on the Settings page, and the ladder result on each game's page.
+- While the ladder is on, the server writes it into the lobby: a board theme of its own ("Liga",
+  "Ladder") with season starts, season ends and a weekly summary, the top five under the news,
+  an announcement when a custom season ends, and at logon a line about a decided dispute and,
+  with `ladder_logon_line`, the player's place. Board themes the server writes cannot be posted
+  into. Settings `ladder_board_messages` and `ladder_news_standings`.
+- Setting `ladder_enabled` (off until a run confirms it): ladder reports that can count are
+  answered with "Game status stored at the Lobby server." instead of "not valid for ladder", the
+  "not ranked" line goes, and players hear their result after the match.
+- A public page per player (`/players/NAME`): their ladder place and record, their rating over
+  time, their place in running custom seasons, and the games the lobby saw them play with
+  opponents, race, result and time of play. Names in the standings and the live lobby link to it.
+- The message board in an order admins choose: themes and messages are dragged into place
+  (SortableJS, bundled with the web interface) or moved with Up and Down, new messages come
+  first, and the server's ladder theme starts on top. Themes and messages can be hidden from the
+  game; the server's own theme and messages can only be hidden, not removed (migration 0011).
+  The game sorts a list's groups by their id (0x5db570), so each board theme's group id now holds
+  its place on the board.
+- Admins act on players from the live lobby: each player has Message (a server line only that
+  player sees, if online), Kick and Ban; `s3lobby announce TEXT --to NAME` does the same from the
+  command line, and the Announcements page shows whom each line was for and whether it arrived
+  (migration 0012). The live lobby has a search, and long name lists show the first names and how
+  many more there are.
+- Kicks, bans, removals, voiding and deciding a ladder game, and ending or deleting a season ask
+  for a confirmation in a dialog first.
+- Statistics of the ladder: how often each race is played and wins, and which maps are played and
+  how long their matches take, on the Ladder page ("Races and maps"), on each player page (their
+  races) and with `s3lobby ladder stats` (migration 0013 keeps each result's map).
+- Long lists in the admin area (accounts, games, ladder games) come in pages of 50; the accounts
+  page has a name search.
+- `scripts/start.sh --follow` shows the lobby's log right after starting it.
+
+### Changed
+
+- The web interface is split: the live lobby and the ladder show everyone the same, and every admin
+  page lives under `/admin` with a start page of its own and a grouped navigation.
+- Forms line up on their labels, the settings are grouped into sections, and tables stay on one
+  line (short dates, the game type in one word, winners by name).
+- Putting a member into the clan it is in already keeps the date it joined.
+- A settings form that does not send a field keeps that setting's stored value.
+
+### Removed
+
+- The setting `board_chat_hint` and its server line: the MessageZone screen has no chat field
+  (seen in a run), so there is no chat there to warn about.
+
+### Fixed
+
+- `s3lobby database copy` accepts a new target again: the chat themes a new database starts
+  with no longer count as content and are replaced by the source's.
+- "General" stays on the ChatZone tab when admins add their own themes. The game joins the theme
+  it was in last as soon as the tab opens, and failed with "Der Wechsel in die Gruppe hat nicht
+  geklappt" once General was gone (seen in a run). It can no longer be added a second time.
+- A kicked or banned player can read the reason: the connection now closes a few seconds after
+  the reason line instead of at once, which sent the game straight to its "connection dropped"
+  dialog (seen in a run). The others still see the player leave at once.
+- The kick and ban lines name the admin's reason as "Reason: ...", or say "No reason given."
+  when there is none; a bare colon after the ban's end date was easy to miss.
+- A logon whose password holds one of the five bytes Windows-1252 leaves undefined (such as 0x81)
+  is refused like any wrong code; hashing it raised an error before.
+
+### Key commits
+
+- [`8a7b0a8`](https://github.com/DaRealHansForSure/s3lobby/commit/8a7b0a8) feat(ladder): evaluate ladder games once their reports are in
+- [`60db657`](https://github.com/DaRealHansForSure/s3lobby/commit/60db657) feat(web): give admins an area of their own under /admin
+- [`7ef29e7`](https://github.com/DaRealHansForSure/s3lobby/commit/7ef29e7) feat(logon): let the game's create player button make accounts
+
 ## [0.10.0] - 2026-10-23
 
 ### Fixed
@@ -36,8 +132,6 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - Clans can be marked green: their members who show the clan get a green row in the game's member
   lists (the only colour the game has for this), switched on the Clans page or with
   `s3lobby clan highlight` (migration 0009). Off for every clan; not yet tried with the game.
-- Setting `board_chat_hint` (off by default): a player who opens the MessageZone hears once per
-  logon that chat typed there reaches nobody, a bug of the game itself.
 - `scripts/stop.sh` stops every running lobby server and web interface cleanly, `--force`
   kills what still runs after ten seconds.
 - `scripts/start.sh` starts the lobby server and the web interface together in the background,
@@ -310,7 +404,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - [`b76d102`](https://github.com/DaRealHansForSure/s3lobby/commit/b76d102) refactor: rework the lobby server into the s3lobby package
 - [`46582ce`](https://github.com/DaRealHansForSure/s3lobby/commit/46582ce) docs(protocol): move the lobby protocol document into the project
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.7.0...v0.8.0

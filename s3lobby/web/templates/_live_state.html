@@ -1,5 +1,5 @@
 {# The live part of the lobby page. Rendered on its own for app.js to swap in every few seconds. #}
-{% from "_macros.html" import in_game_colour, names, reachability_badge with context %}
+{% from "_macros.html" import in_game_colour, names, reachability_badge, action_button with context %}
 <section>
   <div class="section-head">
     <h1>{{ page.server_name or "Lobby" }}</h1>
@@ -14,34 +14,40 @@
   </div>
 
   <div class="grid">
-    <div class="card"><h3>Players online</h3><div class="stat-number">{{ page.players | length }}</div></div>
+    <div class="card"><h3>Players online</h3><div class="stat-number">{% if page.total_player_count is not none %}{{ page.total_player_count }}{% else %}{{ page.players | length }}{% endif %}</div></div>
     <div class="card"><h3>Open games</h3><div class="stat-number">{{ page.games | length }}</div></div>
     <div class="card"><h3>Chat groups</h3><div class="stat-number">{{ page.chat_groups | length }}</div></div>
   </div>
 </section>
 
 <section>
-  <div class="section-head"><h2>Players</h2></div>
+  <div class="section-head"><h2>Players</h2>
+  {% if search %}<p>{{ page.players | length }} of {{ page.total_player_count or 0 }} match "{{ search }}".</p>{% endif %}</div>
   {% if page.players %}
   <div class="scroll-x">
     <table class="table">
       <thead>
         <tr>
           <th>Name</th><th>Clan</th><th>Tab</th><th>In game or chat</th><th>Online since</th>
-          {% if admin %}<th>Address</th><th title="Whether other players can write to this player first">Reachable</th>{% endif %}
+          {% if show_admin_columns %}<th>Address</th><th title="Whether other players can write to this player first">Reachable</th><th class="cell-actions"></th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% for player in page.players %}
         <tr>
-          <td>{{ in_game_colour(player.name, player.row_colour) }}{% if admin and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
+          <td><a href="{{ url_for('players.show_player', name=player.name) }}">{{ in_game_colour(player.name, player.row_colour) }}</a>{% if show_admin_columns and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
           <td>{{ in_game_colour(player.clan, player.row_colour) if player.clan else "-" }}</td>
           <td>{{ names(player.tab_names) }}</td>
           <td>{{ names(player.group_names) }}</td>
           <td>{{ player.logged_on_at | relative_moment }}</td>
-          {% if admin %}
+          {% if show_admin_columns %}
           <td class="num">{{ player.address }}</td>
           <td>{{ reachability_badge(player.reachability) }}</td>
+          <td class="cell-actions">
+            <a class="btn btn--outline btn--sm" href="{{ url_for('admin_home.admin_lobby', to=player.name) }}#message">Message</a>
+            {{ action_button(url_for('accounts.kick_account', account_id=player.player_id), "Kick", "btn--outline", confirm="Remove " ~ player.name ~ " from the lobby? They may log on again.") }}
+            <a class="btn btn--outline btn--sm" href="{{ url_for('accounts.show_account', account_id=player.player_id) }}#ban">Ban</a>
+          </td>
           {% endif %}
         </tr>
         {% endfor %}
@@ -72,7 +78,7 @@
             <div class="badges">
               {% if game.has_started %}<span class="badge badge--accent">playing</span>{% else %}<span class="badge badge--good">open</span>{% endif %}
               {% if game.is_full %}<span class="badge badge--warn">full</span>{% endif %}
-              {% if game.is_ladder_game %}<span class="badge" title="Ladder games are played but not ranked on this server">ladder, unranked</span>{% endif %}
+              {% if game.is_ladder_game %}<span class="badge" title="A ladder game: the result counts for the ladder once every player reported it">ladder</span>{% endif %}
             </div>
           </td>
         </tr>

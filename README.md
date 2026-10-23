@@ -6,7 +6,7 @@
 
 **Bring the online lobby of the original The Settlers III back to life.**
 
-[![Release 0.10.0](https://img.shields.io/badge/release-0.10.0-1b3a6b?style=flat-square)](CHANGELOG.md)
+[![Release 0.11.0](https://img.shields.io/badge/release-0.11.0-1b3a6b?style=flat-square)](CHANGELOG.md)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?style=flat-square&logo=python&logoColor=white)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-17603f?style=flat-square)
 [![MIT License](https://img.shields.io/badge/license-MIT-17603f?style=flat-square)](LICENSE)
@@ -68,7 +68,10 @@ files: point the game at your server and log on.
 - **Accounts made by the server's admins**: players log on with an access code instead of a
   self-chosen password; codes are stored as salted scrypt hashes only.
 - **Server lines in the game's chat**: welcome message, announcements, and the chat commands
-  `/who`, `/clan`, `/help` and, for admins, `/announce`.
+  `/who`, `/clan`, `/help`, the ladder's `/rank`, `/top`, `/clanrank` and `/seasons`, and, for
+  admins, `/announce`, `/kick` and `/ban`.
+- **A ladder for Liga and Clanliga**: Elo ratings for players and clans, an infinite season and
+  custom seasons, disputes decided by admins, standings on the web, in the chat and as JSON.
 - **Web interface**: a public live view of the lobby, and administration of accounts, clans, news,
   themes, the board, settings and announcements. Every game gets a page with its setup, teams,
   winners and time of play, decoded from the reports the game sends; every account a list of its
@@ -128,10 +131,9 @@ Not tested yet with players on two machines: the game's own DirectPlay connectio
   still see them. Logging on again from the same PC works once the old connection has been quiet
   for 20 seconds, so the game's retries may take a few seconds longer. A server cannot tell a game
   that left this way from one that is only slow, so it waits.
-- **Chat typed on the MessageZone screen reaches nobody.** This is a bug of the game itself
-  (`docs/protocol.md`, "The MessageZone tab"), which only a patched S3.EXE could fix. The board's
-  messages work. The setting `board_chat_hint` tells players so once per logon.
-- **Ladder games are played but not ranked.** See the [Roadmap](#roadmap).
+- **The ladder is not yet tried with the real game.** It ranks every ladder game, but the game
+  is only told that a result was stored once an admin switches `ladder_enabled` on; until a run
+  confirms that answer it stays off, and the game still shows "Game not valid for ladder."
 
 ## Quick start
 
@@ -197,6 +199,11 @@ scripts/start.sh           # datagrams in lobby.log, output in lobby-console.log
 scripts/start.sh --dev     # both in development mode
 ```
 
+Two scripts help testing with the real game under Wine: `scripts/run-game-wine.sh` starts a copy
+in a window of its own (`--window 2` for a second one, `--help` in its first lines), and
+`scripts/game-language.sh GAME_FOLDER en` makes a test copy of the game an English one (the game
+takes its language from its voice files; `--restore` undoes it).
+
 ## Choosing a database
 
 By default everything lives in one SQLite file, `s3lobby.sqlite3`, readable by its owner only.
@@ -248,8 +255,10 @@ s3lobby database copy --database s3lobby.sqlite3 --to mysql://s3lobby@db.example
 ## Accounts and lobby content
 
 Players log on with an account created on the server. The game's own "create player" button is
-refused. Creating an account prints an access code, which the player types into the game's
-password field:
+refused unless the setting `allow_create_player` is on (off by default; Settings, Logons in the
+web interface); then it makes an account with the name and the password typed in the game, at
+least 8 characters. Creating an account here prints an access code, which the player types into
+the game's password field:
 
 ```sh
 s3lobby account add Alice
@@ -278,7 +287,8 @@ s3lobby clan join Romans Alice
 s3lobby clan highlight Romans    # members who show the clan get a green row in the game
 s3lobby news set --audience german --title "Willkommen" --file news-de.txt
 s3lobby news set --audience other --title "Welcome" --file news-en.txt
-s3lobby chat-theme add "General" --description "Talk about anything"
+s3lobby chat-theme add "Tactics" --description "Talk about strategies"
+s3lobby chat-theme add "Schweiz" --language German   # shown to German games only
 s3lobby board add-theme English "Tournaments"
 s3lobby board post 1 --title "Saturday cup" --text "8 pm, 1 vs 1"
 s3lobby setting list
@@ -295,13 +305,14 @@ s3lobby setting set banner_url ftp://192.168.1.10/banner.png
 s3lobby setting set banner_id 2
 ```
 
-A line for every player in the running lobby, and a welcome line after each logon:
+A line for every player in the running lobby, a line for one player, and a welcome line after
+each logon:
 
 ```sh
 s3lobby announce "Server restart at 22:00"
+s3lobby announce "Please rename your game" --to Alice   # only Alice sees it, if she is online
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
 s3lobby setting set mark_admins true    # admins' rows green in the game's member lists
-s3lobby setting set board_chat_hint true  # tell players chat on the message board reaches nobody (a game bug)
 ```
 
 In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have
@@ -315,17 +326,45 @@ disconnected within a second; the game then says the connection to the lobby ser
 kicked player may log on again, a banned one is refused until the ban ends. When the server stops,
 every player is told at once instead of waiting a minute for a timeout.
 
-Ladder games ("Liga", "Clanliga") can be opened and played, but they are not ranked: Blue Byte's
-server kept the ladder, this one does not. Their players get a server line saying so, and during
-the match the game shows "Game not valid for ladder." instead of a ranked result.
+### The ladder
+
+Ladder games ("Liga" 1 on 1, "Clanliga" clan against clan) are ranked by the server, as Blue
+Byte's server once did: the game keeps no ladder itself, it only reports each match. A match
+counts when every player's game reports the same winner, it lasted long enough, and the players
+joined it in the lobby; reports that disagree make it disputed until an admin decides. Ratings are
+Elo, everyone starts at 1000, and they are always recomputed from the results, so a decision or a
+changed setting applies at once. An infinite season always runs; admins can add custom seasons
+(cups, tournaments) that count only their dates. The rules in full: [docs/ladder.md](docs/ladder.md).
+
+```sh
+s3lobby ladder standings                    # players' Liga ranking, infinite season
+s3lobby ladder standings --ladder clanliga --season "Autumn Cup" --format json
+s3lobby ladder results --state disputed
+s3lobby ladder decide 42 --winner 1 --by Alice
+s3lobby ladder void 42 --reason "played on a broken map"
+s3lobby ladder season add "Autumn Cup" --start 2026-10-01 --end 2026-11-30 --counts liga
+s3lobby setting set ladder_enabled true      # tell the game results are stored (untried)
+```
+
+In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat. While the ladder is
+on, the server also writes it where the game has room for text: a MessageZone theme of its own
+("Liga" in German, "Ladder" otherwise) with season starts, season ends and a weekly summary, the
+top five under the Home tab's news, an announcement when a custom season ends, and lines at logon
+about a decided dispute (and, with `ladder_logon_line`, the player's place). Standings and results
+also come out as JSON or CSV (`--format`), for tools of your own. Until `ladder_enabled` is on, the
+game is told "Game not valid for ladder." and players hear that ladder games are not ranked, while
+the server ranks in the background; with it on, the game shows "Game status stored at the Lobby
+server." and players hear their result after the match.
 
 Every command takes `--database` and works while the server runs. The web interface below does
 the same from a browser.
 
 ## Web interface
 
-A small web application on the same database: a live view of the lobby for everyone, and pages for
-admins to manage accounts and access codes, clans, news, chat themes, the message board, settings
+A small web application on the same database, in two parts. The public pages, the live lobby and
+the ladder, show everyone the same, logged on or not. Everything for admins lives under `/admin`,
+with its own start page (is the server running, disputed ladder games, the latest games) and its
+own navigation: a live lobby with each player's address and reachability, and pages to manage accounts and access codes, clans, news, chat themes, the message board, settings
 and announcements, to remove players from the running lobby, and to look through past games and
 match reports: each game with the setup its host chose (type, map, teams, computer opponents,
 player limit, Amazons, version), who joined it, when its match started and how it ended, and
@@ -554,12 +593,9 @@ Planned or wished for, roughly in order:
 
 - **Tests with the real game** for everything marked as untried above, and with two players on
   two machines.
-- **Ladder games ("Liga", "Clanliga") with a real ranking.** The game already reports each ladder
-  match to the server with its players, teams, races and the winning team. s3lobby stores those
-  reports but ranks nothing yet and answers "Game not valid for ladder." The plan: count the
-  results per player and per clan, show the standings on the web interface and the Home tab, and
-  confirm valid ladder results to the game (Result 0x6c) once the reports are trusted enough,
-  for example only when every player of a match sent a matching report.
+- **A run with the real game for the ladder**: a Liga match between two machines, one where the
+  loser quits, a Clanliga 2 on 2, and `ladder_enabled` on, before it can be on by default
+  ([docs/ladder.md](docs/ladder.md), "To confirm in a run first").
 - **What a match tells the lobby** is all that a ranking can use: the game reports each match
   twice, at the start and when one team is left, with its slots, teams, races and the winning team
   (the only team that still has a finished military building). The match itself runs between the

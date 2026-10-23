@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "admin_base.html" %}
 {% from "_macros.html" import csrf_field, action_button with context %}
 {% set active_nav = "chat_themes" %}
 {% block title %}Chat themes{% endblock %}
@@ -6,27 +6,35 @@
 <section>
   <div class="section-head">
     <h1>Chat themes</h1>
-    <p>The themes listed on the ChatZone tab. Players open chat groups inside a theme. Without any
-    theme, the lobby offers one general theme of its own.</p>
+    <p>The themes listed on the ChatZone tab. Players open chat groups inside a theme. General is
+    always listed and cannot be changed or removed. The game joins the theme a player was in last
+    as soon as the tab opens, so a player who was in a theme you remove sees "Der Wechsel in die
+    Gruppe hat nicht geklappt" once and picks another. A theme for one language is shown only to
+    games in that language (the language the game reports when it connects).</p>
   </div>
-  {% if themes %}
   <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Theme</th><th>Description</th><th class="cell-actions"></th></tr></thead>
+      <thead><tr><th>Theme</th><th>Description</th><th>Shown to</th><th class="cell-actions"></th></tr></thead>
       <tbody>
+        {% for theme in built_in_themes %}
+        <tr>
+          <td>{{ theme.name }}</td>
+          <td>{{ theme.description }}</td>
+          <td>All games</td>
+          <td class="cell-actions"><span class="badge" title="Always listed by the server">built in</span></td>
+        </tr>
+        {% endfor %}
         {% for theme in themes %}
         <tr>
           <td>{{ theme.name }}</td>
           <td>{{ theme.description or "-" }}</td>
-          <td class="cell-actions">{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--danger") }}</td>
+          <td>{% if theme.language %}{{ theme.language }} games{% else %}All games{% endif %}</td>
+          <td class="cell-actions">{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--outline", confirm="Remove the chat theme " ~ theme.name ~ "?") }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% else %}
-  <p class="empty-state">No chat themes yet.</p>
-  {% endif %}
 </section>
 
 <section>
@@ -41,6 +49,13 @@
       <label class="field">
         <span class="label">Description</span>
         <input class="input" type="text" name="description" maxlength="{{ max_name_length }}">
+      </label>
+      <label class="field">
+        <span class="label">Shown to</span>
+        <select class="select" name="language">
+          <option value="">All games</option>
+          {% for language in languages %}<option value="{{ language }}">{{ language }} games</option>{% endfor %}
+        </select>
       </label>
     </div>
     <div class="form-actions"><button class="btn btn--primary" type="submit">Add theme</button></div>

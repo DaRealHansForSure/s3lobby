@@ -27,6 +27,18 @@ def format_moment(moment: datetime | str | None) -> str:
     return f"{moment:%Y-%m-%d %H:%M} UTC"
 
 
+def format_short_moment(moment: datetime | str | None) -> str:
+    """"22 Oct 18:48" for a table, with the year only when it is not this year ("22 Oct 2025");
+    every time on the site is UTC, as the footer says."""
+    if moment is None:
+        return NO_MOMENT
+    if isinstance(moment, str):
+        moment = datetime.fromisoformat(moment)
+    if moment.year != utc_now().year:
+        return f"{moment.day} {moment:%b %Y}"
+    return f"{moment.day} {moment:%b %H:%M}"
+
+
 def format_relative_moment(moment: datetime | str | None) -> str:
     """"just now", "5 min ago", "3 h ago" or "2 days ago", for the live lobby."""
     if moment is None:

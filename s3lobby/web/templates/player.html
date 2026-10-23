@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% from "_macros.html" import in_game_colour, rating_change, form_strip, share_bar, rating_chart %}
+{% set active_nav = "ladder" %}
+{% block title %}{{ page.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>{{ in_game_colour(page.name, page.colour) }}</h1>
+    <p>{% if page.clan_name %}Clan {{ page.clan_name }}. {% endif %}The games the lobby saw {{ page.name }} play, and
+    {{ page.name }}'s place in the ladder.</p>
+  </div>
+  {% if page.standing %}
+  <div class="grid">
+    <div class="card podium">
+      <h3>Liga, infinite season</h3>
+      <div><span class="podium-rating">{{ page.standing.rating }}</span> {{ rating_change(page.standing.last_change) }}
+        {% if page.standing.is_provisional %}<span class="badge" title="Few results: the rating still moves fast">provisional</span>{% endif %}</div>
+      <p>Place {{ page.standing.place }} of {{ page.ranked_count }}</p>
+    </div>
+    <div class="card podium">
+      <h3>Record</h3>
+      <div class="cell-bar">{{ share_bar(page.win_rate, wide=true) }}<span class="num">{{ page.win_rate }} %</span></div>
+      <p>{{ page.standing.won }} won, {{ page.standing.lost }} lost{% if page.standing.left %}, {{ page.standing.left }} by leaving{% endif %} {{ form_strip(page.form) }}</p>
+    </div>
+    {% for place in page.season_places %}
+    <div class="card podium">
+      <h3>{{ place.season.name }}</h3>
+      <div><span class="podium-rating">{{ place.row.rating }}</span></div>
+      <p>Place {{ place.row.place }} of {{ place.ranked_count }}</p>
+    </div>
+    {% endfor %}
+    {% if page.clanliga_record %}
+    <div class="card podium">
+      <h3>Clanliga</h3>
+      <p>{{ page.clanliga_record.won }} won, {{ page.clanliga_record.lost }} lost for the clan</p>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="empty-state">No place in the ladder yet: a counted Liga match puts {{ page.name }} on it.</p>
+  {% endif %}
+</section>
+
+{% if page.chart %}
+<section>
+  <div class="section-head"><h2>Rating over time</h2><p>The dashed line is the start rating.</p></div>
+  {{ rating_chart(page.chart, "Rating of " ~ page.name ~ " over time") }}
+</section>
+{% endif %}
+
+{% if page.races %}
+<section>
+  <div class="section-head"><h2>Races</h2><p>The races {{ page.name }} played in counted Liga matches.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Race</th><th class="num">Played</th><th class="num">Won</th><th>Win rate</th></tr></thead>
+      <tbody>
+        {% for row in page.races %}
+        <tr><td>{{ row.name }}</td><td class="num">{{ row.played }}</td><td class="num">{{ row.won }}</td>
+          <td><div class="cell-bar">{{ share_bar(row.win_rate) }}<span class="num">{{ row.win_rate }} %</span></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <div class="section-head"><h2>Games</h2><p>Newest first, with the result from the match's last report.</p></div>
+  {% if page.games %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Opened</th><th>Game</th><th>Type</th><th>Against</th><th>Race</th><th>Result</th><th class="num">Played</th></tr></thead>
+      <tbody>
+        {% for game in page.games %}
+        <tr>
+          <td class="cell-time">{{ game.opened_at | short_moment }}</td>
+          <td>{{ game.name }}</td>
+          <td>{{ game.type_text or "-" }}</td>
+          <td>{% for opponent in game.opponents %}<a href="{{ url_for('players.show_player', name=opponent) }}">{{ opponent }}</a>{% if not loop.last %}, {% endif %}{% else %}<span class="muted">-</span>{% endfor %}</td>
+          <td>{{ game.race or "-" }}</td>
+          <td>{% if game.result == "won" %}<span class="badge badge--good">won</span>{% elif game.result == "lost" %}<span class="badge badge--bad">lost</span>{% elif game.result %}<span class="muted">{{ game.result }}</span>{% else %}<span class="muted">not played</span>{% endif %}</td>
+          <td class="num">{{ game.played_text or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No games yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -9,27 +9,16 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='components.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+{% block scripts %}{% endblock %}
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
-{%- set nav_items = [("lobby", "lobby_view.live_lobby", "Lobby")] %}
-{%- if admin %}
-  {%- set nav_items = nav_items + [
-      ("accounts", "accounts.list_accounts", "Accounts"),
-      ("clans", "accounts.list_clans", "Clans"),
-      ("news", "content.show_news", "News"),
-      ("chat_themes", "content.list_chat_themes", "Chat themes"),
-      ("board", "content.show_board", "Board"),
-      ("announcements", "server_settings.show_announcements", "Announcements"),
-      ("settings", "server_settings.show_settings", "Settings"),
-      ("games", "games.list_games", "Games"),
-  ] %}
-{%- endif %}
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="{{ url_for('lobby_view.live_lobby') }}">s3lobby</a>
+    {% block brand %}<a class="brand" href="{{ url_for('lobby_view.live_lobby') }}">s3lobby</a>{% endblock %}
     <div class="header-actions">
       {% if admin %}
+        {% block admin_link %}<a class="btn btn--primary btn--sm" href="{{ url_for('admin_home.show_dashboard') }}">Admin</a>{% endblock %}
         <span class="muted">{{ admin.name }}</span>
         <form class="inline-form" method="post" action="{{ url_for('auth.log_out') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -43,15 +32,14 @@
       </button>
     </div>
   </div>
-  {% if nav_items | length > 1 %}
+  {% block navigation %}
   <div class="app-nav-bar">
     <nav class="app-nav" aria-label="Sections">
-      {% for key, endpoint, label in nav_items %}
-        <a href="{{ url_for(endpoint) }}"{% if active_nav == key %} aria-current="page"{% endif %}>{{ label }}</a>
-      {% endfor %}
+      <a href="{{ url_for('lobby_view.live_lobby') }}"{% if active_nav == "lobby" %} aria-current="page"{% endif %}>Lobby</a>
+      <a href="{{ url_for('ladder_public.show_ladder') }}"{% if active_nav == "ladder" %} aria-current="page"{% endif %}>Ladder</a>
     </nav>
   </div>
-  {% endif %}
+  {% endblock %}
 </header>
 
 <main class="wrap page">
@@ -62,6 +50,22 @@
   {% endwith %}
   {% block content %}{% endblock %}
 </main>
+
+{# The one dialog that confirms an action marked data-confirm (app.js fills in the question and
+   the button's name). Escape and Cancel close it without acting. #}
+<dialog class="dialog" id="confirm-dialog" aria-labelledby="confirm-title">
+  <div class="dialog-head">
+    <h3 id="confirm-title">Are you sure?</h3>
+    <button class="dialog-close" type="button" data-close aria-label="Close without doing it">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 3 L13 13 M13 3 L3 13" stroke="currentColor" stroke-width="1.6" fill="none"></path></svg>
+    </button>
+  </div>
+  <p id="confirm-question"></p>
+  <div class="row">
+    <button class="btn btn--outline" type="button" data-close>Cancel</button>
+    <button class="btn btn--danger" type="button" data-confirm id="confirm-button">Confirm</button>
+  </div>
+</dialog>
 
 <footer class="site-footer">
   <div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div>

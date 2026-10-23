@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ladder - s3lobby (mockup)</title>
+<link rel="stylesheet" href="../../../s3lobby/web/static/tokens.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+<link rel="stylesheet" href="ladder.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">s3lobby</a>
+    <div class="header-actions"><a class="btn btn--outline btn--sm" href="#">Admin logon</a></div>
+  </div>
+  <div class="app-nav-bar"><nav class="app-nav" aria-label="Sections"><a href="#">Lobby</a>
+<a href="#" aria-current="page">Ladder</a></nav></div>
+</header>
+<main class="wrap page">
+<div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
+<section>
+  <div class="section-head">
+    <h1>Ladder</h1>
+    <p>Clans have two numbers: the Clanliga rating, from team matches between clans, and the
+    strength from Liga, the average Liga rating of their best three active members.</p>
+  </div>
+  <div class="grid"><div class="card"><h3>Clans in the Clanliga</h3><div class="stat-number">4</div></div><div class="card"><h3>Clan matches</h3><div class="stat-number">21</div></div><div class="card"><h3>Running custom seasons</h3><div class="stat-number">1</div></div></div>
+</section>
+<div class="tabs" role="tablist"><button class="tab" type="button" role="tab" aria-selected="false">Liga</button><button class="tab" type="button" role="tab" aria-selected="true">Clanliga</button><button class="tab" type="button" role="tab" aria-selected="false">Clan strength</button></div>
+<div class="grid-12 toolbar">
+  <label class="field col-5"><span class="label">Season</span><select class="select"><option>Infinite season (always running)</option><option>Autumn Cup: 1 Oct to 30 Nov 2026 (running)</option><option>LAN weekend: 12 to 13 Sep 2026 (ended)</option><option>Clan Summer: Jun to Aug 2026 (ended)</option></select></label>
+  <label class="field col-4"><span class="label">Find a clan</span><input class="input" type="search" placeholder="Clan name"></label>
+  <label class="check col-3"><input type="checkbox" checked><span>Show clans without a match</span></label>
+</div>
+<section>
+  <div class="grid"><div class="card season-card">
+  <div class="row"><h3><span class="game-row game-row--green">Romans</span></h3><span class="podium-place">1</span></div>
+  <div><span class="podium-rating">1168</span> <span class="badge badge--good">+12</span></div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="64" height="8"></rect></svg><span class="num">64 %</span></div>
+  <div class="muted">7 won, 4 lost <span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span></span></div>
+  <div class="tags"><span class="badge">usually 2 on 2</span><span class="badge">6 members</span></div>
+  <p>Marcus, Lena, Ole, Kai, Rosa, Finn</p>
+</div><div class="card season-card">
+  <div class="row"><h3>Amazons</h3><span class="podium-place">2</span></div>
+  <div><span class="podium-rating">1102</span> <span class="badge badge--bad">-12</span></div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="60" height="8"></rect></svg><span class="num">60 %</span></div>
+  <div class="muted">9 won, 6 lost <span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span></span></div>
+  <div class="tags"><span class="badge">usually 3 on 3</span><span class="badge">4 members</span></div>
+  <p>Thalia, Ivo, Mira, Nele</p>
+</div><div class="card season-card">
+  <div class="row"><h3><span class="game-row game-row--blue">BB</span></h3><span class="podium-place">3</span></div>
+  <div><span class="podium-rating">1031</span> <span class="badge badge--good">+16</span></div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="50" height="8"></rect></svg><span class="num">50 %</span></div>
+  <div class="muted">5 won, 5 lost <span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span></span></div>
+  <div class="tags"><span class="badge">usually 2 on 2</span><span class="badge">3 members</span></div>
+  <p>Jin, Sanna, Udo</p>
+</div><div class="card season-card">
+  <div class="row"><h3>Vikings</h3><span class="podium-place">4</span></div>
+  <div><span class="podium-rating">899</span> <span class="badge badge--bad">-16</span></div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="20" height="8"></rect></svg><span class="num">20 %</span></div>
+  <div class="muted">2 won, 8 lost <span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--lost" title="lost"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--lost" title="lost"></span></span></div>
+  <div class="tags"><span class="badge">usually 1 on 1</span><span class="badge">5 members</span></div>
+  <p>Bjarne, Edda, Knut, Sigrid, Tove</p>
+</div></div>
+  <p class="meta">A team match moves both clan ratings by the same amount whatever its size.
+  Players count for a clan after 3 days in it. In the game: <code>/clanrank CLAN</code>.</p>
+</section>
+<section>
+  <div class="section-head"><h2>Clan strength from Liga</h2>
+  <p>The average Liga rating of the best three members who are no longer provisional and played
+  Liga in the last 30 days. BB and Vikings have fewer than three such members.</p></div>
+  <div class="chart-box">
+    <div class="scroll-x">
+      <svg class="chart" viewBox="0 0 700 110" role="img" aria-label="Clan strength from Liga"><text class="lane-label" x="96" y="35">Amazons</text><rect class="bar-value" x="104" y="20" width="288" height="22"><title>Amazons: 1140 (Thalia 1284, Mira 1119, Ivo 1017)</title></rect><text x="416" y="35">1140</text><text class="lane-label" x="96" y="79">Romans</text><rect class="bar-value" x="104" y="64" width="212" height="22"><title>Romans: 1077 (Marcus 1179, Lena 1121, Ole 931)</title></rect><text x="340" y="79">1077</text></svg>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
+</body>
+</html>

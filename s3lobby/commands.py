@@ -9,6 +9,10 @@ Commands:
     /who                who is online
     /clan               your clan and which of its members are online
     /net                the address the server sees you at, and what to forward on your router
+    /rank [NAME]        a player's Liga rating and place (yours without a name)
+    /top [SEASON]       the best five of the infinite season, or of a custom season
+    /clanrank [CLAN]    a clan's Clanliga rating and its strength from Liga (yours without a name)
+    /seasons            the custom seasons running now
     /announce TEXT      (admins) a line for every player in the lobby
     /kick NAME [REASON]          (admins) remove a player from the lobby; they may log on again
     /ban NAME HOURS [REASON]     (admins) bar an account, online or not; an online player is removed
@@ -41,10 +45,17 @@ from s3lobby.constants import (
     DIRECTPLAY_FIRST_GAME_PORT,
     DIRECTPLAY_LAST_GAME_PORT,
     GAME_CLIENT_FIRST_PORT,
+    LADDER_COMMAND_BURST,
+    LADDER_COMMANDS_PER_SECOND,
+    LADDER_TOP_COUNT,
     MAX_BAN_HOURS,
+    MAX_GROUP_TEXT_LENGTH,
     MIN_BAN_HOURS,
 )
-from s3lobby.database import DatabaseError, LobbyDatabase, is_whole_number_text, utc_now
+from s3lobby.database import DatabaseError, LobbyDatabase, is_whole_number_text, utc_now, with_reason
+from s3lobby.guards import RateLimiter
+from s3lobby.ladder import INFINITE_SEASON, Season
+from s3lobby.ladder_book import CLANLIGA, LIGA, LadderBook, StandingRow
 from s3lobby.reachability import Reachability
 from s3lobby.wire import Address
 
@@ -105,6 +116,8 @@ class ChatCommands:
         self._clock_seconds = clock_seconds
         # The admin command each admin still has to confirm, by player id.
         self._pending_confirmations: dict[int, PendingConfirmation] = {}
+        self._ladder = LadderBook(database)
+        self._ladder_questions = RateLimiter(LADDER_COMMANDS_PER_SECOND, LADDER_COMMAND_BURST)
 
     def answer(self, sender: CommandSender, command_text: str) -> tuple[str, ...]:
         """The lines that answer one command."""
@@ -118,6 +131,8 @@ class ChatCommands:
                 lines = self._clan(sender)
             case "net":
                 lines = describe_network(sender.address, self._reachability_of(sender.address))
+            case "rank" | "top" | "clanrank" | "seasons":
+                lines = self._answer_ladder_question(sender, command_name, argument)
             case "announce":
                 lines = self._announce_for(sender, argument)
             case "kick":
@@ -136,6 +151,7 @@ class ChatCommands:
             "/who: who is online",
             "/clan: your clan and its members online",
             "/net: your address as the server sees it, and what to forward on your router",
+            "/rank [NAME], /top [SEASON], /clanrank [CLAN], /seasons: the ladder",
         ]
         if self._is_admin_now(sender):
             lines.append("/announce TEXT: a line for every player in the lobby")
@@ -194,6 +210,97 @@ class ChatCommands:
         members = self._database.list_clan_member_names(clan.clan_id)
         online_members = [name for name in members if name.casefold() in online]
         return [f"Clan {clan.name}: {len(members)} member(s), online: {', '.join(online_members) or 'nobody'}"]
+
+    def _answer_ladder_question(self, sender: CommandSender, command_name: str, argument: str) -> list[str]:
+        """The ladder's chat commands, limited per player: they read every result, so a client
+        sending them in a loop must not keep the server busy. Names are cut to the longest a name
+        can be."""
+        if not self._ladder_questions.allows(sender.player_id, self._clock_seconds()):
+            return ["Too many ladder questions; ask again in a few seconds."]
+        name = argument[:MAX_GROUP_TEXT_LENGTH].strip()
+        match command_name:
+            case "rank":
+                return self._rank(sender, name)
+            case "top":
+                return self._top(name)
+            case "clanrank":
+                return self._clan_rank(sender, name)
+        return self._seasons()
+
+    def _rank(self, sender: CommandSender, name: str) -> list[str]:
+        """/rank [NAME]: a player's Liga rating and place in the infinite season and in every
+        running custom season that counts Liga, and the Clanliga record."""
+        account = self._database.find_account(name) if name else self._database.find_account_by_id(sender.player_id)
+        if account is None:
+            return [f"There is no account named {name}."]
+        lines = []
+        rows = self._ladder.standing_rows(INFINITE_SEASON, LIGA)
+        row = row_of(rows, account.account_id)
+        if row is None:
+            lines.append(f"{account.name} has no Liga place in the infinite season yet.")
+        else:
+            provisional = ", provisional" if row.is_provisional else ""
+            lines.append(
+                f"{account.name}: Liga {row.rating}, place {row.place} of {len(rows)} (infinite season{provisional})."
+            )
+            lines.append(f"Won {row.won}, lost {row.lost}, left {row.left}.")
+        for season in self._running_custom_seasons():
+            season_rows = self._ladder.standing_rows(season, LIGA)
+            season_row = row_of(season_rows, account.account_id)
+            if season_row is not None:
+                lines.append(f"{season.name}: {season_row.rating}, place {season_row.place} of {len(season_rows)}.")
+        clanliga_record = self._ladder.ratings().clanliga_players.get(account.account_id)
+        if clanliga_record is not None:
+            lines.append(f"Clanliga: won {clanliga_record.won}, lost {clanliga_record.lost} for the clan.")
+        return lines
+
+    def _top(self, season_name: str) -> list[str]:
+        """/top [SEASON]: the best of the infinite season's Liga, or of a custom season."""
+        try:
+            season = self._ladder.find_season(season_name)
+        except LookupError:
+            return [f"There is no season named {season_name}. {COMMAND_PREFIX}seasons lists the running ones."]
+        rows = self._ladder.standing_rows(season, LIGA)[:LADDER_TOP_COUNT]
+        label = "Liga" if season.season_id is None else season.name
+        if not rows:
+            return [f"{label}: nobody has a place yet."]
+        return [f"{label}: " + ", ".join(f"{row.place} {row.name} {row.rating}" for row in rows) + "."]
+
+    def _clan_rank(self, sender: CommandSender, name: str) -> list[str]:
+        """/clanrank [CLAN]: a clan's Clanliga rating and place, and its strength from Liga."""
+        clan = self._database.find_clan(name) if name else self._database.find_clan_of_account(sender.player_id)
+        if clan is None:
+            if name:
+                return [f"There is no clan named {name}."]
+            return ["You are in no clan; name one: /clanrank CLAN."]
+        lines = []
+        rows = self._ladder.standing_rows(INFINITE_SEASON, CLANLIGA)
+        row = row_of(rows, clan.clan_id)
+        if row is None:
+            lines.append(f"{clan.name} has no Clanliga result yet.")
+        else:
+            lines.append(f"{clan.name}: Clanliga {row.rating}, place {row.place} of {len(rows)}.")
+            lines.append(f"Won {row.won}, lost {row.lost}.")
+        strength = next((item for item in self._ladder.clan_strength_rows() if item.clan_id == clan.clan_id), None)
+        if strength is None or strength.strength is None:
+            lines.append("No strength from Liga yet: it needs three established members who played Liga lately.")
+        else:
+            members = ", ".join(member_name for member_name, _ in strength.members)
+            lines.append(f"Strength from Liga {strength.strength} ({members}).")
+        return lines
+
+    def _seasons(self) -> list[str]:
+        """/seasons: the custom seasons running now, and until when."""
+        running = self._running_custom_seasons()
+        if not running:
+            return ["No custom season runs now; the infinite season always does."]
+        return [f"Running: {season.name} ({season.counts.value}), {season_end_text(season)}." for season in running]
+
+    def _running_custom_seasons(self) -> list[Season]:
+        """The custom seasons running now, by their start."""
+        now = self._database.now()
+        seasons = [season for season in self._database.list_ladder_seasons() if season.is_running(now)]
+        return sorted(seasons, key=lambda season: season.starts_at)
 
     def _announce_for(self, sender: CommandSender, text: str) -> list[str]:
         """/announce TEXT: after /confirm, send TEXT as a server line to every player in the lobby."""
@@ -266,6 +373,22 @@ class ChatCommands:
         return self._ask_for_confirmation(sender, f"ban {account.name} for {hours} hour(s)", ban)
 
 
+def row_of(rows: list[StandingRow], side_id: int) -> StandingRow | None:
+    """The ranking line of one player or clan, None when it has no place."""
+    for row in rows:
+        if row.side_id == side_id:
+            return row
+    return None
+
+
+def season_end_text(season: Season) -> str:
+    """When a season ends, for a chat line: its last day, or that an admin ends it."""
+    if season.ends_at is None:
+        return "until an admin ends it"
+    last_day = season.ends_at - timedelta(seconds=1)
+    return f"until {last_day:%d %b %Y}"
+
+
 def split_command(command_text: str) -> tuple[str, str]:
     """("announce", "Hello all") for "/announce Hello all"; the slash is optional."""
     stripped = command_text.strip().removeprefix(COMMAND_PREFIX)
@@ -311,9 +434,7 @@ def describe_network(address: Address, reachability: Reachability = Reachability
 
 def kick_reason(reason: str) -> str:
     """What a kicked player is told, with the admin's reason when there is one."""
-    if reason:
-        return f"{KICK_REASON_PREFIX}: {reason}"
-    return f"{KICK_REASON_PREFIX}."
+    return with_reason(KICK_REASON_PREFIX, reason)
 
 
 def split_leading_name(argument: str, is_name: Callable[[str], bool]) -> tuple[str, str]:

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ladder - s3lobby (mockup)</title>
+<link rel="stylesheet" href="../../../s3lobby/web/static/tokens.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+<link rel="stylesheet" href="ladder.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">s3lobby</a>
+    <div class="header-actions"><a class="btn btn--outline btn--sm" href="#">Admin logon</a></div>
+  </div>
+  <div class="app-nav-bar"><nav class="app-nav" aria-label="Sections"><a href="#">Lobby</a>
+<a href="#" aria-current="page">Ladder</a></nav></div>
+</header>
+<main class="wrap page">
+<div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
+<section>
+  <div class="section-head">
+    <h1>Ladder</h1>
+    <p>Liga is 1 on 1 between two players, Clanliga team against team between two clans. Ratings
+    are Elo, everyone starts at 1000. A match counts when every player's game reports the same
+    winner and it lasted at least 10 minutes.</p>
+  </div>
+  <div class="grid"><div class="card"><h3>Ranked players</h3><div class="stat-number">23</div></div><div class="card"><h3>Counted matches</h3><div class="stat-number">147</div></div><div class="card"><h3>Running custom seasons</h3><div class="stat-number">1</div></div></div>
+</section>
+<div class="tabs" role="tablist"><button class="tab" type="button" role="tab" aria-selected="true">Liga</button><button class="tab" type="button" role="tab" aria-selected="false">Clanliga</button><button class="tab" type="button" role="tab" aria-selected="false">Clan strength</button></div>
+<div class="grid-12 toolbar">
+  <label class="field col-5"><span class="label">Season</span><select class="select"><option>Infinite season (always running)</option><option>Autumn Cup: 1 Oct to 30 Nov 2026 (running)</option><option>LAN weekend: 12 to 13 Sep 2026 (ended)</option><option>Clan Summer: Jun to Aug 2026 (ended)</option></select></label>
+  <label class="field col-4"><span class="label">Find a player</span><input class="input" type="search" placeholder="Name"></label>
+  <label class="check col-3"><input type="checkbox" checked><span>Show provisional players</span></label>
+</div>
+<section>
+  <div class="section-head"><h2>Top three</h2></div>
+  <div class="grid podium"><div class="card">
+  <div class="podium-place">1</div>
+  <h3>Thalia<span class="muted"> of Amazons</span></h3>
+  <div><span class="podium-rating">1284</span> <span class="badge badge--good">+14</span></div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="78" height="8"></rect></svg><span class="num">78 %</span></div>
+  <div class="muted">31 won, 9 lost <span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span></span></div>
+</div><div class="card">
+  <div class="podium-place">2</div>
+  <h3><span class="game-row game-row--blue">Jin</span><span class="muted"> of <span class="game-row game-row--blue">BB</span></span></h3>
+  <div><span class="podium-rating">1236</span> <span class="badge badge--bad">-14</span></div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="70" height="8"></rect></svg><span class="num">70 %</span></div>
+  <div class="muted">28 won, 12 lost <span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span></span></div>
+</div><div class="card">
+  <div class="podium-place">3</div>
+  <h3><span class="game-row game-row--green">Marcus</span><span class="muted"> of <span class="game-row game-row--green">Romans</span></span></h3>
+  <div><span class="podium-rating">1179</span> <span class="badge badge--good">+9</span></div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="63" height="8"></rect></svg><span class="num">63 %</span></div>
+  <div class="muted">22 won, 13 lost <span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span></span></div>
+</div></div>
+</section>
+<section>
+  <div class="section-head"><h2>Rating over the last weeks</h2>
+  <p>The top three and you, if you are logged on. The dashed line is the start rating.</p></div>
+  <div class="chart-box">
+  <div class="scroll-x">
+    <svg class="chart" viewBox="0 0 700 200" role="img" aria-label="Liga ratings of Thalia, Jin, Marcus and Greta since 1 October"><line class="grid-line" x1="56" y1="172.0" x2="676" y2="172.0"></line><text class="axis-label" x="48" y="176.0">900</text><line class="start-line" x1="56" y1="132.0" x2="676" y2="132.0"></line><text class="axis-label" x="48" y="136.0">1000</text><line class="grid-line" x1="56" y1="92.0" x2="676" y2="92.0"></line><text class="axis-label" x="48" y="96.0">1100</text><line class="grid-line" x1="56" y1="52.0" x2="676" y2="52.0"></line><text class="axis-label" x="48" y="56.0">1200</text><line class="grid-line" x1="56" y1="12.0" x2="676" y2="12.0"></line><text class="axis-label" x="48" y="16.0">1300</text><text x="56.0" y="192">1 Oct</text><text x="366.0" y="192">15 Oct</text><text x="676.0" y="192">today</text><polyline class="series series-1" points="56.0,60.0 107.7,55.2 159.3,50.0 211.0,52.4 262.7,46.4 314.3,40.0 366.0,41.6 417.7,35.6 469.3,30.0 521.0,32.4 572.7,27.2 624.3,24.0 676.0,18.4"><title>Thalia: 1284</title></polyline><polyline class="series series-2" points="56.0,48.0 107.7,43.2 159.3,44.4 211.0,38.0 262.7,32.0 314.3,34.4 366.0,28.8 417.7,26.8 469.3,30.0 521.0,32.4 572.7,27.6 624.3,32.0 676.0,37.6"><title>Jin: 1236</title></polyline><polyline class="series series-4" points="56.0,96.0 107.7,91.6 159.3,93.2 211.0,87.2 262.7,82.0 314.3,84.4 366.0,78.4 417.7,73.6 469.3,71.2 521.0,68.0 572.7,68.8 624.3,64.0 676.0,60.4"><title>Marcus: 1179</title></polyline><polyline class="series series-5" points="56.0,132.0 107.7,138.4 159.3,144.0 211.0,137.6 262.7,140.4 314.3,134.0 366.0,130.8 417.7,136.0 469.3,129.6 521.0,126.4 572.7,128.4 624.3,123.2 676.0,114.8"><title>Greta: 1043</title></polyline></svg>
+  </div>
+  <ul class="legend legend--inline"><li><span class="key seg-1"></span>Thalia 1284</li><li><span class="key seg-2"></span>Jin 1236</li><li><span class="key seg-4"></span>Marcus 1179</li><li><span class="key seg-5"></span>Greta 1043</li></ul>
+</div>
+</section>
+<section>
+  <div class="section-head"><h2>Standings</h2></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th class="num">#</th><th>Player</th><th>Clan</th><th class="num">Rating</th><th>Form</th><th class="num">Won - lost</th><th>Win rate</th><th class="num" title="Matches lost by leaving after the minimum time">Left</th></tr></thead>
+      <tbody><tr><td class="num">1</td><td>Thalia</td><td>Amazons</td><td class="num"><strong>1284</strong> <span class="badge badge--good">+14</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span></span></td><td class="num">31 - 9</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="78" height="8"></rect></svg><span class="num">78 %</span></div></td><td class="num"><span class="muted">0</span></td></tr><tr><td class="num">2</td><td><span class="game-row game-row--blue">Jin</span></td><td><span class="game-row game-row--blue">BB</span></td><td class="num"><strong>1236</strong> <span class="badge badge--bad">-14</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span></span></td><td class="num">28 - 12</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="70" height="8"></rect></svg><span class="num">70 %</span></div></td><td class="num"><span class="badge badge--warn">1</span></td></tr><tr><td class="num">3</td><td><span class="game-row game-row--green">Marcus</span></td><td><span class="game-row game-row--green">Romans</span></td><td class="num"><strong>1179</strong> <span class="badge badge--good">+9</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span></span></td><td class="num">22 - 13</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="63" height="8"></rect></svg><span class="num">63 %</span></div></td><td class="num"><span class="muted">0</span></td></tr><tr><td class="num">4</td><td><span class="game-row game-row--green">Lena</span></td><td><span class="game-row game-row--green">Romans</span></td><td class="num"><strong>1121</strong> <span class="badge badge--good">+16</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--left" title="lost by leaving"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span></span></td><td class="num">17 - 11</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="61" height="8"></rect></svg><span class="num">61 %</span></div></td><td class="num"><span class="badge badge--warn">2</span></td></tr><tr><td class="num">5</td><td>Pavel</td><td><span class="muted">-</span></td><td class="num"><strong>1088</strong> <span class="badge badge--bad">-9</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--lost" title="lost"></span></span></td><td class="num">14 - 12</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="54" height="8"></rect></svg><span class="num">54 %</span></div></td><td class="num"><span class="muted">0</span></td></tr><tr><td class="num">6</td><td><span class="game-row game-row--green">Greta</span></td><td><span class="muted">-</span></td><td class="num"><strong>1043</strong> <span class="badge badge--good">+21</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--lost" title="lost"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span></span></td><td class="num">9 - 7</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="56" height="8"></rect></svg><span class="num">56 %</span></div></td><td class="num"><span class="muted">0</span></td></tr><tr><td class="num">7</td><td>Ivo <span class="badge" title="Fewer than 10 results: the rating still moves fast">provisional</span></td><td>Amazons</td><td class="num"><strong>1017</strong> <span class="badge badge--good">+30</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--won" title="won"></span></span></td><td class="num">5 - 2</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="71" height="8"></rect></svg><span class="num">71 %</span></div></td><td class="num"><span class="muted">0</span></td></tr><tr><td class="num">8</td><td><span class="game-row game-row--blue">Sanna</span></td><td><span class="game-row game-row--blue">BB</span></td><td class="num"><strong>976</strong> <span class="badge badge--bad">-16</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--left" title="lost by leaving"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--lost" title="lost"></span><span class="result result--lost" title="lost"></span></span></td><td class="num">8 - 11</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="42" height="8"></rect></svg><span class="num">42 %</span></div></td><td class="num"><span class="badge badge--warn">3</span></td></tr><tr><td class="num">9</td><td><span class="game-row game-row--green">Ole</span> <span class="badge" title="Fewer than 10 results: the rating still moves fast">provisional</span></td><td><span class="game-row game-row--green">Romans</span></td><td class="num"><strong>931</strong> <span class="badge badge--bad">-30</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span><span class="result result--left" title="lost by leaving"></span><span class="result result--lost" title="lost"></span><span class="result result--lost" title="lost"></span></span></td><td class="num">3 - 5</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="38" height="8"></rect></svg><span class="num">38 %</span></div></td><td class="num"><span class="badge badge--warn">1</span></td></tr><tr><td class="num">10</td><td>Tomas</td><td><span class="muted">-</span></td><td class="num"><strong>902</strong> <span class="badge badge--bad">-12</span></td><td><span class="form-strip" role="img" aria-label="Last 5 results"><span class="result result--lost" title="lost"></span><span class="result result--lost" title="lost"></span><span class="result result--left" title="lost by leaving"></span><span class="result result--lost" title="lost"></span><span class="result result--won" title="won"></span></span></td><td class="num">6 - 14</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="30" height="8"></rect></svg><span class="num">30 %</span></div></td><td class="num"><span class="muted">0</span></td></tr></tbody>
+    </table>
+  </div>
+  <ul class="legend legend--inline meta">
+    <li><span class="form-strip"><span class="result result--won"></span></span>won</li>
+    <li><span class="form-strip"><span class="result result--lost"></span></span>lost</li>
+    <li><span class="form-strip"><span class="result result--left"></span></span>lost by leaving</li>
+  </ul>
+  <p class="meta">Form shows the last five results, oldest first. In the game: <code>/rank NAME</code> and <code>/top</code>.</p>
+</section>
+<section>
+  <div class="section-head"><h2>Last results</h2></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>When</th><th>Winner</th><th>Loser</th><th>Map</th><th class="num">Played</th><th></th></tr></thead>
+      <tbody><tr><td class="cell-time">today 19:42</td><td><strong><span class="game-row game-row--green">Greta</span></strong> <span class="badge badge--good">+21</span></td><td><span class="game-row game-row--green">Ole</span> <span class="badge badge--bad">-21</span> </td><td>Elbe</td><td class="num">27:41</td><td class="cell-actions"><a class="btn btn--quiet btn--sm" href="#">Game</a></td></tr><tr><td class="cell-time">today 18:05</td><td><strong>Thalia</strong> <span class="badge badge--good">+14</span></td><td><span class="game-row game-row--blue">Jin</span> <span class="badge badge--bad">-14</span> </td><td>\Random</td><td class="num">52:10</td><td class="cell-actions"><a class="btn btn--quiet btn--sm" href="#">Game</a></td></tr><tr><td class="cell-time">today 16:30</td><td><strong>Ivo</strong> <span class="badge badge--good">+30</span></td><td>Tomas <span class="badge badge--bad">-30</span> <span class="badge badge--warn">Tomas left</span></td><td>Hochland</td><td class="num">18:02</td><td class="cell-actions"><a class="btn btn--quiet btn--sm" href="#">Game</a></td></tr><tr><td class="cell-time">yesterday 22:12</td><td><strong><span class="game-row game-row--green">Lena</span></strong> <span class="badge badge--good">+16</span></td><td><span class="game-row game-row--blue">Sanna</span> <span class="badge badge--bad">-16</span> </td><td>\Random</td><td class="num">41:55</td><td class="cell-actions"><a class="btn btn--quiet btn--sm" href="#">Game</a></td></tr></tbody>
+    </table>
+  </div>
+</section>
+</main>
+<footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
+</body>
+</html>

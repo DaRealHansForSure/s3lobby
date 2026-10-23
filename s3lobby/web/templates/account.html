@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "admin_base.html" %}
 {% from "_macros.html" import csrf_field, action_button, checkbox_field, in_game_colour with context %}
 {% set active_nav = "accounts" %}
 {% block title %}{{ account.name }}{% endblock %}
@@ -12,6 +12,7 @@
       {% if is_banned %}<span class="badge badge--bad">banned until {{ account.banned_until | moment }}</span>{% endif %}
       <span class="badge">created {{ account.created_at | moment }}</span>
       <span class="badge">last logon {{ account.last_logon_at | moment }}</span>
+      <a class="btn btn--quiet btn--sm" href="{{ url_for('players.show_player', name=account.name) }}">Public page</a>
     </p>
   </div>
   {% if is_online %}
@@ -20,7 +21,7 @@
     logon; a ban removes them from the lobby at once.
   </div>
   {% if not is_own_account %}
-  <div class="form-actions">{{ action_button(url_for('accounts.kick_account', account_id=account.account_id), "Remove from the lobby", "btn--danger") }}</div>
+  <div class="form-actions">{{ action_button(url_for('accounts.kick_account', account_id=account.account_id), "Remove from the lobby", "btn--danger", confirm="Remove " ~ account.name ~ " from the lobby? They may log on again.") }}</div>
   {% endif %}
   {% endif %}
 </section>
@@ -39,17 +40,17 @@
           {% for code in access_codes %}
           <tr>
             <td>{{ code.label or "-" }}</td>
-            <td>{{ code.created_at | moment }}</td>
-            <td>{{ code.last_used_at | moment }}</td>
+            <td>{{ code.created_at | short_moment }}</td>
+            <td>{{ code.last_used_at | short_moment }}</td>
             <td>{% if code.is_active %}<span class="badge badge--good">active</span>{% else %}<span class="badge">revoked {{ code.revoked_at | moment }}</span>{% endif %}</td>
-            <td class="cell-actions">{% if code.is_active %}{{ action_button(url_for('accounts.revoke_access_code', account_id=account.account_id, code_id=code.code_id), "Revoke") }}{% endif %}</td>
+            <td class="cell-actions">{% if code.is_active %}{{ action_button(url_for('accounts.revoke_access_code', account_id=account.account_id, code_id=code.code_id), "Revoke", confirm="Revoke the code " ~ (code.label or "without a label") ~ "? It stops working at once.") }}{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <div class="table-actions">
-      {{ action_button(url_for('accounts.revoke_all_access_codes', account_id=account.account_id), "Revoke every code", "btn--danger") }}
+      {{ action_button(url_for('accounts.revoke_all_access_codes', account_id=account.account_id), "Revoke every code", "btn--danger", confirm="Revoke every access code of " ~ account.name ~ "? They cannot log on until they get a new one.") }}
     </div>
   </div>
   {% else %}
@@ -82,7 +83,7 @@
         <tr>
           <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
           <td>{{ game.host_name or "-" }}</td>
-          <td class="cell-time">{{ game.opened_at | moment }}</td>
+          <td class="cell-time">{{ game.opened_at | short_moment }}</td>
           <td class="num">{% if game.team is not none %}{{ game.team }}{% else %}<span class="muted">-</span>{% endif %}</td>
           <td>{{ game.race or "-" }}</td>
           <td>
@@ -130,7 +131,7 @@
   </div>
 </section>
 
-<section>
+<section id="ban">
   <div class="section-head"><h2>Ban</h2></div>
   {% if is_own_account %}
     <p class="empty-state">You cannot ban yourself.</p>
@@ -138,7 +139,7 @@
     <p>Banned until {{ account.banned_until | moment }}{% if account.ban_reason %}: {{ account.ban_reason }}{% endif %}.</p>
     <div class="form-actions">{{ action_button(url_for('accounts.unban_account', account_id=account.account_id), "Lift the ban") }}</div>
   {% else %}
-  <form method="post" action="{{ url_for('accounts.ban_account', account_id=account.account_id) }}">
+  <form method="post" action="{{ url_for('accounts.ban_account', account_id=account.account_id) }}" data-confirm="Ban {{ account.name }}? An online player is removed from the lobby at once." data-confirm-label="Ban">
     {{ csrf_field() }}
     <div class="form-grid">
       <label class="field">
@@ -163,7 +164,7 @@
     <p>Removes the account with its access codes and clan membership. Games and reports it took
     part in stay, without the name.</p>
   </div>
-  <form method="post" action="{{ url_for('accounts.delete_account', account_id=account.account_id) }}">
+  <form method="post" action="{{ url_for('accounts.delete_account', account_id=account.account_id) }}" data-confirm="Remove the account {{ account.name }} with its access codes for good?" data-confirm-label="Remove account">
     {{ csrf_field() }}
     <div class="field field--action">
       <label class="label" for="confirm-name">Type {{ account.name }} to confirm</label>

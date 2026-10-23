@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "admin_base.html" %}
 {% from "_macros.html" import csrf_field, action_button, in_game_colour, names with context %}
 {% set active_nav = "clans" %}
 {% block title %}Clans{% endblock %}
@@ -26,7 +26,7 @@
             {% else %}
             {{ action_button(url_for('accounts.highlight_clan', clan_id=clan.clan_id), "Green in the game", fields={"is_highlighted": "on"}) }}
             {% endif %}
-            {{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--danger") }}
+            {{ action_button(url_for('accounts.delete_clan', clan_id=clan.clan_id), "Remove", "btn--outline", confirm="Remove the clan " ~ clan.name ~ "? Its members are left in no clan.") }}
           </td>
         </tr>
         {% endfor %}

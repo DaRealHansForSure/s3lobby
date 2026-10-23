@@ -25,7 +25,8 @@ another project; its history was carried over, so the early commits describe tha
 - `s3lobby/migrations.py` and `s3lobby/schema/<dialect>/NNNN_name.sql`: the schema as numbered
   migration files, recorded with checksums in the table `schema_migrations`. A schema change adds
   the next number to every dialect folder (same number, same meaning); released files are never
-  edited. Old SQLite files that only had PRAGMA user_version are adopted.
+  edited, and neither is a file the owner's own database has applied already (check `s3lobby
+  database status`): its checksum guard would refuse to start the server. Old SQLite files that only had PRAGMA user_version are adopted.
 - `s3lobby/server.py`, `s3lobby/cli.py`, `s3lobby/admin.py`: asyncio UDP server, command line,
   administration subcommands.
 - `s3lobby/addresses.py`: the address each client is shown for another (loopback and LAN players
@@ -36,6 +37,12 @@ another project; its history was carried over, so the early commits describe tha
   reach a player directly, from a second UDP port.
 - `s3lobby/live.py`: the running lobby as JSON; the server writes it to the database once a second
   when it changed, the web interface reads it. The two processes share nothing but the database.
+- `s3lobby/ladder.py`, `s3lobby/ladder_book.py`, `s3lobby/ladder_admin.py`: the ladder
+  (docs/ladder.md), with `ladder_texts.py` for the texts it writes into the board, the news and the
+  chat (once per event, through `record_ladder_event`). `ladder.py` holds the rules as pure functions (when a game counts, Elo, seasons,
+  standings, clan strength); `ladder_book.py` (LadderBook) feeds them from the database, stores
+  results, and builds the views with names every front end shows; `ladder_admin.py` is `s3lobby
+  ladder`. Ratings are never stored, always replayed from the results.
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,
   `templates/`, `static/`). Public live lobby, everything else for admins only.
 - `docs/protocol.md`: the protocol as read from the game, with the S3.EXE address of every fact.
@@ -46,7 +53,7 @@ another project; its history was carried over, so the early commits describe tha
 Run from this folder:
 
 - Tests: `python3 -m unittest`
-- Server and web interface together, in the background: `scripts/start.sh [--dev]`; stop both with
+- Server and web interface together, in the background: `scripts/start.sh [--dev] [--follow]` (`--follow` then shows the lobby's log as it grows); stop both with
   `scripts/stop.sh [--force]`. Datagrams go to `lobby.log`, console output to `lobby-console.log`
   and `web-console.log`.
 - Server alone: `python3 -m s3lobby serve --verbose --log-file lobby.log` (with `--log-file` the
@@ -107,6 +114,10 @@ SQLite needs nothing extra.
     stored or shown: undefined Windows-1252 bytes arrive as surrogates, which UTF-8 cannot encode.
   - A setting that makes the server send something no run with the real game has seen yet
     (`mark_admins`, `check_reachability`) is off by default until a run confirms it.
+- The lobby works with and without the web interface, and anyone with the code can build their
+  own tools on it. Every rule lives in a module the server and the command line use (the web
+  interface only calls it); every admin action on the web also exists as an `s3lobby` command;
+  data others may want is reachable as documented tables or as JSON from a command.
 - Web interface: every POST form carries `csrf_field()`; every admin blueprint registers
   `redirect_visitors_to_logon` as its before_request hook. Pages run no inline script or style (the
   Content-Security-Policy forbids them); colours, sizes and spaces come from the UI kit's tokens in
@@ -180,7 +191,10 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 - Two copies of the game on one machine: `build/wine/run-s3.sh --window 1` and `--window 2` (each
   in its own Wine desktop, game filled in by cnc-ddraw's settings in ddraw.ini, `--monitor NAME`
   remembered, `--stop` ends every copy). Log the second copy on with a second account (the name is
-  shared between the copies' settings).
+  shared between the copies' settings). `build/wine/run-s3.sh` only calls the generic
+  `scripts/run-game-wine.sh` with the prefix and GOG's serial. `--language en` (or
+  `scripts/game-language.sh FOLDER CODE`) changes the language field of the copy's voice archive;
+  the game reads it at start, so start the copies one after the other in different languages.
 - Checking web pages by eye: render them with headless Chrome (`google-chrome --headless=new
   --window-size=1280,900 --screenshot=FILE file://PAGE.html`) from HTML fetched with Flask's test
   client, `/static/` rewritten to file paths; check light and dark (`data-theme` on `<html>`) and
@@ -195,14 +209,23 @@ and a new nonce from an active player's address is ignored (keepalive every 5 s,
 remains is inherent: the game's datagrams carry no secret, so a forger who guesses the next block
 number can still slip in an ordinary action; admin commands are safe through /confirm.
 
+## Unexplained, left for later
+
+Seen in runs, not understood, not worked on (owner's decision, 2026-10-23):
+
+- After a server restart while the game (Wine, Bob) stayed logged on and was then logged on
+  again, its join of the MessageZone (block 2, AddPlayerToGroup 4) was resent every half second
+  although every server datagram acknowledged it (ACKNOWLEDGE_MESSAGES 2, MIN_MISSING 3); the
+  server's answer was byte for byte the one that worked minutes before. A freshly started game
+  was fine. lobby.log 23:25:45 onwards. Next step: restart the server while a game stays logged on,
+  and compare the client's acknowledgement handling (send 0x606ff0, resend timer).
+- Windows 10 at 19:34:24: right after its join of MessageThemesGerman the game went silent (no
+  acknowledgement, no keepalive, no Logout) and the server dropped it 60 s later. The same steps
+  worked afterwards; the owner may have clicked away fast. Never reproduced.
+
 ## Future work
 
-- Ladder games with a real ranking (owner's wish, see the README's Roadmap). Today ladder games are
-  played but unranked: players get a server line, and a ladder GameStatus is stored and answered
-  with 0x6A. Building blocks that exist: `GameStatus` decodes flags, winning team and every slot
-  (player id = account id, team, race, computer flag); reports are stored in `game_reports`;
-  `/games` already decodes them. Still to decide: when a result counts (every player's report
-  agreeing, both teams human, the match long enough), how to rank (wins, an Elo-like rating),
-  clan ladder for LadderType.CLANS, where to show it (web page, Home news text, a chat command),
-  and only then answering ladder reports with 0x6C instead of 0x6A, which the game shows as "Game
-  status stored at the Lobby server." (0x540a3e).
+- A run with the real game for the ladder: a Liga match between two machines played to the end and
+  one where the loser quits (does the stayer's report mark the leaver with slot state 3?), a
+  Clanliga 2 on 2, and `ladder_enabled` on to see the game show 0x6c. Only then may the setting
+  default to on.

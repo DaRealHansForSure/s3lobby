@@ -57,6 +57,15 @@ class LobbyDatabaseTest(unittest.TestCase):
         """Close the database."""
         self.database.close()
 
+    def test_account_search_takes_wildcards_literally(self) -> None:
+        """A search for "a_b" or "%" finds names containing exactly that, not everything."""
+        self.database.create_account("Alice")
+        self.database.create_account("Bob")
+        self.assertEqual(self.database.count_accounts("li"), 1)
+        self.assertEqual(self.database.count_accounts("%"), 0)
+        self.assertEqual(self.database.count_accounts("_"), 0)
+        self.assertEqual([account.name for account in self.database.list_accounts_page("", 1, 1)], ["Bob"])
+
     def test_player_names_follow_the_game_rule(self) -> None:
         """Only names the game accepts (letters A to Z, single spaces between words) are valid, and an account
         with another name is refused, since its player could never log on."""

@@ -6,6 +6,7 @@
     s3lobby clan join Romans Alice
     s3lobby news set --audience german --title "Willkommen" --text "Viel Spass!"
     s3lobby announce "Server restart at 22:00"
+    s3lobby ladder standings --format json
     s3lobby web --port 8080
 
 Every subcommand takes --database to choose where the data lives: a SQLite file (default:
@@ -24,14 +25,17 @@ import os
 import sys
 from collections.abc import Sequence
 
-from s3lobby import __version__, admin
+from s3lobby import __version__, admin, ladder_admin
 from s3lobby.backends import describe_location
 from s3lobby.constants import (
+    ALL_LANGUAGES,
     BOARD_LANGUAGES,
     DEFAULT_BAN_HOURS,
     DEFAULT_SERVER_PORT,
     DEVELOPMENT_PASSWORD,
+    GAME_LANGUAGES,
     NEWS_AUDIENCES,
+    SeasonCounts,
 )
 from s3lobby.database import DatabaseError, LobbyDatabase
 from s3lobby.server import ALL_INTERFACES, DEFAULT_DATABASE_PATH, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
@@ -192,6 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_chat_theme_commands(commands, database_option)
     add_board_commands(commands, database_option)
     add_setting_commands(commands, database_option)
+    add_ladder_commands(commands, database_option)
     add_announce_command(commands, database_option)
     add_web_command(commands, database_option)
     add_database_commands(commands, database_option)
@@ -348,6 +353,12 @@ def add_chat_theme_commands(commands: argparse._SubParsersAction, database_optio
     add = actions.add_parser("add", parents=[database_option], help="add a chat theme")
     add.add_argument("name")
     add.add_argument("--description", default="", help="shown in the Description column")
+    add.add_argument(
+        "--language",
+        default=ALL_LANGUAGES,
+        choices=GAME_LANGUAGES,
+        help="show the theme only to games of this language (default: every game)",
+    )
     add.set_defaults(admin_function=admin.add_chat_theme)
 
     remove = actions.add_parser("remove", parents=[database_option], help="remove a chat theme")
@@ -388,6 +399,111 @@ def add_board_commands(commands: argparse._SubParsersAction, database_option: ar
     remove_message.set_defaults(admin_function=admin.remove_board_message)
 
 
+def add_ladder_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    """Add the ladder subcommands: standings, results, admins' decisions and custom seasons
+    (s3lobby/ladder_admin.py). Everything the web interface offers for the ladder is here too."""
+    ladder = commands.add_parser("ladder", help="the ladder: standings, results, decisions, seasons")
+    actions = ladder.add_subparsers(dest="ladder_command", metavar="action", required=True)
+    output_option = argparse.ArgumentParser(add_help=False)
+    output_option.add_argument(
+        "--format", choices=ladder_admin.OUTPUT_FORMATS, default=ladder_admin.TEXT_FORMAT, help="default: %(default)s"
+    )
+    season_option = argparse.ArgumentParser(add_help=False)
+    season_option.add_argument("--season", help="a custom season's name (default: the infinite season)")
+    admin_option = argparse.ArgumentParser(add_help=False)
+    admin_option.add_argument("--by", help="the admin account the decision is kept under")
+
+    standings = actions.add_parser(
+        "standings", parents=[database_option, output_option, season_option], help="the ranking of a season"
+    )
+    standings.add_argument(
+        "--ladder",
+        choices=ladder_admin.STANDINGS_VIEWS,
+        default=ladder_admin.LIGA,
+        help="liga ranks players, clanliga clans, clans the clans' strength from Liga (default: %(default)s)",
+    )
+    standings.set_defaults(admin_function=ladder_admin.show_standings)
+
+    results = actions.add_parser(
+        "results", parents=[database_option, output_option, season_option], help="ladder results, newest first"
+    )
+    results.add_argument("--state", choices=[state.value for state in ladder_admin.STORED_STATES])
+    results.add_argument("--limit", type=int, help="show at most this many")
+    results.set_defaults(admin_function=ladder_admin.show_results)
+
+    statistics = actions.add_parser(
+        "stats", parents=[database_option, output_option, season_option], help="races and maps of a season"
+    )
+    statistics.add_argument(
+        "--of",
+        choices=ladder_admin.STATISTICS_KINDS,
+        default=ladder_admin.RACES_STATISTICS,
+        help="what text and CSV show (JSON holds both; default: %(default)s)",
+    )
+    statistics.set_defaults(admin_function=ladder_admin.show_statistics)
+
+    show = actions.add_parser("show", parents=[database_option], help="what the ladder made of one game")
+    show.add_argument("game_id", type=int, help="the game's number, as on the Games page")
+    show.set_defaults(admin_function=ladder_admin.show_game_result)
+
+    decide = actions.add_parser(
+        "decide", parents=[database_option, admin_option], help="name the winning team of a game"
+    )
+    decide.add_argument("game_id", type=int)
+    decide.add_argument("--winner", type=int, required=True, help="the winning team's number from the reports")
+    decide.set_defaults(admin_function=ladder_admin.decide_game)
+
+    void = actions.add_parser(
+        "void", parents=[database_option, admin_option], help="take a game's result out of every rating"
+    )
+    void.add_argument("game_id", type=int)
+    void.add_argument("--reason", default="", help="kept with the result")
+    void.set_defaults(admin_function=ladder_admin.void_game)
+
+    add_ladder_season_commands(actions, database_option, output_option, admin_option)
+
+
+def add_ladder_season_commands(
+    actions: argparse._SubParsersAction,
+    database_option: argparse.ArgumentParser,
+    output_option: argparse.ArgumentParser,
+    admin_option: argparse.ArgumentParser,
+) -> None:
+    """Add `ladder season` for custom seasons. Dates are YYYY-MM-DD in UTC; an end date includes
+    that whole day."""
+    season = actions.add_parser("season", help="custom seasons beside the infinite one")
+    season_actions = season.add_subparsers(dest="season_command", metavar="action", required=True)
+    counts_choices = [counts.value for counts in SeasonCounts]
+
+    listing = season_actions.add_parser("list", parents=[database_option, output_option], help="list custom seasons")
+    listing.set_defaults(admin_function=ladder_admin.list_seasons)
+
+    add = season_actions.add_parser("add", parents=[database_option, admin_option], help="create a custom season")
+    add.add_argument("name")
+    add.add_argument("--start", required=True, help="first day, YYYY-MM-DD")
+    add.add_argument("--end", help="last day, YYYY-MM-DD (default: until an admin ends it)")
+    add.add_argument("--counts", choices=counts_choices, default=SeasonCounts.BOTH.value, help="default: %(default)s")
+    add.set_defaults(admin_function=ladder_admin.add_season)
+
+    edit = season_actions.add_parser("edit", parents=[database_option], help="change a custom season")
+    edit.add_argument("name")
+    edit.add_argument("--name", dest="new_name", help="a new name")
+    edit.add_argument("--start", help="first day, YYYY-MM-DD")
+    edit.add_argument("--end", help="last day, YYYY-MM-DD")
+    edit.add_argument("--no-end", action="store_true", help="run until an admin ends it")
+    edit.add_argument("--counts", choices=counts_choices)
+    edit.set_defaults(admin_function=ladder_admin.edit_season)
+
+    end = season_actions.add_parser("end", parents=[database_option], help="end a custom season")
+    end.add_argument("name")
+    end.add_argument("--at", help="last day, YYYY-MM-DD (default: now)")
+    end.set_defaults(admin_function=ladder_admin.end_season)
+
+    delete = season_actions.add_parser("delete", parents=[database_option], help="delete a custom season")
+    delete.add_argument("name")
+    delete.set_defaults(admin_function=ladder_admin.delete_season)
+
+
 def add_setting_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the setting subcommands for the server settings kept in the database."""
     setting = commands.add_parser("setting", help="server settings stored in the database")
@@ -405,9 +521,10 @@ def add_setting_commands(commands: argparse._SubParsersAction, database_option: 
 def add_announce_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the announce subcommand, which sends a line to every player in the running lobby."""
     announce = commands.add_parser(
-        "announce", parents=[database_option], help="send a line to every player in the running lobby"
+        "announce", parents=[database_option], help="send a line to every player in the running lobby, or to one"
     )
     announce.add_argument("text")
+    announce.add_argument("--to", help="one player's name: only they get the line, if online")
     announce.set_defaults(admin_function=admin.queue_announcement)
 
 

@@ -247,7 +247,13 @@ Offsets count from the first byte after the header.
   u32 edition ([0x7a7ff8]: 2 Mission CD, 3 Plus, 4 both), u32 language (config + 0x28, passed at
   0x43af70): the index into the languages of the game's text archive, 0 German, 1 English,
   2 Italian, 3 French, 4 Polish, 5 Spanish, 6 Korean, 7 Japanese. At start the game clamps it to the
-  archive's language count (0x42e94b..0x42e97b). A German game sends 0 (seen in a run).
+  archive's language count (0x42e94b..0x42e97b). A German game sends 0 (seen in a run). The value
+  comes from the voice archive, not from the registry: the sound loader (0x5fe760) reads the u32 at
+  offset 0x14 of each `Snd\siedler3_NN.dat` header and keeps the first that is not 0xffffffff (the
+  GOG copy: 0xffffffff in the effects archive siedler3_00, 0 in the German voices siedler3_01), and
+  0x498142 copies it into the configuration. The registry value `Language` (7 in the GOG copy) does
+  not change it (seen in a run with 9 and 21). `scripts/game-language.sh` changes that field in a
+  test copy of the game, so one machine can play games of several languages.
 - **Answer**: Result (below) with code 9 means "no patch" (0x5cffe1): the handler marks the answer
   as received and takes the sender as server (0x5cff1c, 0x5cff27); the patch flag stays 0.
 - **0x12 patch information** (0x5ccc50) is the alternative answer: u32 patch flag (0 = no patch),
@@ -295,6 +301,15 @@ Offsets count from the first byte after the header.
   | 0xc | a group the player opened exists, value = its id: status 1/0 (0x5d052d). LM.PollStatus fills the lobby screen's empty slot with a CGroup of that id (0x5da8a0, 0x5db590): the channel LM+0x490 in the ChatZone (0x452577), the game LM+0x6e8 in the game setup (0x452a12, 0x452b53). An already filled slot makes the client leave the group instead (0x5dd520 -> 0x5ca5e0) |
   | 0xb | dialog "Der Wechsel in die Gruppe hat nicht geklappt" (status 2/5, 0x5d0557) |
   | 0x62 | dialog "Das Passwort stimmte nicht", value = group id (status 2/6, 0x5d0542) |
+
+  The create dialog (0x43bf90) has the fields Name, Password and Repeat (texts 0x9006d..0x9006f)
+  and refuses an empty name (0x43c71e, 0x90070), an empty password (0x43c881, 0x90071) and a
+  repeat that differs (0x43c9ef, 0x90072) before anything is sent; it sets no length. s3lobby
+  answers a create request (flag 0x1) with 0x66 for a new account, or with the same codes as a
+  logon. It never sends 2: "There is already a player with this name" would tell anyone which
+  names have accounts, so a taken name is checked as an ordinary logon (its own password gets in,
+  any other gets 3). A password shorter than 8 characters, too many accounts from one address
+  and the setting `allow_create_player` being off all get 3 as well.
 
   The texts live in `GFX/siedler3_09.*.dat`: at offset 0x5c a u16 text count (374) and a u16
   language count (8), from 0x60 one u32 file offset per text, all texts of language 0 (German)
@@ -512,6 +527,21 @@ name and "Description" columns (0x44711d, 0x447186). A player chooses a theme by
 sees the chat groups listed inside. A player opens a chat group with AddGroupToGroup2 under the
 theme, group id 0xffffffff, flags 0x300073, maximum players 0xffffffff (no limit).
 
+The game remembers the theme it was in last, also across logons while it keeps running, and joins
+it again in the same moment it joins the ChatZone (seen in a run: join 2 and join 0x10000 in one
+block, after a new logon). A theme that is gone by then makes that join fail with Result 0xb ("Der
+Wechsel in die Gruppe hat nicht geklappt"). s3lobby therefore always lists General at 0x10000,
+which admins cannot change or remove. The other themes take 0x10000 plus their database id. A new
+database starts with the rooms the game's manual describes (migration 0014): Meeting Room,
+Beginners and one per game language (Deutsch, English, Français, Italiano, Polski, Español; Korean
+has no letters in Windows-1252); admins may remove them.
+
+A theme may be meant for the games of one language. The game names its language only in the
+patch check (CheckFileVersion, third value), which comes on the connection before the logon from
+the same address and port (seen in a run), so the lobby remembers the language per address and
+gives it to the player who logs on from there. A theme of another language is then not listed to
+that player; a player whose patch check the lobby did not see is shown every theme.
+
 With a password it goes differently (CreateChatGroup 0x4542c0 compares the password with the empty
 text at 0x454315): the client joins **group 5**, a group it builds itself with id 5 and empty
 texts (0x454516, switched to at 0x452120), and opens the chat group under group 5 with flags
@@ -550,16 +580,22 @@ listed in that language group are the themes; a theme's text id list (0x14) hold
 own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
 theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
 
-A client bug, not reachable from the server: the screen's group lookup (0x452390) returns the
-GameZone slot instead of the MessageZone's own group for level 0 (0x452455). That slot is always
-empty there (leaving the GameZone clears it, 0x452039), so chat typed on the board screen is
-silently not sent (0x443e4e), and a private chat invitation from there looks the invited player up
-in the client's first joined group instead (0x44532b, 0x44d664). The board itself uses levels 1
-and 2 (0x446cb0, 0x446d0a) and works (seen in a run on Windows 10: a theme's message fetched with
-0x16 and shown, the join answered with 0x26 for an admin). Only patching S3.EXE would fix it (the `add ecx, 0x5ac` at
-0x452459 would need 0x824, the MessageZone's own group); s3lobby works with unmodified games, so
-it can only say so: with the setting `board_chat_hint` a player who opens the MessageZone hears
-once per logon, as a server line, that chat there reaches nobody (off until a run confirms it).
+The order of the themes is the game's own: a group keeps its visible groups in a sorted array
+(CGroup +0xb8, binary search at 0x44d730) whose "less than" compares the group ids (CGroup's
+operator< at 0x5db570 compares +4, the id). So the game lists the groups inside any parent by
+ascending group id, whatever order the server sends them in (seen in a run: themes sent Liga
+first came out Test first, Test having the lower id). s3lobby therefore gives each board theme a
+group id that holds its place on the board (`board_theme_group_id`); seen in a run: with ids in
+the board's order, the ladder's theme came first as on the board. A theme's text id list
+(0x14) is copied as it arrives (CGroup.SetIdList 0x5dbe30), so messages keep the server's order
+(*inferred*: not yet seen with several messages).
+
+The MessageZone screen has no chat field (seen in a run): its screen group lookup (0x452390)
+returns the GameZone slot for level 0 (0x452455), which would send chat nowhere (0x443e4e), but
+the screen offers no way to type any. The board itself uses levels 1 and 2 (0x446cb0, 0x446d0a)
+and works (seen in a run on Windows 10: a theme's message fetched with 0x16 and shown, the join
+answered with 0x26 for an admin). An earlier server line warning about board chat (setting
+`board_chat_hint`) was removed for that reason.
 
 ### Other
 
@@ -595,12 +631,15 @@ once per logon, as a server line, that chat there reaches nobody (off until a ru
   status stored at the Lobby server." (0x540a3e), 0x6a as "Game status inconsistencies. Game not
   valid for ladder." (0x540b89). For other games it ignores the answer.
 
-  s3lobby keeps no ladder. It stores every report as sent and answers 0x6c, except for a ladder
-  game (flag 1), which it answers with 0x6a, so the game tells the players during the match
-  that the result does not count. Before that, every player of a ladder game gets one server line
-  (ChatCommandAnswer to group 0) saying that ladder games are not ranked: the host when opening
-  the game or when an UpdateGroup with a new description turns it into a ladder game, a joiner
-  when joining. The description decides, as the host rewrites it on every change of the setup;
+  s3lobby stores every report as sent and ranks ladder games itself (s3lobby/ladder.py,
+  docs/ladder.md). It answers 0x6c, except for a ladder game (flag 1): with the setting
+  `ladder_enabled` off (the default until a run confirms the answer) every ladder report gets 0x6a,
+  so the game tells the players that the result does not count, and every player of a ladder game
+  gets one server line (ChatCommandAnswer to group 0) saying that ladder games are not ranked: the
+  host when opening the game or when an UpdateGroup with a new description turns it into a ladder
+  game, a joiner when joining. With it on, a ladder report that can count (two teams, no computer
+  opponents, not marked invalid by the game) gets 0x6c, and the players hear the result once every
+  report is in (*inferred* that the game shows 0x6c as intended: untried). The description decides, as the host rewrites it on every change of the setup;
   the game block keeps the choice made when the game was opened.
 
 ## Session sequence

@@ -11,7 +11,7 @@ without its details rather than taking the page down.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from http import HTTPStatus
 
@@ -19,35 +19,32 @@ from flask import Blueprint, Response, abort, render_template
 
 from s3lobby.constants import (
     GAME_TICK_MS,
+    RACE_NAMES,
     GameStatusFlag,
     LadderType,
     MatchPlayerFlag,
     MessageType,
-    Race,
 )
-from s3lobby.database import GameRecord, GameReportRecord
-from s3lobby.groups import game_description_of, game_settings_of
+from s3lobby.database import GameRecord, GameReportRecord, LobbyDatabase
+from s3lobby.groups import game_description_of, game_settings_of, ladder_type_of
+from s3lobby.ladder_book import LadderBook, ResultRow
 from s3lobby.messages import GameStatus, GroupAnnouncement, MatchReportPlayer
 from s3lobby.web.auth import redirect_visitors_to_logon
-from s3lobby.web.lobby_view import NO_PLAYER_LIMITS
+from s3lobby.web.lobby_view import NO_PLAYER_LIMITS, map_text
+from s3lobby.web.paging import pagination_from_request
 from s3lobby.web.storage import get_database
 from s3lobby.wire import ProtocolError, RawMessage, readable_text
 
 blueprint = Blueprint("games", __name__)
 blueprint.before_request(redirect_visitors_to_logon)
 
-RECENT_GAME_COUNT = 100
 # Games listed on an account's page, newest first.
 ACCOUNT_GAME_COUNT = 50
 RECENT_REPORT_COUNT = 100
 REPORT_CONTENT_TYPE = "application/octet-stream"
-RACE_NAMES = {
-    Race.ROMANS: "Romans",
-    Race.EGYPTIANS: "Egyptians",
-    Race.ASIANS: "Asians",
-    Race.AMAZONS: "Amazons",
-}
 # The host's choice in the game setup, as the game list names it (0x44b843, 0x44b97a).
+# The game type in a table, where the long names would wrap every row.
+SHORT_LADDER_TYPE_NAMES = {LadderType.NONE: "Normal", LadderType.INDIVIDUAL: "Liga", LadderType.CLANS: "Clanliga"}
 LADDER_TYPE_NAMES = {
     LadderType.NONE: "Normal game",
     LadderType.INDIVIDUAL: "Ladder 1 on 1 (Liga)",
@@ -130,6 +127,10 @@ class GameRow:
     match_started_at: datetime | None = None
     outcome_text: str = ""
     reports: tuple[ReportRow, ...] = field(default=())
+    # Who won, by name ("Greta won"), for the list; empty while the match is undecided.
+    winner_text: str = ""
+    # The game type in one word for the list: Normal, Liga or Clanliga.
+    type_text: str = ""
 
 
 @blueprint.get("/games")
@@ -137,17 +138,26 @@ def list_games() -> str:
     """The games page: the recent games and the recent match reports, each decoded as far as it goes."""
     database = get_database()
     account_names = {account.account_id: account.name for account in database.list_accounts()}
-    games = database.list_recent_games(RECENT_GAME_COUNT)
+    pagination = pagination_from_request(database.count_games())
+    games = database.list_recent_games(pagination.size, pagination.offset)
     game_names = {game.game_id: game.name for game in games}
-    # Newest first for the report list; describe_game sorts each game's own reports oldest first.
-    reports = [
+    # Each game on this page is described from its own reports; describe_game sorts them oldest first.
+    own_reports = [
         describe_report(report, account_names, game_names)
-        for report in database.list_recent_game_reports(RECENT_REPORT_COUNT)
+        for report in database.list_reports_of_games([game.game_id for game in games])
     ]
+    # The newest reports of the whole lobby, newest first, on the first page only.
+    recent_reports = []
+    if not pagination.has_previous:
+        recent_reports = [
+            describe_report(report, account_names, game_names)
+            for report in database.list_recent_game_reports(RECENT_REPORT_COUNT)
+        ]
     return render_template(
         "games.html",
-        games=[describe_game(game, reports) for game in games],
-        reports=reports,
+        games=[describe_game(game, own_reports) for game in games],
+        reports=recent_reports,
+        pagination=pagination,
     )
 
 
@@ -172,6 +182,10 @@ class AccountGameRow:
     team: int | None = None
     race: str = ""
     result: str = ""
+    # The other side's players by name, the game type in one word, and how long the match ran.
+    opponents: tuple[str, ...] = ()
+    type_text: str = ""
+    played_text: str = ""
 
 
 def games_of_account(account_id: int) -> list[AccountGameRow]:
@@ -193,7 +207,13 @@ def games_of_account(account_id: int) -> list[AccountGameRow]:
 def account_game_row(game: GameRecord, reports: list[ReportRow], account_id: int) -> AccountGameRow:
     """The game as an account's page lists it, with the account's team, race and result from the
     last readable report; without them when there is no report or the account had no slot in it."""
-    row = AccountGameRow(game_id=game.game_id, name=game.name, host_name=game.host_name, opened_at=game.opened_at)
+    row = AccountGameRow(
+        game_id=game.game_id,
+        name=game.name,
+        host_name=game.host_name,
+        opened_at=game.opened_at,
+        type_text=short_type_text(game),
+    )
     if not reports:
         return row
     # The database lists reports in the order they arrived, so the last one is the latest state.
@@ -210,14 +230,15 @@ def account_game_row(game: GameRecord, reports: list[ReportRow], account_id: int
         result = "won"
     elif final_report.winning_team is not None:
         result = "lost"
-    return AccountGameRow(
-        game_id=row.game_id,
-        name=row.name,
-        host_name=row.host_name,
-        opened_at=row.opened_at,
+    opponents = tuple(player.name for player in final_report.players if player.team != own_slot.team)
+    played_text = final_report.played_text if final_report.winning_team is not None else ""
+    return replace(
+        row,
         team=own_slot.team,
         race=own_slot.race,
         result=result,
+        opponents=opponents,
+        played_text=played_text,
     )
 
 
@@ -249,7 +270,18 @@ def show_game(game_id: int) -> str:
         decided_report=decided_report,
         teams=teams_of(final_report),
         winner_names=winner_names(final_report),
+        ladder_result=ladder_result_of(database, record),
     )
+
+
+def ladder_result_of(database: LobbyDatabase, record: GameRecord) -> ResultRow | None:
+    """What the ladder made of a ladder game, None for a normal game or one without a result yet."""
+    if not record.ladder_type:
+        return None
+    for row in LadderBook(database).result_rows():
+        if row.game_id == record.game_id:
+            return row
+    return None
 
 
 def first_report_with_winner(reports: list[ReportRow]) -> ReportRow | None:
@@ -316,6 +348,10 @@ def describe_game(game: GameRecord, reports: list[ReportRow]) -> GameRow:
     for report in own_reports:
         if report.is_readable:
             outcome = report.outcome_text
+    readable_reports = [report for report in own_reports if report.is_readable]
+    winners = winner_names(readable_reports[-1]) if readable_reports else []
+    winner_text = f"{', '.join(winners)} won" if winners else ""
+    type_text = short_type_text(game)
     return GameRow(
         game_id=game.game_id,
         name=game.name,
@@ -329,7 +365,25 @@ def describe_game(game: GameRecord, reports: list[ReportRow]) -> GameRow:
         match_started_at=match_started_at,
         outcome_text=outcome,
         reports=tuple(own_reports),
+        winner_text=winner_text,
+        type_text=type_text,
     )
+
+
+def short_type_text(game: GameRecord) -> str:
+    """The game type in one word: the ladder kept with the game, or for a game stored before the
+    ladder type was kept, the one its stored setup names; empty without either."""
+    ladder_type = game.ladder_type
+    if ladder_type is None and game.announcement is not None:
+        try:
+            announcement = GroupAnnouncement.decode(RawMessage(MessageType.ADD_GROUP_TO_GROUP_2, game.announcement))
+        # The bytes come from a host's game; a malformed announcement just has no type.
+        except (ProtocolError, ValueError):
+            return ""
+        ladder_type = ladder_type_of(announcement) or LadderType.NONE
+    if ladder_type is None:
+        return ""
+    return SHORT_LADDER_TYPE_NAMES.get(ladder_type, f"type {ladder_type}")
 
 
 def decode_setup(announcement_body: bytes | None) -> GameSetup | None:
@@ -352,7 +406,7 @@ def decode_setup(announcement_body: bytes | None) -> GameSetup | None:
     computer_opponent_count = None
     game_type = ""
     if description is not None:
-        map_name = readable_text(description.map_name)
+        map_name = map_text(readable_text(description.map_name))
         team_count = description.team_count
         computer_opponent_count = description.computer_opponent_count
         if description.is_ladder_game:
@@ -417,8 +471,11 @@ def duration_text(duration: timedelta) -> str:
     minutes, seconds = divmod(rest, SECONDS_PER_MINUTE)
     if hours:
         return f"{hours} h {minutes} min"
-    if minutes:
+    # Whole minutes read "40 min", not "40 min 0 s".
+    if minutes and seconds:
         return f"{minutes} min {seconds} s"
+    if minutes:
+        return f"{minutes} min"
     return f"{seconds} s"
 
 

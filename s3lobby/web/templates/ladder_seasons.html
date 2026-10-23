@@ -1,0 +1,60 @@
+{% extends "admin_base.html" %}
+{% from "_macros.html" import csrf_field, action_button with context %}
+{% set active_nav = "ladder_seasons" %}
+{% block title %}Ladder seasons{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Seasons</h1>
+    <p>The infinite season always runs and holds every counted result. Custom seasons count only the
+    results between their dates and start everyone again; several may run at once. Also
+    <code>s3lobby ladder season</code> on the command line.</p>
+  </div>
+</section>
+<section>
+  <div class="grid">
+    <div class="card season-card">
+      <div class="row"><h3>Infinite season</h3><span class="badge badge--accent">always</span></div>
+      <div class="muted">Every counted result, never reset.</div>
+    </div>
+    {% for card in seasons %}
+    <div class="card season-card">
+      <div class="row"><h3>{{ card.season.name }}</h3><span class="badge{% if card.state == 'running' %} badge--good{% endif %}">{{ card.state }}</span></div>
+      <div class="muted">{{ card.start_text }}{% if card.end_text %} to {{ card.end_text }}{% else %}, until an admin ends it{% endif %}; counts {{ card.season.counts.value }}</div>
+      {% if card.progress is not none %}
+      <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="{{ card.progress }}" height="8"></rect></svg><span class="num">{{ card.progress }} %</span></div>
+      {% endif %}
+      <details class="row-details">
+        <summary class="btn btn--outline btn--sm">Edit</summary>
+        <form method="post" action="{{ url_for('ladder_admin.edit_season', season_id=card.season.season_id) }}">
+          {{ csrf_field() }}
+          <label class="field"><span class="label">Name</span><input class="input" type="text" name="name" value="{{ card.season.name }}" maxlength="64" required></label>
+          <label class="field"><span class="label">First day</span><input class="input" type="date" name="start" value="{{ card.start_text }}" required></label>
+          <label class="field"><span class="label">Last day</span><input class="input" type="date" name="end" value="{{ card.end_text }}"><span class="hint">Empty: runs until an admin ends it.</span></label>
+          <label class="field"><span class="label">Counts</span><select class="select" name="counts">{% for choice in counts_choices %}<option{% if choice == card.season.counts.value %} selected{% endif %}>{{ choice }}</option>{% endfor %}</select></label>
+          <button class="btn btn--primary btn--sm" type="submit">Save</button>
+        </form>
+      </details>
+      <div class="row season-actions">
+        {% if card.state == "running" %}{{ action_button(url_for('ladder_admin.end_season', season_id=card.season.season_id), "End now", confirm="End " ~ card.season.name ~ " now? Its standings become final.") }}{% endif %}
+        {{ action_button(url_for('ladder_admin.delete_season', season_id=card.season.season_id), "Delete", "btn--outline", confirm="Delete the season " ~ card.season.name ~ "? Its results stay in the infinite season.") }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>New custom season</h2></div>
+  <form class="card" method="post" action="{{ url_for('ladder_admin.create_season') }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field"><span class="label">Name</span><input class="input" type="text" name="name" maxlength="64" required></label>
+      <label class="field"><span class="label">Counts</span><select class="select" name="counts">{% for choice in counts_choices %}<option{% if choice == "both" %} selected{% endif %}>{{ choice }}</option>{% endfor %}</select></label>
+      <label class="field"><span class="label">First day</span><input class="input" type="date" name="start" required></label>
+      <label class="field"><span class="label">Last day</span><input class="input" type="date" name="end"><span class="hint">Empty: runs until an admin ends it.</span></label>
+    </div>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Create season</button></div>
+  </form>
+</section>
+{% endblock %}

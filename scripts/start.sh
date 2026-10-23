@@ -2,8 +2,11 @@
 # Start the s3lobby lobby server and its web interface together, in the background, from this
 # checkout. The counterpart of scripts/stop.sh.
 #
-#   scripts/start.sh           both, with the database s3lobby.sqlite3 in the checkout
-#   scripts/start.sh --dev     both in development mode (password 1234, see README)
+#   scripts/start.sh                  both, with the database s3lobby.sqlite3 in the checkout
+#   scripts/start.sh --dev            both in development mode (password 1234, see README)
+#   scripts/start.sh --follow         then show the lobby's log as it grows (Ctrl+C stops only
+#                                     the following; both processes keep running)
+#   scripts/start.sh --dev --follow   both together
 #
 # The server writes every datagram to lobby.log; what each process prints goes to
 # lobby-console.log and web-console.log. All three are in the checkout and ignored by git.
@@ -23,12 +26,18 @@ readonly PROCESS_PATTERN='^[^ ]*python[0-9.]* ([^ ]*/s3lobby|-m s3lobby) (serve|
 
 main() {
     local development_options=()
-    if [[ "${1:-}" == "--dev" ]]; then
-        development_options=(--dev)
-    elif [[ -n "${1:-}" ]]; then
-        echo "usage: $0 [--dev]" >&2
-        exit 2
-    fi
+    local is_following=false
+    local argument
+    for argument in "$@"; do
+        case "$argument" in
+            --dev) development_options=(--dev) ;;
+            --follow) is_following=true ;;
+            *)
+                echo "usage: $0 [--dev] [--follow]" >&2
+                exit 2
+                ;;
+        esac
+    done
 
     local checkout
     checkout="$(cd "$(dirname "$0")/.." && pwd)"
@@ -78,6 +87,14 @@ main() {
     echo "  web interface  process $web_pid, $WEB_ADDRESS"
     echo "Follow the lobby:  tail -f $SERVER_CONSOLE_LOG"
     echo "Stop both:         scripts/stop.sh"
+
+    if [[ "$is_following" == true ]]; then
+        echo
+        echo "Following $SERVER_CONSOLE_LOG; Ctrl+C stops following, the lobby keeps running."
+        # The lobby's own lines (logons, joins, games, ladder); the datagrams stay in $SERVER_LOG.
+        # exec: Ctrl+C ends tail alone, the server and the web interface run in their own sessions.
+        exec tail -n +1 -f "$SERVER_CONSOLE_LOG"
+    fi
 }
 
 main "$@"

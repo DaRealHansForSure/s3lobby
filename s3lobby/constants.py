@@ -8,7 +8,7 @@ explains how the pieces fit together.
 Values the game does not dictate, but this server chooses, say so in their comment.
 """
 
-from enum import IntEnum, IntFlag
+from enum import Enum, IntEnum, IntFlag
 
 # Network addresses.
 
@@ -181,8 +181,9 @@ class ResultCode(IntEnum):
     # shows answers to GameStatus only during a ladder game (0x540a18) and ignores them otherwise.
     GAME_STATUS_STORED = 0x6C
     # Answer to GameStatus of a ladder game: 0x90149 "Game status inconsistencies. Game not valid for
-    # ladder." (Result handler 0x5d056c, shown in the match at 0x540b89). This server keeps no
-    # ladder, so it gives this answer to every ladder report.
+    # ladder." (Result handler 0x5d056c, shown in the match at 0x540b89). Given to every ladder
+    # report while the ladder is switched off (setting ladder_enabled), and to a report that can
+    # never count while it is on.
     GAME_NOT_VALID_FOR_LADDER = 0x6A
 
 
@@ -251,6 +252,10 @@ class Race(IntEnum):
     EGYPTIANS = 1
     ASIANS = 2
     AMAZONS = 3
+
+
+# The races as the game setup names them (see Race).
+RACE_NAMES = {Race.ROMANS: "Romans", Race.EGYPTIANS: "Egyptians", Race.ASIANS: "Asians", Race.AMAZONS: "Amazons"}
 
 
 class LogonFlag(IntFlag):
@@ -326,14 +331,32 @@ CHAT_THEME_GROUP_ID_BASE = 0x10000
 BOARD_LANGUAGE_GROUP_ID_BASE = 0x20000
 BOARD_THEME_GROUP_ID_BASE = 0x30000
 FIRST_GAME_GROUP_ID = 0x100000
+# The game lists a parent's groups by ascending group id, whatever order they arrive in (CGroup's
+# operator< compares the ids, 0x5db570, and the visible groups are a sorted array, 0x44d730). So a
+# board theme's group id carries its place: for language L, place R and theme database id T it is
+# BOARD_THEME_GROUP_ID_BASE + (L * MAX_BOARD_THEMES_PER_LANGUAGE + R) * BOARD_THEME_ID_SPAN
+# + T % BOARD_THEME_ID_SPAN. The last part makes the id change when another theme takes a place, so
+# a client never mistakes one theme for another. 7 languages * 400 places * 256 stay below
+# FIRST_GAME_GROUP_ID.
+BOARD_THEME_ID_SPAN = 0x100
+MAX_BOARD_THEMES_PER_LANGUAGE = 400
 
 # Text ids of MessageZone messages: this base plus the message's database id, far from the news ids.
 BOARD_MESSAGE_TEXT_ID_BASE = 0x10000
 
-# Offered on the ChatZone tab when no chat theme is configured: without any theme players could not
-# open chat groups at all.
+# Always listed on the ChatZone tab, whatever themes admins add, and not editable: the game
+# remembers the last theme it was in and joins it again as soon as the tab opens, so a theme that
+# disappears makes that join fail with "Der Wechsel in die Gruppe hat nicht geklappt" (seen in a
+# run, after "General" was dropped once an admin had added a theme). General keeps the id it has
+# always had, the base itself; database themes take the base plus their id, which starts at 1.
 DEFAULT_CHAT_THEME_NAME = "General"
 DEFAULT_CHAT_THEME_DESCRIPTION = "Talk about anything"
+# A chat theme may be shown only to games of one language (a name from GAME_LANGUAGES); this
+# value shows it to every game. A game's language is known from its patch check, which comes on
+# the connection before the logon, from the same address (seen in a run); the lobby remembers it
+# for at most this many addresses, since anyone can send a patch check with a forged address.
+ALL_LANGUAGES = ""
+MAX_REMEMBERED_GAME_LANGUAGES = 1024
 
 
 class GroupFlag(IntFlag):
@@ -400,8 +423,8 @@ class LadderType(IntEnum):
     """The last value of a long game block: what the host picked under "Normal Game",
     "Ladder: 1 on 1" and "Ladder Game: Clans" in the game setup (radio buttons 0x4848b4..0x48493b,
     passed by CreateGame at 0x46180b..0x46181e). The game list shows "Liga" and "Clanliga" for 1 and
-    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server keeps no
-    ladder."""
+    2 (0x44b843, 0x44b97a). Ladder games were ranked by Blue Byte's server; this server ranks
+    them itself (s3lobby/ladder.py)."""
 
     NONE = 0
     INDIVIDUAL = 1
@@ -452,6 +475,15 @@ NO_BANNER_ID = 0
 LOGON_FAILURE_BURST = 10
 LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
 
+# Accounts made with the game's own "Create Player" button (setting allow_create_player): a few
+# per address at once, then one an hour, so one machine cannot fill the database with names. The
+# game itself refuses an empty password and a repeat that does not match (0x43c881, 0x43c9ef)
+# but sets no length, so the server asks for this many characters: the password becomes the
+# account's access code, compared without regard to case like every access code.
+ACCOUNT_CREATION_BURST = 3
+ACCOUNT_CREATIONS_PER_SECOND = 1 / (60 * 60)
+MIN_CHOSEN_PASSWORD_LENGTH = 8
+
 # Bans: whole hours from one hour up to ten years, one day unless said otherwise.
 MIN_BAN_HOURS = 1
 MAX_BAN_HOURS = 10 * 365 * 24
@@ -484,6 +516,12 @@ WRONG_GROUP_PASSWORDS_PER_SECOND = 1 / 60
 # up a game; each goes on to every player who sees the game in a zone.
 GROUP_UPDATE_BURST = 20
 GROUP_UPDATES_PER_SECOND = 2
+# Ladder questions in the chat (/rank, /top, /clanrank, /seasons) per player: plenty for a person,
+# while a client sending them in a loop cannot keep the server reading the database.
+LADDER_COMMAND_BURST = 5
+LADDER_COMMANDS_PER_SECOND = 0.5
+# How many places /top and the server's texts name.
+LADDER_TOP_COUNT = 5
 
 # Access code checks for game logons, all clients together. Each costs a scrypt hash of tens of
 # milliseconds on the event loop; beyond this budget a logon is refused rather than stalling every
@@ -539,23 +577,17 @@ LIVE_STATE_STALE_SECONDS = 30.0
 # in; the id only names the group in the client's chat log file (0x5d2420).
 ANNOUNCEMENT_GROUP_ID = 0
 
-# Server line for the players of a ladder game: Blue Byte's server ranked ladder games, this one
-# keeps no ladder.
+# Server line for the players of a ladder game while the ladder is switched off (setting
+# ladder_enabled): the server ranks in the background, but the game is told nothing counts.
 LADDER_NOT_SUPPORTED_TEXT = "Ladder games are not supported on this server: you can play, but the result is not ranked."
-
-# Server line for a player who opens the MessageZone (setting board_chat_hint). The game looks up the
-# wrong group for chat typed there (0x452455: the GameZone slot, always empty on that screen), so
-# that chat reaches nobody; the server cannot change that. The game shows server lines only in a
-# screen with a chat view, so the line may only appear once the player is back in a room, and is
-# worded to make sense there too.
-# At most 100 characters (MAX_ANSWER_LINE_LENGTH), so it stays one chat line.
-BOARD_CHAT_HINT_TEXT = (
-    "Chat typed on the message board reaches nobody (a bug of the game); please chat in the ChatZone."
-)
 
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.
 HOUSEKEEPING_INTERVAL_SECONDS = 0.25
+
+# How often the server looks at ladder games waiting for a result (s3lobby/ladder.py). A result is
+# due minutes after a match at the earliest, so half a minute is soon enough and costs nothing.
+LADDER_EVALUATION_INTERVAL_SECONDS = 30.0
 
 # The client picks its connection nonce as rand() % 255 + 1 (0x604404); the server does the same.
 CONNECTION_NONCE_MIN = 1
@@ -635,5 +667,48 @@ MAX_ANNOUNCEMENT_LENGTH = 256
 # the full screen game: it waited unseen, and the screen stayed frozen (seen in a run).
 EMPTY_CHAT_GROUP_KEEP_SECONDS = 120.0
 
+# How long a kicked or banned player stays connected after hearing the reason, so the line can be
+# read in the chat before the game drops to its "connection dropped" dialog.
+KICK_REASON_READING_SECONDS = 6.0
+
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4
+
+# The ladder (s3lobby/ladder.py, docs/ladder.md). Not numbers of the protocol: the game keeps no
+# ladder, so these are this server's own rules.
+
+class LadderState(str, Enum):
+    """What became of a ladder game. WAITING is never stored: it is a game still waiting for its
+    reports or its timeout."""
+
+    COUNTED = "counted"
+    DISPUTED = "disputed"
+    VOID = "void"
+    WAITING = "waiting"
+
+
+class SeasonCounts(str, Enum):
+    """Which ladders a custom season counts."""
+
+    LIGA = "liga"
+    CLANLIGA = "clanliga"
+    BOTH = "both"
+
+
+# Elo: a rating difference of ELO_SCALE points means the stronger side is expected to win ten times
+# as often as the weaker one.
+ELO_SCALE = 400
+ELO_BASE = 10
+# Clan strength from Liga: the average of this many best members.
+CLAN_STRENGTH_MEMBER_COUNT = 3
+# A Liga game has exactly two players on two teams; a Clanliga game exactly two teams.
+LIGA_PLAYER_COUNT = 2
+LADDER_TEAM_COUNT = 2
+# Clanliga teams have one to four players each.
+MAX_CLANLIGA_TEAM_SIZE = 4
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_DAY = 86400
+MILLISECONDS_PER_SECOND = 1000
+# The version of the ladder's JSON output (`s3lobby ladder ... --format json`): raised whenever a
+# change would break a tool that reads it.
+LADDER_JSON_FORMAT = 1

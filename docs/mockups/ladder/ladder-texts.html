@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ladder texts - s3lobby (mockup)</title>
+<link rel="stylesheet" href="../../../s3lobby/web/static/tokens.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+<link rel="stylesheet" href="ladder.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">s3lobby</a>
+    <div class="header-actions"><span class="muted">Greta</span> <button class="btn btn--quiet btn--sm" type="button">Log out</button></div>
+  </div>
+  <div class="app-nav-bar"><nav class="app-nav" aria-label="Sections"><a href="#">Lobby</a>
+<a href="#">Ladder</a>
+<a href="#">Accounts</a>
+<a href="#">Clans</a>
+<a href="#">News</a>
+<a href="#">Chat themes</a>
+<a href="#">Board</a>
+<a href="#">Announcements</a>
+<a href="#">Settings</a>
+<a href="#">Games</a>
+<a href="#" aria-current="page">Ladder texts</a></nav></div>
+</header>
+<main class="wrap page">
+<div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
+<section>
+  <div class="section-head">
+    <h1>Ladder texts</h1>
+    <p>What the server writes into the lobby on its own: one board theme per language, a block under
+    the news, and a few server lines. Nothing per match; the match line and the web page carry those.</p>
+  </div>
+  <div class="grid"><div class="card"><h3>Board messages</h3><div class="stat-number">5</div></div><div class="card"><h3>Days to the weekly summary</h3><div class="stat-number">2</div></div><div class="card"><h3>Bytes in the news</h3><div class="stat-number">281</div></div></div>
+</section>
+<section>
+  <div class="section-head"><h2>Board theme "Liga" / "Ladder"</h2>
+  <p>Written by the server, one message per event. Admins can preview and delete; nobody can post here.
+  The newest 20 are kept.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Posted</th><th>Title</th><th>Kind</th><th>Language</th><th>Size</th><th></th></tr></thead>
+      <tbody><tr><td class="cell-time">today 00:00</td><td>Wochenbericht 19. bis 25. Okt</td><td><span class="tag seg-1">weekly summary</span></td><td>German</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="26" height="8"></rect></svg><span class="num">308 of 1200 bytes</span></div></td><td class="cell-actions"><button class="btn btn--quiet btn--sm" type="button">Preview</button><button class="btn btn--outline btn--sm" type="button">Delete</button></td></tr><tr><td class="cell-time">today 00:00</td><td>Week of 19 to 25 Oct</td><td><span class="tag seg-1">weekly summary</span></td><td>English</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="25" height="8"></rect></svg><span class="num">300 of 1200 bytes</span></div></td><td class="cell-actions"><button class="btn btn--quiet btn--sm" type="button">Preview</button><button class="btn btn--outline btn--sm" type="button">Delete</button></td></tr><tr><td class="cell-time">1 Oct 00:00</td><td>Autumn Cup beginnt</td><td><span class="tag seg-2">season start</span></td><td>German</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="18" height="8"></rect></svg><span class="num">214 of 1200 bytes</span></div></td><td class="cell-actions"><button class="btn btn--quiet btn--sm" type="button">Preview</button><button class="btn btn--outline btn--sm" type="button">Delete</button></td></tr><tr><td class="cell-time">1 Oct 00:00</td><td>Autumn Cup begins</td><td><span class="tag seg-2">season start</span></td><td>English</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="16" height="8"></rect></svg><span class="num">198 of 1200 bytes</span></div></td><td class="cell-actions"><button class="btn btn--quiet btn--sm" type="button">Preview</button><button class="btn btn--outline btn--sm" type="button">Delete</button></td></tr><tr><td class="cell-time">14 Sep 00:00</td><td>LAN weekend is over</td><td><span class="tag seg-4">season end</span></td><td>English</td><td><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="17" height="8"></rect></svg><span class="num">206 of 1200 bytes</span></div></td><td class="cell-actions"><button class="btn btn--quiet btn--sm" type="button">Preview</button><button class="btn btn--outline btn--sm" type="button">Delete</button></td></tr></tbody>
+    </table>
+  </div>
+</section>
+<section>
+  <div class="section-head"><h2>Weekly summary, as the board shows it</h2>
+  <p>The game puts its own header above the text ("Message 1 of 5", 0x9005c). German games read the
+  German group, every other language the English one.</p></div>
+  <div class="grid-12">
+    <div class="col-6 card"><h3>MessageThemesGerman</h3><pre class="message-text">Liga: Wochenbericht 19. bis 25. Okt 2026
+
+Rangliste (unendliche Saison)
+1. Thalia 1284
+2. Jin 1236
+3. Marcus 1179
+4. Lena 1121
+5. Pavel 1088
+
+Aufsteiger der Woche: Greta +64
+Meiste Spiele: Tomas (9)
+Längste Siegesserie: Thalia (5)
+
+Clanliga: 1. Romans 1168, 2. Amazons 1102
+Läuft: Autumn Cup bis 30. Nov 2026</pre><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="26" height="8"></rect></svg><span class="num">308 of 1200 bytes</span></div></div>
+    <div class="col-6 card"><h3>MessageThemesEnglish</h3><pre class="message-text">Ladder: week of 19 to 25 Oct 2026
+
+Standings (infinite season)
+1. Thalia 1284
+2. Jin 1236
+3. Marcus 1179
+4. Lena 1121
+5. Pavel 1088
+
+Climber of the week: Greta +64
+Most matches: Tomas (9)
+Longest winning run: Thalia (5)
+
+Clanliga: 1. Romans 1168, 2. Amazons 1102
+Running: Autumn Cup until 30 Nov 2026</pre><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="25" height="8"></rect></svg><span class="num">300 of 1200 bytes</span></div></div>
+    <div class="col-6 card"><h3>When a custom season ends</h3><pre class="message-text">LAN weekend is over (12 to 13 Sep 2026)
+
+Liga champion: Marcus 1061
+Clanliga champion: BB 1032
+
+Final standings
+1. Marcus 1061
+2. Thalia 1044
+3. Jin 1030
+4. Lena 1012
+5. Ole 987
+
+18 matches counted, 2 void.</pre><div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="17" height="8"></rect></svg><span class="num">206 of 1200 bytes</span></div></div>
+    <div class="col-6 card"><h3>When a custom season starts</h3><pre class="message-text">Autumn Cup begins
+
+1 Oct to 30 Nov 2026, Liga only.
+Everyone starts at 1000; only matches
+in these dates count. Good luck!
+
+Standings: /top Autumn Cup</pre></div>
+  </div>
+</section>
+<section>
+  <div class="section-head"><h2>Home tab news</h2>
+  <p>The admins' text stays as written; the server adds the ladder block under it when the game
+  fetches the news, once per logon. If both together would pass 1200 bytes, the ladder block loses
+  lines from its end; the admins' text is never cut.</p></div>
+  <div class="grid-12">
+    <div class="col-8 card">
+      <h3>As the game receives it</h3>
+      <pre class="message-text">Welcome to the LAN lobby!
+Friday from 20:00: open evening, bring a friend.</pre>
+      <hr>
+      <div class="muted">Added by the server</div>
+      <pre class="message-text">Ladder (infinite season): 1. Thalia 1284, 2. Jin 1236,
+3. Marcus 1179, 4. Lena 1121, 5. Pavel 1088.
+Running: Autumn Cup (Liga) until 30 Nov 2026.
+Standings on the web: /ladder, in the game: /top and /rank.</pre>
+      <div class="cell-bar"><svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="23" height="8"></rect></svg><span class="num">281 of 1200 bytes</span></div>
+    </div>
+    <div class="col-4 card">
+      <h3>Settings</h3>
+      <label class="check"><input type="checkbox" checked><span>Add the ladder block to the news</span></label>
+      <label class="check"><input type="checkbox"><span>One line with rating and place at logon, for ladder players only</span></label>
+      <label class="field"><span class="label">Board messages kept</span><input class="input" type="number" value="20"></label>
+      <div class="form-actions"><button class="btn btn--primary" type="button">Save</button></div>
+    </div>
+  </div>
+</section>
+<section>
+  <div class="section-head"><h2>Server lines</h2>
+  <p>One line each, at most 100 characters, in the lobby chat.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>When</th><th>Who gets it</th><th>Line</th></tr></thead>
+      <tbody>
+        <tr><td>after a match</td><td>its players</td><td><code>Liga: Greta beats Ole, 1022 -> 1043 (Ole 961 -> 931).</code></td></tr>
+        <tr><td>at logon (setting, off)</td><td>players with a ladder result</td><td><code>Liga: 1043, place 6. Autumn Cup until 30 Nov: place 3.</code></td></tr>
+        <tr><td>a dispute decided</td><td>its players, at the next logon</td><td><code>Liga: an admin decided "Revenge": Pavel won.</code></td></tr>
+        <tr><td>a custom season ends</td><td>everyone online</td><td><code>Autumn Cup is over: Jin wins with 1088. Final standings on the board.</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+<section>
+  <div class="section-head"><h2>Checks every generated text passes</h2></div>
+  <div class="note note--accent">
+    <ul>
+      <li>Built only from text that was checked when it was stored: player names (letters and single
+      spaces), clan and season names (<code>check_game_text</code>), numbers and dates. Nothing a
+      client typed into the chat goes in.</li>
+      <li>Checked again as a whole before it is stored or sent: Windows-1252 only, no control
+      characters but line breaks, at most 1200 bytes. A text that fails is logged and not posted.</li>
+      <li>Too long: whole lines are dropped from the end; a text is never cut inside a line.</li>
+      <li>Once per event: each text is stored with its event (season and kind, or the week), so a
+      restart never posts it twice.</li>
+      <li>Chat commands <code>/rank</code>, <code>/top</code>, <code>/clanrank</code>, <code>/seasons</code>:
+      a rate limit per player, arguments cut to 64 characters, answers fitted to the game's chat lines.</li>
+      <li>The web pages escape every name, and every form carries the CSRF token.</li>
+    </ul>
+  </div>
+</section>
+</main>
+<footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
+</body>
+</html>

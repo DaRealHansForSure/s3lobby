@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ladder games - s3lobby (mockup)</title>
+<link rel="stylesheet" href="../../../s3lobby/web/static/tokens.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
+<link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+<link rel="stylesheet" href="ladder.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">s3lobby</a>
+    <div class="header-actions"><span class="muted">Greta</span> <button class="btn btn--quiet btn--sm" type="button">Log out</button></div>
+  </div>
+  <div class="app-nav-bar"><nav class="app-nav" aria-label="Sections"><a href="#">Lobby</a>
+<a href="#">Ladder</a>
+<a href="#">Accounts</a>
+<a href="#">Clans</a>
+<a href="#">News</a>
+<a href="#">Chat themes</a>
+<a href="#">Board</a>
+<a href="#">Announcements</a>
+<a href="#">Settings</a>
+<a href="#">Games</a>
+<a href="#" aria-current="page">Ladder games</a></nav></div>
+</header>
+<main class="wrap page">
+<div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
+<section>
+  <div class="section-head">
+    <h1>Ladder games</h1>
+    <p>Every ladder game the server evaluated. A disputed game counts for nobody until an admin
+    decides it; deciding or voiding a game recomputes every rating at once.</p>
+  </div>
+  <div class="note note--warn" role="status">1 game needs a decision: the players of "Revenge" report different winners.</div>
+</section>
+<div class="tabs" role="tablist"><button class="tab" type="button" role="tab" aria-selected="false">Needs a decision<span class="badge">1</span></button><button class="tab" type="button" role="tab" aria-selected="false">Waiting<span class="badge">1</span></button><button class="tab" type="button" role="tab" aria-selected="false">Counted<span class="badge">147</span></button><button class="tab" type="button" role="tab" aria-selected="false">Void<span class="badge">19</span></button><button class="tab" type="button" role="tab" aria-selected="true">All<span class="badge">168</span></button></div>
+<div class="grid-12 toolbar">
+  <label class="field col-4"><span class="label">Ladder</span><select class="select"><option>Liga and Clanliga</option><option>Liga</option><option>Clanliga</option></select></label>
+  <label class="field col-5"><span class="label">Player, clan or game</span><input class="input" type="search" placeholder="Search"></label>
+</div>
+<section>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Closed</th><th>Game</th><th class="num">Played</th><th>Result</th><th></th></tr></thead>
+      <tbody><tr><td class="cell-time">today 17:20</td><td><a href="#">Revenge</a> <span class="badge">Liga</span><div class="muted">Pavel vs Tomas</div></td><td class="num">35:12</td><td><span class="badge badge--warn">disputed</span> the reports name different winners</td><td class="cell-actions"><button class="btn btn--primary btn--sm" type="button">Decide</button></td></tr><tr><td class="cell-time">yesterday 22:59</td><td><a href="#">Liga again</a> <span class="badge">Liga</span><div class="muted">Thalia vs Jin</div></td><td class="num">-</td><td><span class="badge badge--accent">waiting</span> no end report yet, void in 6 minutes</td><td class="cell-actions"></td></tr><tr><td class="cell-time">today 19:42</td><td><a href="#">Greta's ladder</a> <span class="badge">Liga</span><div class="muted">Greta vs Ole</div></td><td class="num">27:41</td><td><span class="badge badge--good">counted</span> Greta won</td><td class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void</button></td></tr><tr><td class="cell-time">today 16:30</td><td><a href="#">quick one</a> <span class="badge">Liga</span><div class="muted">Ivo vs Tomas</div></td><td class="num">18:02</td><td><span class="badge badge--good">counted</span> Ivo won, Tomas left after the minimum time</td><td class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void</button></td></tr><tr><td class="cell-time">today 14:11</td><td><a href="#">Clan war</a> <span class="badge">Clanliga</span><div class="muted">Romans vs Amazons, 2 on 2</div></td><td class="num">48:30</td><td><span class="badge badge--good">counted</span> Romans won</td><td class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void</button></td></tr><tr><td class="cell-time">today 15:58</td><td><a href="#">test</a> <span class="badge">Liga</span><div class="muted">Sanna vs Jin</div></td><td class="num">03:40</td><td><span class="badge badge--bad">void</span> shorter than 10 minutes</td><td class="cell-actions"></td></tr><tr><td class="cell-time">yesterday 23:40</td><td><a href="#">Clan war 2</a> <span class="badge">Clanliga</span><div class="muted">BB vs Romans, 2 on 2</div></td><td class="num">22:05</td><td><span class="badge badge--bad">void</span> Ole joined Romans 1 day before the match (needs 3)</td><td class="cell-actions"></td></tr></tbody>
+    </table>
+  </div>
+</section>
+<section>
+  <div class="section-head"><h2>Deciding a disputed game</h2>
+  <p>What Decide opens: both reports in short, and one button per possible winner.</p></div>
+  <dialog class="dialog dialog--shown" open aria-labelledby="decide-title">
+    <div class="dialog-head">
+      <h3 id="decide-title">Who won "Revenge"?</h3>
+      <button class="dialog-close" type="button" aria-label="Close without deciding">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 3 L13 13 M13 3 L3 13" stroke="currentColor" stroke-width="1.6" fill="none"></path></svg>
+      </button>
+    </div>
+    <p>Pavel's game reported team 0 (Pavel) as the winner, Tomas's game team 1 (Tomas). Played
+    35:12 on Elbe. Neither left. The match counts for the winner you pick; Void counts it for nobody.</p>
+    <div class="row">
+      <button class="btn btn--outline" type="button">Cancel</button>
+      <button class="btn btn--outline" type="button">Void</button>
+      <button class="btn btn--primary" type="button">Pavel won</button>
+      <button class="btn btn--primary" type="button">Tomas won</button>
+    </div>
+  </dialog>
+</section>
+<section>
+  <div class="section-head"><h2>Seasons</h2>
+  <p>The infinite season always runs. Custom seasons count the results between their dates and
+  start everyone at 1000; several may run at once.</p></div>
+  <div class="grid"><div class="card season-card">
+  <div class="row"><h3>Infinite season</h3><span class="badge badge--accent">always</span></div>
+  <div class="muted">since 1 Jun 2026</div>
+  
+  <div><span class="muted">Counts:</span> Liga and Clanliga</div>
+  <div><span class="muted">Leaders:</span> Thalia 1284, Romans 1168</div>
+  <div class="row season-actions"></div>
+</div><div class="card season-card">
+  <div class="row"><h3>Autumn Cup</h3><span class="badge badge--good">running</span></div>
+  <div class="muted">1 Oct to 30 Nov 2026</div>
+  <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="39" height="8"></rect></svg><span class="num">39 %</span></div>
+  <div><span class="muted">Counts:</span> Liga</div>
+  <div><span class="muted">Leaders:</span> Jin 1088</div>
+  <div class="row season-actions"><button class="btn btn--outline btn--sm" type="button">Edit</button><button class="btn btn--outline btn--sm" type="button">End now</button></div>
+</div><div class="card season-card">
+  <div class="row"><h3>LAN weekend</h3><span class="badge">ended</span></div>
+  <div class="muted">12 to 13 Sep 2026</div>
+  
+  <div><span class="muted">Counts:</span> Liga and Clanliga</div>
+  <div><span class="muted">Champions:</span> Marcus 1061, BB 1032</div>
+  <div class="row season-actions"><button class="btn btn--outline btn--sm" type="button">Edit</button><button class="btn btn--outline btn--sm" type="button">Delete</button></div>
+</div><div class="card season-card">
+  <div class="row"><h3>Clan Summer</h3><span class="badge">ended</span></div>
+  <div class="muted">Jun to Aug 2026</div>
+  
+  <div><span class="muted">Counts:</span> Clanliga</div>
+  <div><span class="muted">Champions:</span> Amazons 1144</div>
+  <div class="row season-actions"><button class="btn btn--outline btn--sm" type="button">Edit</button><button class="btn btn--outline btn--sm" type="button">Delete</button></div>
+</div></div>
+</section>
+<section>
+  <div class="section-head"><h2>New custom season</h2></div>
+  <div class="card">
+    <div class="form-grid form-grid--top">
+      <label class="field"><span class="label">Name</span><input class="input" type="text" value="Spring Cup"></label>
+      <label class="field"><span class="label">Counts</span><select class="select"><option>Liga and Clanliga</option><option>Liga</option><option>Clanliga</option></select></label>
+      <label class="field"><span class="label">From</span><input class="input" type="date" value="2027-03-01"></label>
+      <label class="field"><span class="label">To</span><input class="input" type="date"><span class="hint">Empty: runs until an admin ends it.</span></label>
+    </div>
+    <div class="form-actions"><button class="btn btn--primary" type="button">Create season</button></div>
+  </div>
+</section>
+<section>
+  <div class="section-head"><h2>Ladder settings</h2>
+  <p>Saved with the button below; a changed number is applied to every result at once.</p></div>
+  <div class="card">
+    <label class="check"><input type="checkbox"><span>Tell the game when a result is stored (Result 0x6c). Off until a run with the real game confirms it.</span></label>
+    <div class="form-grid form-grid--top">
+      <label class="field"><span class="label">Minimum game time</span><input class="input" type="number" value="10"><span class="hint">Minutes. Shorter matches and earlier leaves are void.</span></label>
+      <label class="field"><span class="label">Results per pair and day</span><input class="input" type="number" value="3"><span class="hint">Against win trading.</span></label>
+      <label class="field"><span class="label">Start rating</span><input class="input" type="number" value="1000"></label>
+      <label class="field"><span class="label">Days in a clan for Clanliga</span><input class="input" type="number" value="3"></label>
+      <label class="field"><span class="label">K, provisional</span><input class="input" type="number" value="32"><span class="hint">For a player's first 10 results.</span></label>
+      <label class="field"><span class="label">K</span><input class="input" type="number" value="16"></label>
+    </div>
+    <div class="form-actions"><button class="btn btn--primary" type="button">Save</button></div>
+  </div>
+</section>
+</main>
+<footer class="site-footer"><div class="wrap">s3lobby, a lobby server for The Settlers III. Times are in UTC.</div></footer>
+</body>
+</html>

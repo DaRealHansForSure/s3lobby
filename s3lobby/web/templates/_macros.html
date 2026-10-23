@@ -5,9 +5,10 @@
 {%- endmacro %}
 
 {# A form with a single button, for actions in a table row or a button row; fields are sent along
-   as hidden values. #}
-{% macro action_button(action, label, style="btn--outline", fields={}) -%}
-<form class="inline-form" method="post" action="{{ action }}">
+   as hidden values. With confirm, the page asks first in a dialog (app.js) and the button only
+   acts after the admin confirms; without script the form submits as it is. #}
+{% macro action_button(action, label, style="btn--outline", fields={}, confirm="") -%}
+<form class="inline-form" method="post" action="{{ action }}"{% if confirm %} data-confirm="{{ confirm }}" data-confirm-label="{{ label }}"{% endif %}>
   {{ csrf_field() }}
   {% for name, value in fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
   <button class="btn {{ style }} btn--sm" type="submit">{{ label }}</button>
@@ -35,6 +36,57 @@
 {%- else %}<span class="muted">-</span>{% endif %}
 {%- endmacro %}
 
-{% macro names(list) -%}
-{% if list %}{{ list | join(", ") }}{% else %}<span class="muted">-</span>{% endif %}
+{# A list of names, at most limit of them: a room with a hundred players shows the first few and
+   how many more there are (the search on the lobby page finds anyone). #}
+{% macro names(list, limit=8) -%}
+{% if not list %}<span class="muted">-</span>
+{%- elif list | length > limit %}{{ list[:limit] | join(", ") }} <span class="muted">and {{ list | length - limit }} more</span>
+{%- else %}{{ list | join(", ") }}{% endif %}
+{%- endmacro %}
+
+{# The ladder's pieces, shared by the ladder page and the player pages. #}
+{% macro rating_change(points) -%}
+{% if points > 0 %}<span class="badge badge--good">+{{ points }}</span>{% elif points < 0 %}<span class="badge badge--bad">{{ points }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro form_strip(marks) -%}
+<span class="form-strip" role="img" aria-label="Last {{ marks | length }} results">
+  {%- for mark in marks %}<span class="result result--{{ mark.css_class }}" title="{{ mark.title }}"></span>{% endfor -%}
+</span>
+{%- endmacro %}
+
+{% macro share_bar(percent, wide=false) -%}
+<svg class="bar{% if wide %} bar--wide{% endif %}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="{{ percent }}" height="8"></rect></svg>
+{%- endmacro %}
+
+{# A rating chart (web.ladder_pages.RatingChart): lines over time, grid lines with their ratings,
+   dates below and a legend. #}
+{% macro rating_chart(chart, label) -%}
+  <div class="chart-box">
+    <div class="scroll-x">
+      <svg class="chart" viewBox="0 0 700 200" role="img" aria-label="{{ label }}">
+        {% for label in chart.grid %}
+        <line class="{% if label.is_start_line %}start-line{% else %}grid-line{% endif %}" x1="56" y1="{{ '%.1f' | format(label.y) }}" x2="676" y2="{{ '%.1f' | format(label.y) }}"></line>
+        <text class="axis-label" x="{{ label.x }}" y="{{ '%.1f' | format(label.y + 4) }}">{{ label.text }}</text>
+        {% endfor %}
+        {% for label in chart.dates %}<text x="{{ '%.1f' | format(label.x) }}" y="{{ label.y }}">{{ label.text }}</text>{% endfor %}
+        {% for line in chart.lines %}<polyline class="series series-{{ line.series }}" points="{{ line.points }}"><title>{{ line.name }}: {{ line.rating }}</title></polyline>{% endfor %}
+      </svg>
+    </div>
+    <ul class="legend legend--inline">
+      {% for line in chart.lines %}<li><span class="key seg-{{ line.series }}"></span>{{ line.name }} {{ line.rating }}</li>{% endfor %}
+    </ul>
+  </div>
+{%- endmacro %}
+
+{# Links to the previous and the next page of a long list (web.paging.Pagination). params are the
+   list's other query parameters (a search, a filter), kept on every page. #}
+{% macro pager(pagination, endpoint, params={}) -%}
+{% if pagination.page_count > 1 %}
+<nav class="pager" aria-label="Pages">
+  {% if pagination.has_previous %}<a class="btn btn--outline btn--sm" href="{{ url_for(endpoint, page=pagination.number - 1, **params) }}">Previous</a>{% endif %}
+  <span class="muted">Page {{ pagination.number }} of {{ pagination.page_count }} ({{ pagination.total }} in all)</span>
+  {% if pagination.has_next %}<a class="btn btn--outline btn--sm" href="{{ url_for(endpoint, page=pagination.number + 1, **params) }}">Next</a>{% endif %}
+</nav>
+{% endif %}
 {%- endmacro %}

@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% from "_macros.html" import in_game_colour, rating_change, form_strip, share_bar, rating_chart %}
+{% set active_nav = "ladder" %}
+{% block title %}Ladder{% endblock %}
+
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Ladder</h1>
+    <p>Liga is 1 on 1 between two players, Clanliga team against team between two clans. Ratings
+    are Elo; everyone starts at {{ start_rating }}. A match counts when every player's game reports
+    the same winner and it lasted long enough.</p>
+  </div>
+  <div class="grid">
+    <div class="card"><h3>Ranked {% if view == "clanliga" %}clans{% else %}players{% endif %}</h3><div class="stat-number">{{ ranked_count }}</div></div>
+    <div class="card"><h3>Counted matches</h3><div class="stat-number">{{ counted_count }}</div></div>
+    <div class="card"><h3>Running custom seasons</h3><div class="stat-number">{{ running_count }}</div></div>
+  </div>
+</section>
+
+<nav class="tabs" aria-label="Ladder">
+  {% for key in views %}
+  <a class="tab" href="{{ url_for('ladder_public.show_ladder', view=key, season=season.name if season.season_id else None) }}"{% if key == view %} aria-current="page"{% endif %}>{{ view_labels[key] }}</a>
+  {% endfor %}
+</nav>
+
+{% if view != "clans" %}
+<form class="grid-12 toolbar" method="get" action="{{ url_for('ladder_public.show_ladder') }}">
+  <input type="hidden" name="view" value="{{ view }}">
+  <label class="field col-5">
+    <span class="label">Season</span>
+    <select class="select" name="season">
+      <option value="">Infinite season (always running)</option>
+      {% for custom in seasons %}
+      <option value="{{ custom.name }}"{% if custom.season_id == season.season_id %} selected{% endif %}>{{ custom.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field col-4">
+    <span class="label">Find {% if view == "clanliga" %}a clan{% else %}a player{% endif %}</span>
+    <input class="input" type="search" name="q" value="{{ search }}">
+  </label>
+  <div class="form-actions col-3"><button class="btn btn--outline" type="submit">Show</button></div>
+</form>
+{% endif %}
+
+{% if view == "clans" %}
+<section>
+  <div class="section-head"><h2>Clan strength from Liga</h2>
+  <p>The average Liga rating of each clan's best three members who are no longer provisional and
+  played Liga lately, so one strong member cannot carry a clan alone.</p></div>
+  {% if strength_rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Clan</th><th class="num">Strength</th><th>Counted members</th></tr></thead>
+      <tbody>
+        {% for row in strength_rows %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td class="num">{% if row.strength is not none %}<strong>{{ row.strength }}</strong>{% else %}<span class="muted">-</span>{% endif %}</td>
+          <td>{% if row.members %}{% for name, rating in row.members %}{{ name }} {{ rating }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}<span class="muted">not enough established members</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No clans yet.</p>
+  {% endif %}
+</section>
+{% elif view == "statistics" %}
+<section>
+  <div class="section-head"><h2>Races</h2>
+  <p>How often each race was played in the season's counted Liga matches, and how often it won.</p></div>
+  {% if race_rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Race</th><th class="num">Played</th><th class="num">Won</th><th>Win rate</th></tr></thead>
+      <tbody>
+        {% for row in race_rows %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td class="num">{{ row.played }}</td>
+          <td class="num">{{ row.won }}</td>
+          <td><div class="cell-bar">{{ share_bar(row.win_rate) }}<span class="num">{{ row.win_rate }} %</span></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No counted Liga match yet.</p>
+  {% endif %}
+</section>
+<section>
+  <div class="section-head"><h2>Maps</h2>
+  <p>The maps of the season's counted matches, Liga and Clanliga, and how long a match took there.</p></div>
+  {% if map_rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Map</th><th class="num">Played</th><th class="num">Average match</th></tr></thead>
+      <tbody>
+        {% for row in map_rows %}
+        <tr><td>{{ row.name }}</td><td class="num">{{ row.played }}</td><td class="num">{{ row.average_minutes }} min</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No counted match yet.</p>
+  {% endif %}
+</section>
+{% else %}
+
+{% if podium %}
+<section>
+  <div class="section-head"><h2>Top {{ podium | length }}</h2></div>
+  <div class="grid podium">
+    {% for standing in podium %}
+    <div class="card">
+      <div class="podium-place">{{ standing.row.place }}</div>
+      <h3>{% if view == "liga" %}<a href="{{ url_for('players.show_player', name=standing.row.name) }}">{{ in_game_colour(standing.row.name, standing.colour) }}</a>{% else %}{{ in_game_colour(standing.row.name, standing.colour) }}{% endif %}{% if standing.row.clan_name %} <span class="muted">of {{ standing.row.clan_name }}</span>{% endif %}</h3>
+      <div><span class="podium-rating">{{ standing.row.rating }}</span> {{ rating_change(standing.row.last_change) }}</div>
+      <div class="cell-bar">{{ share_bar(standing.win_rate, wide=true) }}<span class="num">{{ standing.win_rate }} %</span></div>
+      <div class="muted">{{ standing.row.won }} won, {{ standing.row.lost }} lost {{ form_strip(standing.form) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if chart %}
+<section>
+  <div class="section-head"><h2>Rating over time</h2>
+  <p>The top {{ chart.lines | length }} since their first result. The dashed line is the start rating.</p></div>
+  {{ rating_chart(chart, "Ratings of the top players over time") }}
+</section>
+{% endif %}
+
+<section>
+  <div class="section-head"><h2>Standings{% if season.season_id %}: {{ season.name }}{% endif %}</h2></div>
+  {% if standings %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead>
+        <tr>
+          <th class="num">#</th><th>{% if view == "clanliga" %}Clan{% else %}Player{% endif %}</th>
+          {% if view == "liga" %}<th>Clan</th>{% endif %}
+          <th class="num">Rating</th><th>Form</th><th class="num">Won - lost</th><th>Win rate</th>
+          <th class="num" title="Matches lost by leaving after the minimum time">Left</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for standing in standings %}
+        <tr>
+          <td class="num">{{ standing.row.place }}</td>
+          <td>{% if view == "liga" %}<a href="{{ url_for('players.show_player', name=standing.row.name) }}">{{ in_game_colour(standing.row.name, standing.colour) }}</a>{% else %}{{ in_game_colour(standing.row.name, standing.colour) }}{% endif %}{% if standing.row.is_provisional %} <span class="badge" title="Few results: the rating still moves fast">provisional</span>{% endif %}</td>
+          {% if view == "liga" %}<td>{{ standing.row.clan_name or "-" }}</td>{% endif %}
+          <td class="num"><strong>{{ standing.row.rating }}</strong> {{ rating_change(standing.row.last_change) }}</td>
+          <td>{{ form_strip(standing.form) }}</td>
+          <td class="num">{{ standing.row.won }} - {{ standing.row.lost }}</td>
+          <td><div class="cell-bar">{{ share_bar(standing.win_rate) }}<span class="num">{{ standing.win_rate }} %</span></div></td>
+          <td class="num">{% if standing.row.left %}<span class="badge badge--warn">{{ standing.row.left }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <ul class="legend legend--inline meta">
+    <li><span class="form-strip"><span class="result result--won"></span></span>won</li>
+    <li><span class="form-strip"><span class="result result--lost"></span></span>lost</li>
+    <li><span class="form-strip"><span class="result result--left"></span></span>lost by leaving</li>
+  </ul>
+  <p class="meta">Form shows the last five results, oldest first. In the game: <code>/rank</code>, <code>/top</code>, <code>/clanrank</code>, <code>/seasons</code>.</p>
+  {% else %}
+  <p class="empty-state">{% if search %}Nobody matches "{{ search }}".{% else %}No results yet.{% endif %}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section>
+  <div class="section-head"><h2>Last results</h2></div>
+  {% if recent %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>When</th><th>Ladder</th><th>Winner</th><th>Loser</th><th class="num">Played</th></tr></thead>
+      <tbody>
+        {% for row in recent %}
+        <tr>
+          <td class="cell-time">{{ row.played_at | short_moment }}</td>
+          <td>{{ row.ladder | capitalize }}</td>
+          <td><strong>{{ row.winners | join(", ") }}</strong></td>
+          <td>{{ row.losers | join(", ") }}{% if row.left %} <span class="badge badge--warn">left</span>{% endif %}</td>
+          <td class="num">{{ "%d" | format(row.minutes) }} min</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No counted matches yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

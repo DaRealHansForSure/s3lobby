@@ -40,15 +40,24 @@ from s3lobby.backends import (
     placeholders,
 )
 from s3lobby.constants import (
+    ALL_LANGUAGES,
     BANNER_URL_PREFIX,
+    BOARD_LANGUAGE_GROUP_ID_BASE,
     BOARD_LANGUAGES,
+    CHAT_THEME_GROUP_ID_BASE,
+    DEFAULT_CHAT_THEME_DESCRIPTION,
+    DEFAULT_CHAT_THEME_NAME,
     FIRST_PRINTABLE_CHARACTER,
+    GAME_LANGUAGES,
     MAX_ANNOUNCEMENT_LENGTH,
     MAX_GROUP_TEXT_LENGTH,
     MAX_TEXT_MESSAGE_BYTES,
     NEWS_AUDIENCES,
     TEXT_ENCODING,
+    LadderState,
+    SeasonCounts,
 )
+from s3lobby.ladder import Evaluation, LadderSettings, ResultPlayer, Season
 from s3lobby.live import LiveLobbyState, StoredLiveState
 from s3lobby.migrations import Migration, MigrationError, MigrationStatus, current_version, migrate, read_status
 
@@ -67,6 +76,10 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "games",
     "game_reports",
     "game_players",
+    "ladder_results",
+    "ladder_result_players",
+    "ladder_seasons",
+    "ladder_events",
     "settings",
     "pending_announcements",
     "live_state",
@@ -74,8 +87,19 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "web_sessions",
 )
 
+# Tables a migration fills with starting rows in every new database (0014: the default chat
+# themes). A copy replaces them in its target instead of refusing it as not empty.
+TABLES_SEEDED_BY_MIGRATIONS = ("chat_themes",)
+
 # Shown for a game's player whose account was deleted since.
 DELETED_ACCOUNT_NAME = "(deleted account)"
+# The ladder states a result is stored in; WAITING is not a result.
+STORED_LADDER_STATES = frozenset({LadderState.COUNTED, LadderState.DISPUTED, LadderState.VOID})
+# Lengths of the ladder's columns that hold text the server writes (VARCHAR in MySQL).
+MAX_LADDER_REASON_LENGTH = 255
+MAX_LADDER_EVENT_KEY_LENGTH = 191
+# The longest map name a ladder result keeps (VARCHAR(255) in MySQL); the game's are far shorter.
+MAX_MAP_NAME_LENGTH = 255
 
 # The game's own rule for player names (refusal text 0x9009e): letters A to Z in either case, and
 # single spaces between words.
@@ -122,6 +146,9 @@ class Setting(Enum):
     # The original refused a second logon with the same serial number as an illegal copy. Off by
     # default: on a LAN, one household's copies often share a serial.
     UNIQUE_SERIAL_NUMBERS = "unique_serial_numbers"
+    # The game's "Create Player" button makes an account with the name and password typed in the
+    # game. Off by default: accounts are made by admins, who hand out access codes.
+    ALLOW_CREATE_PLAYER = "allow_create_player"
     # Shown in the chat as [Server] right after a player enters the lobby; empty for none.
     WELCOME_MESSAGE = "welcome_message"
     # The advert banner on the Home tab: the game downloads banner_url by anonymous FTP whenever the
@@ -136,10 +163,28 @@ class Setting(Enum):
     # After each logon from the internet, probe whether other players can reach the player
     # directly (reachability.py). Off by default: no run with the real game has seen the probe.
     CHECK_REACHABILITY = "check_reachability"
-    # Tell a player who opens the MessageZone once per logon that chat typed there reaches nobody (a
-    # bug of the game, 0x452455). Off by default: no run with the real game has seen a server line
-    # on that tab yet.
-    BOARD_CHAT_HINT = "board_chat_hint"
+    # The ladder (s3lobby/ladder.py, docs/ladder.md). LADDER_ENABLED tells the game a valid result
+    # was stored (Result 0x6c) instead of "not valid for ladder" (0x6a), and drops the "not ranked"
+    # line; off until a run with the real game has shown the answer. The ladder evaluates every
+    # ladder game either way.
+    LADDER_ENABLED = "ladder_enabled"
+    LADDER_MINIMUM_MINUTES = "ladder_minimum_minutes"
+    LADDER_REPORT_TIMEOUT_MINUTES = "ladder_report_timeout_minutes"
+    LADDER_PAIR_DAILY_LIMIT = "ladder_pair_daily_limit"
+    LADDER_START_RATING = "ladder_start_rating"
+    LADDER_K = "ladder_k"
+    LADDER_K_PROVISIONAL = "ladder_k_provisional"
+    LADDER_PROVISIONAL_GAMES = "ladder_provisional_games"
+    LADDER_ACTIVE_DAYS = "ladder_active_days"
+    LADDER_CLAN_MEMBER_DAYS = "ladder_clan_member_days"
+    LADDER_INACTIVE_DAYS = "ladder_inactive_days"
+    LADDER_MAX_CUSTOM_SEASONS = "ladder_max_custom_seasons"
+    # The lobby texts the ladder writes while it is switched on: how many board messages its own
+    # theme keeps, the standings under the news, and a line with the player's place at each logon
+    # (off by default: noise for players who do not play the ladder).
+    LADDER_BOARD_MESSAGES = "ladder_board_messages"
+    LADDER_NEWS_STANDINGS = "ladder_news_standings"
+    LADDER_LOGON_LINE = "ladder_logon_line"
 
     @property
     def key(self) -> str:
@@ -155,19 +200,39 @@ class Setting(Enum):
 SETTING_DEFAULTS = {
     Setting.MAX_PLAYERS: "0",
     Setting.UNIQUE_SERIAL_NUMBERS: "false",
+    Setting.ALLOW_CREATE_PLAYER: "false",
     Setting.WELCOME_MESSAGE: "",
     Setting.BANNER_URL: "",
     Setting.BANNER_ID: "0",
     Setting.BANNER_SUB_ID: "0",
     Setting.MARK_ADMINS: "true",
-    Setting.BOARD_CHAT_HINT: "false",
     Setting.CHECK_REACHABILITY: "false",
+    Setting.LADDER_ENABLED: "false",
+    Setting.LADDER_MINIMUM_MINUTES: "10",
+    Setting.LADDER_REPORT_TIMEOUT_MINUTES: "10",
+    Setting.LADDER_PAIR_DAILY_LIMIT: "3",
+    Setting.LADDER_START_RATING: "1000",
+    Setting.LADDER_K: "16",
+    Setting.LADDER_K_PROVISIONAL: "32",
+    Setting.LADDER_PROVISIONAL_GAMES: "10",
+    Setting.LADDER_ACTIVE_DAYS: "30",
+    Setting.LADDER_CLAN_MEMBER_DAYS: "3",
+    Setting.LADDER_INACTIVE_DAYS: "60",
+    Setting.LADDER_MAX_CUSTOM_SEASONS: "50",
+    Setting.LADDER_BOARD_MESSAGES: "20",
+    Setting.LADDER_NEWS_STANDINGS: "true",
+    Setting.LADDER_LOGON_LINE: "false",
 }
 
 # A label tells an account's access codes apart, such as "laptop"; the reason for a ban is shown to
 # a player who is online when banned, and kept as a note for admins.
 MAX_ACCESS_CODE_LABEL_LENGTH = 64
 MAX_BAN_REASON_LENGTH = 200
+# The label of the access code that holds a password chosen in the game's create dialog.
+CHOSEN_IN_GAME_LABEL = "chosen in the game"
+# How a kick or ban line names the admin's reason (with_reason).
+REASON_LABEL = "Reason"
+NO_REASON_TEXT = "No reason given."
 
 # What a player is told when their account is deleted while they are online.
 ACCOUNT_REMOVED_KICK_REASON = "Your account was removed."
@@ -180,9 +245,37 @@ FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
 # The numeric settings travel to the game as u32 fields.
 INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BANNER_SUB_ID})
 BOOLEAN_SETTINGS = frozenset(
-    {Setting.UNIQUE_SERIAL_NUMBERS, Setting.MARK_ADMINS, Setting.CHECK_REACHABILITY, Setting.BOARD_CHAT_HINT}
+    {
+        Setting.UNIQUE_SERIAL_NUMBERS,
+        Setting.ALLOW_CREATE_PLAYER,
+        Setting.MARK_ADMINS,
+        Setting.CHECK_REACHABILITY,
+        Setting.LADDER_ENABLED,
+        Setting.LADDER_NEWS_STANDINGS,
+        Setting.LADDER_LOGON_LINE,
+    }
 )
 MAX_INTEGER_SETTING = 0xFFFFFFFF
+# The ladder's numbers are days, minutes, counts and Elo points. They get a far lower ceiling than
+# the protocol's u32 values: a span of four billion days does not fit a datetime and would stop
+# the ladder.
+LADDER_INTEGER_SETTINGS = frozenset(
+    {
+        Setting.LADDER_MINIMUM_MINUTES,
+        Setting.LADDER_REPORT_TIMEOUT_MINUTES,
+        Setting.LADDER_PAIR_DAILY_LIMIT,
+        Setting.LADDER_START_RATING,
+        Setting.LADDER_K,
+        Setting.LADDER_K_PROVISIONAL,
+        Setting.LADDER_PROVISIONAL_GAMES,
+        Setting.LADDER_ACTIVE_DAYS,
+        Setting.LADDER_CLAN_MEMBER_DAYS,
+        Setting.LADDER_INACTIVE_DAYS,
+        Setting.LADDER_MAX_CUSTOM_SEASONS,
+        Setting.LADDER_BOARD_MESSAGES,
+    }
+)
+MAX_LADDER_SETTING = 100_000
 
 LINE_BREAK = "\n"
 
@@ -231,17 +324,49 @@ class ChatTheme:
     theme_id: int
     name: str
     description: str
+    # Shown only to games of this language (a name from GAME_LANGUAGES); ALL_LANGUAGES for every game.
+    language: str = ALL_LANGUAGES
+
+
+@dataclass(frozen=True)
+class BuiltInChatTheme:
+    """A ChatZone theme the server always lists, under a fixed group id; admins cannot change or
+    remove it (constants.DEFAULT_CHAT_THEME_NAME says why)."""
+
+    group_id: int
+    name: str
+    description: str
+
+
+BUILT_IN_CHAT_THEMES = (
+    BuiltInChatTheme(CHAT_THEME_GROUP_ID_BASE, DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION),
+)
+# Admins' themes take CHAT_THEME_GROUP_ID_BASE plus their database id, so one with an id above this
+# would leave the chat theme id range; it is not listed (a database would need tens of thousands
+# of themes added to get there).
+MAX_CHAT_THEME_ID = BOARD_LANGUAGE_GROUP_ID_BASE - CHAT_THEME_GROUP_ID_BASE - 1
+
+
+def is_built_in_chat_theme_name(name: str) -> bool:
+    """True for the name of a theme the server lists itself: a second "General" would be one too
+    many in the game's list."""
+    return any(theme.name.casefold() == name.strip().casefold() for theme in BUILT_IN_CHAT_THEMES)
 
 
 @dataclass(frozen=True)
 class BoardTheme:
     """A theme of the MessageZone board. language is one of BOARD_LANGUAGES: the game shows the
-    themes of its own language, and the English ones when its language has none."""
+    themes of its own language, and the English ones when its language has none. A theme
+    is_server_written when the server fills it itself (the ladder's texts): nobody posts into it."""
 
     theme_id: int
     language: str
     name: str
     description: str
+    is_server_written: bool = False
+    # Lowest first on the board; a hidden theme is kept but not sent to the game.
+    position: int = 0
+    is_hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -255,6 +380,9 @@ class BoardMessage:
     body: str
     author: str
     posted_at: datetime
+    # Lowest first in its theme; a hidden message is kept but not sent to the game.
+    position: int = 0
+    is_hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -290,16 +418,22 @@ class GameRecord:
     group_id: int | None = None
     announcement: bytes | None = None
     player_names: tuple[str, ...] = ()
+    ladder_type: int | None = None
 
 
 @dataclass(frozen=True)
 class GamePlayerRecord:
     """A player who joined a game. account_id is None and name DELETED_ACCOUNT_NAME when the
-    account was deleted since (the foreign key clears it)."""
+    account was deleted since (the foreign key clears it). clan_id is the clan the player showed
+    when joining, clan_joined_at since when the player was in it, and installation a number shared
+    by the players of the game whose copies have one serial number (all None before migration 0010)."""
 
     name: str
     joined_at: datetime
     account_id: int | None = None
+    clan_id: int | None = None
+    clan_joined_at: datetime | None = None
+    installation: int | None = None
 
 
 @dataclass(frozen=True)
@@ -315,6 +449,19 @@ class GameReportRecord:
     received_at: datetime
     report: bytes = b""
     game_id: int | None = None
+    sender_account_id: int | None = None
+
+
+@dataclass(frozen=True)
+class LadderResultRecord:
+    """A stored ladder result: what the ladder made of a game, with the game's name, who decided it
+    (empty for the server) and when."""
+
+    result_id: int
+    evaluation: Evaluation
+    game_name: str
+    decided_at: datetime
+    decided_by_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -336,11 +483,24 @@ class PendingKick:
 @dataclass(frozen=True)
 class AnnouncementRecord:
     """An announcement queued for the running server. sent_at is None until the server took it,
-    or until a server start discarded it as stale."""
+    or until a server start discarded it as stale. recipient_name is empty for every player;
+    reached_count is how many players got it (None for announcements from before migration 0012)."""
 
     text: str
     created_at: datetime
     sent_at: datetime | None
+    recipient_name: str = ""
+    reached_count: int | None = None
+
+
+@dataclass(frozen=True)
+class PendingAnnouncement:
+    """A server line the running server is to send: to every player, or to the account
+    account_id only."""
+
+    announcement_id: int
+    text: str
+    account_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -401,6 +561,10 @@ def check_setting_value(setting: Setting, value: str) -> None:
         if not is_whole_number_text(value) or int(value) > MAX_INTEGER_SETTING:
             raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_INTEGER_SETTING}")
         return
+    if setting in LADDER_INTEGER_SETTINGS:
+        if not is_whole_number_text(value) or int(value) > MAX_LADDER_SETTING:
+            raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_LADDER_SETTING}")
+        return
     if setting in BOOLEAN_SETTINGS:
         if value.strip().lower() not in TRUE_SETTING_VALUES | FALSE_SETTING_VALUES:
             raise DatabaseError(f"{setting.key} must be true or false")
@@ -437,10 +601,15 @@ def check_banner_url(url: str) -> None:
 
 def ban_kick_reason(until: datetime, reason: str) -> str:
     """What a banned player who is online is told as they are removed."""
-    text = f"You are banned until {until.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC"
+    return with_reason(f"You are banned until {until.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC", reason)
+
+
+def with_reason(text: str, reason: str) -> str:
+    """A kick or ban line with the admin's reason labelled as such, or a note that none was given:
+    in one chat line, a reason after a bare colon was read as part of the date or the sentence."""
     if reason:
-        return f"{text}: {reason}"
-    return f"{text}."
+        return f"{text}. {REASON_LABEL}: {reason}"
+    return f"{text}. {NO_REASON_TEXT}"
 
 
 def utc_now() -> datetime:
@@ -459,11 +628,25 @@ def from_stored_time(text: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
+def like_pattern(search: str) -> str:
+    """A LIKE pattern matching text that contains search, in lower case (compare with LOWER(column)).
+    The wildcards % and _ and the escape character ! in search match only themselves (ESCAPE '!')."""
+    escaped = search.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return f"%{escaped}%"
+
+
 def from_optional_stored_time(text: str | None) -> datetime | None:
     """A time from a column that may be empty: a code never used, a game still open."""
     if text is None:
         return None
     return from_stored_time(text)
+
+
+def to_optional_stored_time(moment: datetime | None) -> str | None:
+    """A moment as stored, or None for a column left empty: a season that runs until it is ended."""
+    if moment is None:
+        return None
+    return to_stored_time(moment)
 
 
 def hash_access_code(access_code: str) -> str:
@@ -505,8 +688,11 @@ def scrypt_digest(access_code: str, salt: bytes, cost: int, block_size: int, par
     """The scrypt digest of a normalized access code; used both for storing a hash and for
     checking a code against one."""
     # Normalizing here, where both storing and checking pass, keeps the two from ever disagreeing.
+    # Bytes Windows-1252 leaves undefined arrive from the game as surrogates (wire.read_string),
+    # which plain UTF-8 refuses to encode; surrogateescape turns them back into their bytes, so
+    # such a password hashes instead of raising.
     return hashlib.scrypt(
-        normalize_access_code(access_code).encode("utf-8"),
+        normalize_access_code(access_code).encode("utf-8", errors="surrogateescape"),
         salt=salt,
         n=cost,
         r=block_size,
@@ -582,17 +768,27 @@ class LobbyDatabase:
     def copy_to(self, target: LobbyDatabase) -> dict[str, int]:
         """Copy every row into target, which must be empty and at the same schema version; ids
         are kept, so every reference stays intact. Returns the rows copied per table. This moves a
-        lobby from SQLite to MySQL or back; no server may write to either database meanwhile."""
+        lobby from SQLite to MySQL or back; no server may write to either database meanwhile.
+        The starting rows a migration puts into a new database (TABLES_SEEDED_BY_MIGRATIONS) do
+        not count as content: the source's rows replace them."""
         if target.schema_version != self.schema_version:
             raise DatabaseError(
                 f"the target has schema version {target.schema_version}, the source {self.schema_version}"
             )
-        tables_with_rows = [table for table in TABLES_IN_DEPENDENCY_ORDER if target._has_rows(table)]
+        tables_with_rows = [
+            table
+            for table in TABLES_IN_DEPENDENCY_ORDER
+            if table not in TABLES_SEEDED_BY_MIGRATIONS and target._has_rows(table)
+        ]
         if tables_with_rows:
             raise DatabaseError(f"the target is not empty: {', '.join(tables_with_rows)} already hold rows")
         copied_rows = {}
         # One transaction on the target: a copy that fails halfway leaves it empty, ready for another try.
         with target._backend.transaction():
+            # The target is otherwise empty, so these rows are only what its migrations put there;
+            # the source has its own, kept or changed by its admins.
+            for table in TABLES_SEEDED_BY_MIGRATIONS:
+                target._backend.execute(f"DELETE FROM {table}")
             for table in TABLES_IN_DEPENDENCY_ORDER:
                 # ORDER BY 1 sorts by the first column, the id in most tables, so rows arrive in the
                 # order they were made and the copy is the same on every run.
@@ -686,6 +882,23 @@ class LobbyDatabase:
         """Every account, sorted by name."""
         rows = self._backend.fetch_all("SELECT * FROM accounts ORDER BY name")
         return [account_from_row(row) for row in rows]
+
+    def list_accounts_page(self, search: str, limit: int, offset: int) -> list[Account]:
+        """One page of the accounts whose name contains search (any case), sorted by name; every
+        account for an empty search."""
+        rows = self._backend.fetch_all(
+            "SELECT * FROM accounts WHERE LOWER(name) LIKE ? ESCAPE '!' ORDER BY name LIMIT ? OFFSET ?",
+            (like_pattern(search), limit, offset),
+        )
+        return [account_from_row(row) for row in rows]
+
+    def count_accounts(self, search: str = "") -> int:
+        """How many accounts have a name containing search (any case); all of them for an empty one."""
+        row = self._backend.fetch_one(
+            "SELECT COUNT(*) AS account_count FROM accounts WHERE LOWER(name) LIKE ? ESCAPE '!'",
+            (like_pattern(search),),
+        )
+        return row["account_count"]
 
     def delete_account(self, account_id: int) -> None:
         """Delete the account; a running server also removes the player from the lobby."""
@@ -960,6 +1173,11 @@ class LobbyDatabase:
     def set_clan_of_account(self, account_id: int, clan_id: int | None) -> None:
         """Put an account into a clan, or take it out with clan_id None. One clan per account."""
         with self._backend.transaction():
+            # Putting a member into the clan it is in already keeps the date it joined: Clanliga
+            # counts a player for a clan only after some days in it.
+            current = self._backend.fetch_one("SELECT clan_id FROM clan_members WHERE account_id = ?", (account_id,))
+            if current is not None and clan_id is not None and current["clan_id"] == clan_id:
+                return
             # account_id is the key of clan_members, so the old membership goes first; both steps
             # share one transaction, so the account is never seen without a clan in between.
             self._backend.execute("DELETE FROM clan_members WHERE account_id = ?", (account_id,))
@@ -979,6 +1197,14 @@ class LobbyDatabase:
         if row is None:
             return None
         return clan_from_row(row)
+
+    def list_clan_memberships(self) -> dict[int, list[int]]:
+        """Every clan's member account ids, in one query (the ladder's clan strength needs them all)."""
+        rows = self._backend.fetch_all("SELECT clan_id, account_id FROM clan_members ORDER BY account_id")
+        members_by_clan: dict[int, list[int]] = {}
+        for row in rows:
+            members_by_clan.setdefault(row["clan_id"], []).append(row["account_id"])
+        return members_by_clan
 
     def list_clan_member_names(self, clan_id: int) -> list[str]:
         """The names of the clan's members, sorted."""
@@ -1010,25 +1236,33 @@ class LobbyDatabase:
 
     # ChatZone themes.
 
-    def add_chat_theme(self, name: str, description: str = "") -> ChatTheme:
-        """Add a theme to the ChatZone tab and return it. Raises DatabaseError for a text the game
-        cannot show or a name that is taken already."""
+    def add_chat_theme(self, name: str, description: str = "", language: str = ALL_LANGUAGES) -> ChatTheme:
+        """Add a theme to the ChatZone tab and return it; language limits it to the games of one
+        language. Raises DatabaseError for a text the game cannot show, a name that is taken already,
+        the name of a built-in theme, or an unknown language."""
         check_title("chat theme name", name)
         check_game_text("chat theme description", description, MAX_GROUP_TEXT_LENGTH)
+        if is_built_in_chat_theme_name(name):
+            raise DatabaseError(f"{name!r} is a chat theme the server always lists itself")
+        if language != ALL_LANGUAGES and language not in GAME_LANGUAGES:
+            raise DatabaseError(f"unknown game language {language!r}; known: {', '.join(GAME_LANGUAGES)}")
         try:
             with self._backend.transaction():
                 result = self._backend.execute(
-                    "INSERT INTO chat_themes (name, description, created_at) VALUES (?, ?, ?)",
-                    (name, description, to_stored_time(self._clock())),
+                    "INSERT INTO chat_themes (name, description, language, created_at) VALUES (?, ?, ?, ?)",
+                    (name, description, language, to_stored_time(self._clock())),
                 )
         except ConstraintViolation as error:
             raise DatabaseError(f"a chat theme named {name!r} already exists") from error
-        return ChatTheme(theme_id=result.last_row_id, name=name, description=description)
+        return ChatTheme(theme_id=result.last_row_id, name=name, description=description, language=language)
 
     def list_chat_themes(self) -> list[ChatTheme]:
         """Every ChatZone theme, in the order they were added."""
         rows = self._backend.fetch_all("SELECT * FROM chat_themes ORDER BY id")
-        return [ChatTheme(theme_id=row["id"], name=row["name"], description=row["description"]) for row in rows]
+        return [
+            ChatTheme(theme_id=row["id"], name=row["name"], description=row["description"], language=row["language"])
+            for row in rows
+        ]
 
     def delete_chat_theme(self, theme_id: int) -> None:
         """Remove a theme from the ChatZone tab."""
@@ -1037,7 +1271,9 @@ class LobbyDatabase:
 
     # MessageZone board.
 
-    def add_board_theme(self, language: str, name: str, description: str = "") -> BoardTheme:
+    def add_board_theme(
+        self, language: str, name: str, description: str = "", is_server_written: bool = False
+    ) -> BoardTheme:
         """Add a theme to the MessageZone board of one language and return it. Raises
         DatabaseError for an unknown language, a text the game cannot show, or a name that language has
         already."""
@@ -1047,46 +1283,105 @@ class LobbyDatabase:
         check_game_text("board theme description", description, MAX_GROUP_TEXT_LENGTH)
         try:
             with self._backend.transaction():
+                # The server's own theme starts above every other one (the ladder's news comes first
+                # unless an admin moves something above it); an admin's theme starts at the end.
+                bounds = self._backend.fetch_one(
+                    "SELECT MIN(position) AS first, MAX(position) AS last FROM board_themes WHERE language = ?",
+                    (language,),
+                )
+                position = 0
+                if bounds["first"] is not None and is_server_written:
+                    position = bounds["first"] - 1
+                elif bounds["last"] is not None:
+                    position = bounds["last"] + 1
                 result = self._backend.execute(
-                    "INSERT INTO board_themes (language, name, description, created_at) VALUES (?, ?, ?, ?)",
-                    (language, name, description, to_stored_time(self._clock())),
+                    "INSERT INTO board_themes (language, name, description, created_at, is_server_written, position) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (language, name, description, to_stored_time(self._clock()), int(is_server_written), position),
                 )
         except ConstraintViolation as error:
             raise DatabaseError(f"a {language} board theme named {name!r} already exists") from error
-        return BoardTheme(theme_id=result.last_row_id, language=language, name=name, description=description)
+        return BoardTheme(result.last_row_id, language, name, description, is_server_written, position)
 
     def list_board_themes(self) -> list[BoardTheme]:
         """Every board theme, by language and then in the order they were added."""
-        rows = self._backend.fetch_all("SELECT * FROM board_themes ORDER BY language, id")
+        rows = self._backend.fetch_all("SELECT * FROM board_themes ORDER BY language, position, id")
         return [board_theme_from_row(row) for row in rows]
 
+    def set_board_theme_order(self, theme_ids: list[int]) -> None:
+        """Put themes in this order (the first at the top); themes not named keep their places."""
+        with self._backend.transaction():
+            for position, theme_id in enumerate(theme_ids):
+                self._backend.execute("UPDATE board_themes SET position = ? WHERE id = ?", (position, theme_id))
+
+    def set_board_theme_hidden(self, theme_id: int, is_hidden: bool) -> None:
+        """Hide a theme from the game, or show it again; its messages stay as they are."""
+        with self._backend.transaction():
+            self._backend.execute("UPDATE board_themes SET is_hidden = ? WHERE id = ?", (int(is_hidden), theme_id))
+
     def delete_board_theme(self, theme_id: int) -> None:
-        """Remove a theme from the MessageZone board."""
+        """Remove a theme from the MessageZone board. Raises DatabaseError for a theme the server
+        writes itself: admins hide it instead, since the server would only create it again."""
+        theme = self._backend.fetch_one("SELECT is_server_written FROM board_themes WHERE id = ?", (theme_id,))
+        if theme is not None and theme["is_server_written"]:
+            raise DatabaseError("the server writes this board theme itself; hide it instead")
         with self._backend.transaction():
             self._backend.execute("DELETE FROM board_themes WHERE id = ?", (theme_id,))
 
-    def post_board_message(self, theme_id: int, title: str, body: str, author: str = "") -> BoardMessage:
+    def post_board_message(
+        self, theme_id: int, title: str, body: str, author: str = "", is_by_server: bool = False
+    ) -> BoardMessage:
         """Post a message under a board theme and return it. Raises DatabaseError for a text the
-        game cannot show or a theme that does not exist."""
+        game cannot show, a theme that does not exist, or a theme the server writes itself when
+        is_by_server is not set: its texts are the server's alone."""
+        if not is_by_server:
+            theme = self._backend.fetch_one("SELECT is_server_written FROM board_themes WHERE id = ?", (theme_id,))
+            if theme is not None and theme["is_server_written"]:
+                raise DatabaseError("the server writes this board theme itself; nobody can post into it")
         check_title("message title", title)
         check_game_text("message text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
         check_game_text("author", author, MAX_GROUP_TEXT_LENGTH)
         posted_at = self._clock()
         try:
             with self._backend.transaction():
+                # A new message goes to the top of its theme; admins move it from there.
+                first = self._backend.fetch_one(
+                    "SELECT MIN(position) AS first FROM board_messages WHERE theme_id = ?", (theme_id,)
+                )["first"]
+                position = 0 if first is None else first - 1
                 result = self._backend.execute(
-                    "INSERT INTO board_messages (theme_id, title, body, author, posted_at) VALUES (?, ?, ?, ?, ?)",
-                    (theme_id, title, body, author, to_stored_time(posted_at)),
+                    "INSERT INTO board_messages (theme_id, title, body, author, posted_at, position) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (theme_id, title, body, author, to_stored_time(posted_at), position),
                 )
         except ConstraintViolation as error:
             # board_messages has no unique key, so only the foreign key to board_themes can refuse it.
             raise DatabaseError(f"there is no board theme {theme_id}") from error
-        return BoardMessage(result.last_row_id, theme_id, title, body, author, posted_at)
+        return BoardMessage(result.last_row_id, theme_id, title, body, author, posted_at, position)
 
     def list_board_messages(self, theme_id: int) -> list[BoardMessage]:
-        """The messages under a board theme, oldest first."""
-        rows = self._backend.fetch_all("SELECT * FROM board_messages WHERE theme_id = ? ORDER BY id", (theme_id,))
+        """The messages under a board theme in the board's order, hidden ones included."""
+        rows = self._backend.fetch_all(
+            "SELECT * FROM board_messages WHERE theme_id = ? ORDER BY position, id", (theme_id,)
+        )
         return [board_message_from_row(row) for row in rows]
+
+    def set_board_message_order(self, theme_id: int, message_ids: list[int]) -> None:
+        """Put a theme's messages in this order (the first at the top); ids of another theme are
+        left alone."""
+        with self._backend.transaction():
+            for position, message_id in enumerate(message_ids):
+                self._backend.execute(
+                    "UPDATE board_messages SET position = ? WHERE id = ? AND theme_id = ?",
+                    (position, message_id, theme_id),
+                )
+
+    def set_board_message_hidden(self, message_id: int, is_hidden: bool) -> None:
+        """Hide a message from the game, or show it again."""
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE board_messages SET is_hidden = ? WHERE id = ?", (int(is_hidden), message_id)
+            )
 
     def find_board_message(self, message_id: int) -> BoardMessage | None:
         """The board message with this id, or None."""
@@ -1095,37 +1390,83 @@ class LobbyDatabase:
             return None
         return board_message_from_row(row)
 
+    def delete_board_messages_but_newest(self, theme_id: int, keep_count: int) -> int:
+        """Delete a theme's messages but its newest keep_count; returns how many went. The server
+        keeps its own themes short this way."""
+        # Newest by when they were posted (the id), whatever order admins gave them on the board.
+        messages = sorted(self.list_board_messages(theme_id), key=lambda message: message.message_id)
+        surplus = messages[: max(0, len(messages) - keep_count)]
+        with self._backend.transaction():
+            for message in surplus:
+                self._backend.execute("DELETE FROM board_messages WHERE id = ?", (message.message_id,))
+        return len(surplus)
+
     def delete_board_message(self, message_id: int) -> None:
-        """Remove a message from the board."""
+        """Remove a message from the board. Raises DatabaseError for a message in a theme the
+        server writes itself: admins hide those instead."""
+        theme = self._backend.fetch_one(
+            "SELECT board_themes.is_server_written FROM board_messages "
+            "JOIN board_themes ON board_themes.id = board_messages.theme_id WHERE board_messages.id = ?",
+            (message_id,),
+        )
+        if theme is not None and theme["is_server_written"]:
+            raise DatabaseError("the server writes this message itself; hide it instead")
         with self._backend.transaction():
             self._backend.execute("DELETE FROM board_messages WHERE id = ?", (message_id,))
 
     # Games and their reports.
 
     def record_game_opened(
-        self, name: str, host_account_id: int | None, group_id: int | None = None, announcement: bytes | None = None
+        self,
+        name: str,
+        host_account_id: int | None,
+        group_id: int | None = None,
+        announcement: bytes | None = None,
+        ladder_type: int | None = None,
     ) -> int:
         """Note a game the lobby opened, for the statistics and the web interface; returns its
         record id. group_id is the lobby's id for the game, announcement the game as the lobby shows it
-        (see GameRecord)."""
+        (see GameRecord), ladder_type the ladder the host chose (None for a normal game)."""
         with self._backend.transaction():
             result = self._backend.execute(
-                "INSERT INTO games (name, host_account_id, opened_at, group_id, announcement) VALUES (?, ?, ?, ?, ?)",
-                (name, host_account_id, to_stored_time(self._clock()), group_id, announcement),
+                "INSERT INTO games (name, host_account_id, opened_at, group_id, announcement, ladder_type) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (name, host_account_id, to_stored_time(self._clock()), group_id, announcement, ladder_type),
             )
         return result.last_row_id
 
-    def record_game_announcement(self, game_record_id: int, announcement: bytes) -> None:
-        """Keep the game as the lobby shows it now, after the host changed its setup."""
-        with self._backend.transaction():
-            self._backend.execute("UPDATE games SET announcement = ? WHERE id = ?", (announcement, game_record_id))
-
-    def record_game_player(self, game_record_id: int, account_id: int) -> None:
-        """Note a player who joined a game; the lobby records each player once per game."""
+    def record_game_announcement(
+        self, game_record_id: int, announcement: bytes, ladder_type: int | None = None
+    ) -> None:
+        """Keep the game as the lobby shows it now, after the host changed its setup, and the ladder
+        it is now (the host may switch between a normal and a ladder game until the match starts)."""
         with self._backend.transaction():
             self._backend.execute(
-                "INSERT INTO game_players (game_id, account_id, joined_at) VALUES (?, ?, ?)",
-                (game_record_id, account_id, to_stored_time(self._clock())),
+                "UPDATE games SET announcement = ?, ladder_type = ? WHERE id = ?",
+                (announcement, ladder_type, game_record_id),
+            )
+
+    def record_game_player(
+        self, game_record_id: int, account_id: int, clan_id: int | None = None, installation: int | None = None
+    ) -> None:
+        """Note a player who joined a game; the lobby records each player once per game. clan_id is
+        the clan the player shows, installation the number of the player's copy of the game within
+        this game (see GamePlayerRecord). Since when the player is in the clan is copied from the
+        membership as it is now, so a later change of clan does not rewrite it."""
+        with self._backend.transaction():
+            self._backend.execute(
+                "INSERT INTO game_players (game_id, account_id, joined_at, clan_id, clan_joined_at, installation) "
+                "VALUES (?, ?, ?, ?, "
+                "(SELECT joined_at FROM clan_members WHERE account_id = ? AND clan_id = ?), ?)",
+                (
+                    game_record_id,
+                    account_id,
+                    to_stored_time(self._clock()),
+                    clan_id,
+                    account_id,
+                    clan_id,
+                    installation,
+                ),
             )
 
     def record_game_closed(self, game_record_id: int) -> None:
@@ -1148,13 +1489,17 @@ class LobbyDatabase:
                 (account_id, group_id, report, to_stored_time(self._clock()), game_record_id),
             )
 
+    def count_games(self) -> int:
+        """How many games are stored, open and closed."""
+        return self._backend.fetch_one("SELECT COUNT(*) AS game_count FROM games")["game_count"]
+
     def count_game_reports(self) -> int:
         """How many match reports are stored."""
         return self._backend.fetch_one("SELECT COUNT(*) AS report_count FROM game_reports")["report_count"]
 
     GAME_COLUMNS = (
         "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at, "
-        "games.group_id, games.announcement "
+        "games.group_id, games.announcement, games.ladder_type "
         "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
     )
     GAME_REPORT_COLUMNS = (
@@ -1162,13 +1507,15 @@ class LobbyDatabase:
         # report whose sender's account was deleted since, with a NULL name.
         "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
         "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report, "
-        "game_reports.game_id "
+        "game_reports.game_id, game_reports.account_id AS sender_account_id "
         "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
     )
 
-    def list_recent_games(self, limit: int) -> list[GameRecord]:
-        """The newest games first, open and closed."""
-        rows = self._backend.fetch_all(self.GAME_COLUMNS + "ORDER BY games.id DESC LIMIT ?", (limit,))
+    def list_recent_games(self, limit: int, offset: int = 0) -> list[GameRecord]:
+        """The newest games first, open and closed; offset skips that many of the newest."""
+        rows = self._backend.fetch_all(
+            self.GAME_COLUMNS + "ORDER BY games.id DESC LIMIT ? OFFSET ?", (limit, offset)
+        )
         player_names = self._player_names_of_games([row["id"] for row in rows])
         return [game_record_from_row(row, player_names.get(row["id"], [])) for row in rows]
 
@@ -1194,7 +1541,8 @@ class LobbyDatabase:
     def list_game_players(self, game_id: int) -> list[GamePlayerRecord]:
         """Who joined a game and when, in the order they joined (the host first)."""
         rows = self._backend.fetch_all(
-            "SELECT accounts.name, game_players.joined_at, game_players.account_id FROM game_players "
+            "SELECT accounts.name, game_players.joined_at, game_players.account_id, game_players.clan_id, "
+            "game_players.clan_joined_at, game_players.installation FROM game_players "
             "LEFT JOIN accounts ON accounts.id = game_players.account_id "
             "WHERE game_players.game_id = ? ORDER BY game_players.id",
             (game_id,),
@@ -1204,6 +1552,9 @@ class LobbyDatabase:
                 name=row["name"] or DELETED_ACCOUNT_NAME,
                 joined_at=from_stored_time(row["joined_at"]),
                 account_id=row["account_id"],
+                clan_id=row["clan_id"],
+                clan_joined_at=from_optional_stored_time(row["clan_joined_at"]),
+                installation=row["installation"],
             )
             for row in rows
         ]
@@ -1256,18 +1607,257 @@ class LobbyDatabase:
             return None
         return bytes(row["report"])
 
+    # The ladder (s3lobby/ladder.py): results, custom seasons, and the events the server wrote about.
+
+    def now(self) -> datetime:
+        """The time by the database's clock, the one every stored time comes from; tests move it."""
+        return self._clock()
+
+    def get_ladder_settings(self) -> LadderSettings:
+        """The ladder's numbers as the admins set them."""
+        return LadderSettings(
+            minimum_minutes=self.get_integer_setting(Setting.LADDER_MINIMUM_MINUTES),
+            report_timeout_minutes=self.get_integer_setting(Setting.LADDER_REPORT_TIMEOUT_MINUTES),
+            pair_daily_limit=self.get_integer_setting(Setting.LADDER_PAIR_DAILY_LIMIT),
+            start_rating=self.get_integer_setting(Setting.LADDER_START_RATING),
+            k=self.get_integer_setting(Setting.LADDER_K),
+            k_provisional=self.get_integer_setting(Setting.LADDER_K_PROVISIONAL),
+            provisional_games=self.get_integer_setting(Setting.LADDER_PROVISIONAL_GAMES),
+            active_days=self.get_integer_setting(Setting.LADDER_ACTIVE_DAYS),
+            clan_member_days=self.get_integer_setting(Setting.LADDER_CLAN_MEMBER_DAYS),
+            inactive_days=self.get_integer_setting(Setting.LADDER_INACTIVE_DAYS),
+        )
+
+    def list_unresolved_ladder_games(self) -> list[GameRecord]:
+        """Ladder games without a result yet, oldest first: still open, waiting for reports, or cut
+        off by a restart."""
+        rows = self._backend.fetch_all(
+            self.GAME_COLUMNS
+            + "WHERE games.ladder_type IS NOT NULL AND games.ladder_type <> 0 "
+            "AND NOT EXISTS (SELECT 1 FROM ladder_results WHERE ladder_results.game_id = games.id) "
+            "ORDER BY games.id",
+        )
+        return [game_record_from_row(row, []) for row in rows]
+
+    def store_ladder_result(self, evaluation: Evaluation, decided_by_account_id: int | None = None) -> None:
+        """Keep what the ladder made of a game, replacing an earlier result of the same game (an
+        admin's decision replaces the server's). Raises ValueError for a game still waiting: that
+        is not a result."""
+        if evaluation.state not in STORED_LADDER_STATES:
+            raise ValueError(f"a ladder result cannot be {evaluation.state.value}")
+        played_at = evaluation.played_at or self._clock()
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM ladder_results WHERE game_id = ?", (evaluation.game_id,))
+            result = self._backend.execute(
+                "INSERT INTO ladder_results (game_id, ladder_type, state, reason, winning_team, game_ticks, "
+                "played_at, decided_at, decided_by_account_id, map_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    evaluation.game_id,
+                    evaluation.ladder_type,
+                    evaluation.state.value,
+                    evaluation.reason[:MAX_LADDER_REASON_LENGTH],
+                    evaluation.winning_team,
+                    evaluation.game_ticks,
+                    to_stored_time(played_at),
+                    to_stored_time(self._clock()),
+                    decided_by_account_id,
+                    evaluation.map_name[:MAX_MAP_NAME_LENGTH],
+                ),
+            )
+            for player in evaluation.players:
+                self._backend.execute(
+                    "INSERT INTO ladder_result_players (result_id, account_id, clan_id, team, race, slot, "
+                    "has_won, has_left) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        result.last_row_id,
+                        player.account_id,
+                        player.clan_id,
+                        player.team,
+                        player.race,
+                        player.slot,
+                        int(player.has_won),
+                        int(player.has_left),
+                    ),
+                )
+
+    LADDER_RESULT_COLUMNS = (
+        "SELECT ladder_results.id, ladder_results.game_id, ladder_results.ladder_type, ladder_results.state, "
+        "ladder_results.reason, ladder_results.winning_team, ladder_results.game_ticks, ladder_results.played_at, "
+        "ladder_results.decided_at, ladder_results.map_name, games.name AS game_name, "
+        "accounts.name AS decided_by_name "
+        "FROM ladder_results JOIN games ON games.id = ladder_results.game_id "
+        "LEFT JOIN accounts ON accounts.id = ladder_results.decided_by_account_id "
+    )
+
+    def ladder_results_version(self) -> tuple[int, int]:
+        """A cheap fingerprint of the stored results: their number and the newest row id. Every new,
+        decided or voided result is a new row (store_ladder_result replaces), so the fingerprint
+        changes with each and a cache of ratings knows when to compute them again."""
+        row = self._backend.fetch_one("SELECT COUNT(*) AS result_count, MAX(id) AS newest_id FROM ladder_results")
+        return row["result_count"], row["newest_id"] or 0
+
+    def list_ladder_results(self) -> list[LadderResultRecord]:
+        """Every ladder result in the order the matches were played, with its players. Two queries
+        for all of them: a small lobby has a few thousand at most, and ratings need them all."""
+        rows = self._backend.fetch_all(
+            self.LADDER_RESULT_COLUMNS + "ORDER BY ladder_results.played_at, ladder_results.id"
+        )
+        return self._ladder_results_from_rows(rows)
+
+    def find_ladder_result(self, game_id: int) -> LadderResultRecord | None:
+        """The result of one game, or None while it has none."""
+        rows = self._backend.fetch_all(self.LADDER_RESULT_COLUMNS + "WHERE ladder_results.game_id = ?", (game_id,))
+        results = self._ladder_results_from_rows(rows)
+        if not results:
+            return None
+        return results[0]
+
+    def _ladder_results_from_rows(self, rows: list[Row]) -> list[LadderResultRecord]:
+        """The results the rows describe, with their players fetched in one query."""
+        if not rows:
+            return []
+        result_ids = [row["id"] for row in rows]
+        id_placeholders = placeholders(len(result_ids))
+        player_rows = self._backend.fetch_all(
+            "SELECT result_id, account_id, clan_id, team, race, slot, has_won, has_left FROM ladder_result_players "
+            f"WHERE result_id IN ({id_placeholders}) ORDER BY slot",
+            tuple(result_ids),
+        )
+        players_by_result: dict[int, list[ResultPlayer]] = {}
+        for row in player_rows:
+            players_by_result.setdefault(row["result_id"], []).append(
+                ResultPlayer(
+                    account_id=row["account_id"],
+                    clan_id=row["clan_id"],
+                    team=row["team"],
+                    race=row["race"],
+                    slot=row["slot"],
+                    has_won=bool(row["has_won"]),
+                    has_left=bool(row["has_left"]),
+                )
+            )
+        return [
+            LadderResultRecord(
+                result_id=row["id"],
+                evaluation=Evaluation(
+                    game_id=row["game_id"],
+                    ladder_type=row["ladder_type"],
+                    state=LadderState(row["state"]),
+                    reason=row["reason"],
+                    winning_team=row["winning_team"],
+                    game_ticks=row["game_ticks"],
+                    played_at=from_stored_time(row["played_at"]),
+                    players=tuple(players_by_result.get(row["id"], [])),
+                    map_name=row["map_name"],
+                ),
+                game_name=row["game_name"],
+                decided_at=from_stored_time(row["decided_at"]),
+                decided_by_name=row["decided_by_name"] or "",
+            )
+            for row in rows
+        ]
+
+    def add_ladder_season(
+        self,
+        name: str,
+        starts_at: datetime,
+        ends_at: datetime | None,
+        counts: SeasonCounts,
+        created_by_account_id: int | None = None,
+    ) -> Season:
+        """Create a custom season. Raises DatabaseError for a name the game cannot show, dates in the
+        wrong order, a name in use, or more seasons than the setting allows."""
+        check_season(name, starts_at, ends_at)
+        limit = self.get_integer_setting(Setting.LADDER_MAX_CUSTOM_SEASONS)
+        existing = self._backend.fetch_one("SELECT COUNT(*) AS season_count FROM ladder_seasons")["season_count"]
+        if existing >= limit:
+            raise DatabaseError(f"there are {existing} custom seasons already, the most is {limit}")
+        try:
+            with self._backend.transaction():
+                result = self._backend.execute(
+                    "INSERT INTO ladder_seasons (name, starts_at, ends_at, counts, created_at, created_by_account_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        name,
+                        to_stored_time(starts_at),
+                        to_optional_stored_time(ends_at),
+                        counts.value,
+                        to_stored_time(self._clock()),
+                        created_by_account_id,
+                    ),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"a season named {name!r} exists already") from error
+        return Season(result.last_row_id, name, starts_at, ends_at, counts)
+
+    def update_ladder_season(
+        self, season_id: int, name: str, starts_at: datetime, ends_at: datetime | None, counts: SeasonCounts
+    ) -> None:
+        """Change a custom season; ratings follow at once, since they are computed from the results.
+        Raises DatabaseError as add_ladder_season does, or for a season that does not exist."""
+        check_season(name, starts_at, ends_at)
+        try:
+            with self._backend.transaction():
+                result = self._backend.execute(
+                    "UPDATE ladder_seasons SET name = ?, starts_at = ?, ends_at = ?, counts = ? WHERE id = ?",
+                    (name, to_stored_time(starts_at), to_optional_stored_time(ends_at), counts.value, season_id),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"a season named {name!r} exists already") from error
+        if result.row_count == 0:
+            raise DatabaseError(f"there is no season {season_id}")
+
+    def delete_ladder_season(self, season_id: int) -> None:
+        """Delete a custom season. Its results stay: they count in the infinite season and in any
+        other season whose dates include them."""
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM ladder_seasons WHERE id = ?", (season_id,))
+
+    def list_ladder_seasons(self) -> list[Season]:
+        """Every custom season, newest start first."""
+        rows = self._backend.fetch_all(
+            "SELECT id, name, starts_at, ends_at, counts FROM ladder_seasons ORDER BY starts_at DESC, id DESC"
+        )
+        return [season_from_row(row) for row in rows]
+
+    def find_ladder_season(self, name: str) -> Season | None:
+        """The custom season with this name, in any case, or None."""
+        row = self._backend.fetch_one(
+            "SELECT id, name, starts_at, ends_at, counts FROM ladder_seasons WHERE LOWER(name) = LOWER(?)", (name,)
+        )
+        if row is None:
+            return None
+        return season_from_row(row)
+
+    def record_ladder_event(self, event_key: str) -> bool:
+        """Note that the server wrote about an event (a season's end, a weekly summary); True the
+        first time, False when it was noted already, so the text is never written twice."""
+        try:
+            with self._backend.transaction():
+                self._backend.execute(
+                    "INSERT INTO ladder_events (event_key, happened_at) VALUES (?, ?)",
+                    (event_key[:MAX_LADDER_EVENT_KEY_LENGTH], to_stored_time(self._clock())),
+                )
+        except ConstraintViolation:
+            return False
+        return True
+
     # Announcements from outside the server process.
 
-    def queue_announcement(self, text: str) -> None:
-        """Queue a line for the running server to show in every player's chat. Raises
-        DatabaseError for an empty text or one the game cannot show."""
+    def queue_announcement(self, text: str, account_id: int | None = None) -> None:
+        """Queue a line for the running server to show in every player's chat, or with account_id
+        in that player's chat only. Raises DatabaseError for an empty text, one the game cannot
+        show, or an account that does not exist."""
         check_title("announcement", text)
         check_game_text("announcement", text, MAX_ANNOUNCEMENT_LENGTH)
-        with self._backend.transaction():
-            self._backend.execute(
-                "INSERT INTO pending_announcements (text, created_at) VALUES (?, ?)",
-                (text, to_stored_time(self._clock())),
-            )
+        try:
+            with self._backend.transaction():
+                self._backend.execute(
+                    "INSERT INTO pending_announcements (text, created_at, account_id) VALUES (?, ?, ?)",
+                    (text, to_stored_time(self._clock()), account_id),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"there is no account {account_id}") from error
 
     def discard_pending_announcements(self) -> int:
         """Mark every queued announcement as done without sending it; returns how many. At server
@@ -1279,24 +1869,39 @@ class LobbyDatabase:
             )
         return result.row_count
 
-    def take_pending_announcements(self) -> list[str]:
-        """The announcements not sent yet, oldest first, marked as sent in the same step."""
+    def take_pending_lines(self) -> list[PendingAnnouncement]:
+        """The announcements and messages to single players not sent yet, oldest first, marked as
+        sent in the same step."""
         # One transaction, as in take_pending_kicks: a failure halfway marks none as sent.
         with self._backend.transaction():
             rows = self._backend.fetch_all(
-                "SELECT id, text FROM pending_announcements WHERE sent_at IS NULL ORDER BY id"
+                "SELECT id, text, account_id FROM pending_announcements WHERE sent_at IS NULL ORDER BY id"
             )
             sent_at = to_stored_time(self._clock())
             for row in rows:
                 self._backend.execute(
                     "UPDATE pending_announcements SET sent_at = ? WHERE id = ?", (sent_at, row["id"])
                 )
-        return [row["text"] for row in rows]
+        return [PendingAnnouncement(row["id"], row["text"], row["account_id"]) for row in rows]
+
+    def take_pending_announcements(self) -> list[str]:
+        """The texts of the lines not sent yet, oldest first, marked as sent (see take_pending_lines)."""
+        return [line.text for line in self.take_pending_lines()]
+
+    def record_announcement_reach(self, announcement_id: int, reached_count: int) -> None:
+        """Note how many players a sent line reached: 0 for a player who was not online."""
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE pending_announcements SET reached_count = ? WHERE id = ?", (reached_count, announcement_id)
+            )
 
     def list_recent_announcements(self, limit: int) -> list[AnnouncementRecord]:
         """The newest announcements first; sent_at is None while the server has not taken one yet."""
         rows = self._backend.fetch_all(
-            "SELECT text, created_at, sent_at FROM pending_announcements ORDER BY id DESC LIMIT ?",
+            "SELECT pending_announcements.text, pending_announcements.created_at, pending_announcements.sent_at, "
+            "pending_announcements.reached_count, accounts.name AS recipient_name FROM pending_announcements "
+            "LEFT JOIN accounts ON accounts.id = pending_announcements.account_id "
+            "ORDER BY pending_announcements.id DESC LIMIT ?",
             (limit,),
         )
         return [
@@ -1304,6 +1909,8 @@ class LobbyDatabase:
                 text=row["text"],
                 created_at=from_stored_time(row["created_at"]),
                 sent_at=from_optional_stored_time(row["sent_at"]),
+                recipient_name=row["recipient_name"] or "",
+                reached_count=row["reached_count"],
             )
             for row in rows
         ]
@@ -1388,7 +1995,15 @@ def account_from_row(row: Row | None) -> Account | None:
 
 def board_theme_from_row(row: Row) -> BoardTheme:
     """The board theme a row of the board_themes table describes."""
-    return BoardTheme(theme_id=row["id"], language=row["language"], name=row["name"], description=row["description"])
+    return BoardTheme(
+        theme_id=row["id"],
+        language=row["language"],
+        name=row["name"],
+        description=row["description"],
+        is_server_written=bool(row["is_server_written"]),
+        position=row["position"],
+        is_hidden=bool(row["is_hidden"]),
+    )
 
 
 def board_message_from_row(row: Row) -> BoardMessage:
@@ -1400,6 +2015,8 @@ def board_message_from_row(row: Row) -> BoardMessage:
         body=row["body"],
         author=row["author"],
         posted_at=from_stored_time(row["posted_at"]),
+        position=row["position"],
+        is_hidden=bool(row["is_hidden"]),
     )
 
 
@@ -1423,6 +2040,27 @@ def game_record_from_row(row: Row, player_names: list[str]) -> GameRecord:
         group_id=row["group_id"],
         announcement=announcement,
         player_names=tuple(player_names),
+        ladder_type=row["ladder_type"],
+    )
+
+
+def check_season(name: str, starts_at: datetime, ends_at: datetime | None) -> None:
+    """Raise DatabaseError unless a custom season can be stored: a name the game can show (it is
+    named in chat answers and on the board) and an end after the start."""
+    check_title("season name", name)
+    check_game_text("season name", name, MAX_GROUP_TEXT_LENGTH)
+    if ends_at is not None and ends_at <= starts_at:
+        raise DatabaseError("a season must end after it starts")
+
+
+def season_from_row(row: Row) -> Season:
+    """The custom season a ladder_seasons row describes."""
+    return Season(
+        season_id=row["id"],
+        name=row["name"],
+        starts_at=from_stored_time(row["starts_at"]),
+        ends_at=from_optional_stored_time(row["ends_at"]),
+        counts=SeasonCounts(row["counts"]),
     )
 
 
@@ -1437,4 +2075,5 @@ def game_report_record_from_row(row: Row) -> GameReportRecord:
         received_at=from_stored_time(row["received_at"]),
         report=bytes(row["report"]),
         game_id=row["game_id"],
+        sender_account_id=row["sender_account_id"],
     )

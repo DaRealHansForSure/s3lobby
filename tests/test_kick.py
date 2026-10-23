@@ -9,14 +9,20 @@ their own, and a stopped server would leave every player waiting a minute for a 
 from __future__ import annotations
 
 import re
+import time
 import unittest
 from datetime import timedelta
+from unittest import mock
 
 from s3lobby.constants import ANNOUNCEMENT_GROUP_ID, MessageType
 from s3lobby.database import utc_now
 from s3lobby.messages import AddPlayerToGroup, ChatCommand, ChatCommandAnswer, RemovePlayerFromGroup
 from s3lobby.wire import RawMessage
 from tests.support import GAME_ZONE_ID, LobbyTestCase, log_on, logon_request
+
+
+# A pause short enough for a test, long enough to measure.
+SHORT_READING_SECONDS = 0.5
 
 
 class KickTest(LobbyTestCase):
@@ -26,6 +32,11 @@ class KickTest(LobbyTestCase):
     def setUp(self) -> None:
         """Alice, an admin, and Bob, in the same game zone."""
         super().setUp()
+        # These tests are about the close itself; the pause that lets a player read the reason is
+        # tested on its own below.
+        reading_pause = mock.patch("s3lobby.lobby.KICK_REASON_READING_SECONDS", 0.0)
+        reading_pause.start()
+        self.addCleanup(reading_pause.stop)
         alice_account = self.database.find_account("Alice")
         self.database.set_admin(alice_account.account_id, True)
         self.alice, self.alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
@@ -41,7 +52,7 @@ class KickTest(LobbyTestCase):
         self.alice.send(ChatCommand(group_id=GAME_ZONE_ID, unknown_value=0, command=f"/confirm {code}"))
         reason = ChatCommandAnswer.decode(self.bob.receive_next(MessageType.CHAT_COMMAND_ANSWER))
         self.assertEqual(reason.group_id, ANNOUNCEMENT_GROUP_ID)
-        self.assertEqual(reason.lines, ("An admin removed you from the lobby: spamming",))
+        self.assertEqual(reason.lines, ("An admin removed you from the lobby. Reason: spamming",))
         self.bob.receive_next(MessageType.CLOSE_CONNECTION)
 
         departure = RemovePlayerFromGroup.decode(self.alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP))
@@ -92,6 +103,19 @@ class KickTest(LobbyTestCase):
         self.server.stop()
         self.alice.receive_next(MessageType.CLOSE_CONNECTION)
         self.bob.receive_next(MessageType.CLOSE_CONNECTION)
+
+    def test_the_reason_stays_readable_before_the_close(self) -> None:
+        """The game shows a server line in its chat but drops to its "connection dropped" dialog the
+        moment the connection closes; closed at once, nobody could read why they were removed (seen
+        in a run: a ban's reason never showed). The others see the player leave at once."""
+        with mock.patch("s3lobby.lobby.KICK_REASON_READING_SECONDS", SHORT_READING_SECONDS):
+            self.database.queue_kick(self.database.find_account("Bob").account_id, "spamming")
+            reason = ChatCommandAnswer.decode(self.bob.receive_next(MessageType.CHAT_COMMAND_ANSWER))
+            told_at = time.monotonic()
+            self.alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
+            self.bob.receive_next(MessageType.CLOSE_CONNECTION)
+            self.assertGreaterEqual(time.monotonic() - told_at, SHORT_READING_SECONDS * 0.8)
+        self.assertEqual(reason.lines, ("spamming",))
 
     def wait_for_players_online(self, expected_names: list[str]) -> list:
         """The players the server's live state lists once it matches expected_names."""

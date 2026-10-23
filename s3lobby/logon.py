@@ -2,13 +2,19 @@
 
 Players log on with an account made on the server (command line now, web interface later): the
 account name as player name and one of the account's access codes as password. The game's own
-"create player" button is refused; nobody gets an account from inside the game.
+"Create Player" button makes an account only while the setting allow_create_player is on; the
+chosen password becomes the account's first access code.
 
 Every refusal uses a Result code the game knows, so the player sees the matching dialog text from
 the game's own text archive (constants.ResultCode lists them). Failed attempts are limited per IP
 and per account name from that IP, so access codes cannot be guessed by trying; failures from
 others never keep a player with the right code out, since anyone can see an admin's name.
 All checks together are budgeted too: each costs a scrypt hash on the event loop.
+
+A create request never answers with Result 2, the game's "There is already a player with this
+name": that would tell anyone which names have accounts. A taken name is treated as an ordinary
+logon instead, so the owner's own password still gets in and everyone else gets the same refusal
+as for a wrong code.
 """
 
 from __future__ import annotations
@@ -21,14 +27,27 @@ from dataclasses import dataclass
 
 from s3lobby.constants import (
     ACCESS_CODE_CHECK_BURST,
+    ACCOUNT_CREATION_BURST,
+    ACCOUNT_CREATIONS_PER_SECOND,
     ACCESS_CODE_CHECKS_PER_SECOND,
     DEVELOPMENT_PASSWORD,
     LOGON_FAILURE_BURST,
     LOGON_FAILURES_PER_SECOND,
+    MIN_CHOSEN_PASSWORD_LENGTH,
     LogonFlag,
     ResultCode,
 )
-from s3lobby.database import Account, Clan, LobbyDatabase, Setting, hash_access_code, is_valid_player_name, utc_now
+from s3lobby.database import (
+    CHOSEN_IN_GAME_LABEL,
+    Account,
+    Clan,
+    DatabaseError,
+    LobbyDatabase,
+    Setting,
+    hash_access_code,
+    is_valid_player_name,
+    utc_now,
+)
 from s3lobby.guards import RateLimiter
 from s3lobby.messages import Logon
 
@@ -92,6 +111,7 @@ class LogonCheck:
         self._failures_by_ip = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._failures_by_name_and_ip = RateLimiter(LOGON_FAILURES_PER_SECOND, LOGON_FAILURE_BURST)
         self._access_code_checks = RateLimiter(ACCESS_CODE_CHECKS_PER_SECOND, ACCESS_CODE_CHECK_BURST)
+        self._account_creations_by_ip = RateLimiter(ACCOUNT_CREATIONS_PER_SECOND, ACCOUNT_CREATION_BURST)
 
     def decide(self, logon: Logon, client_ip: str, occupancy: LobbyOccupancy) -> AcceptedLogon | RefusedLogon:
         """Run the checks in an order that tells a guesser nothing: the public rules first, then
@@ -100,8 +120,9 @@ class LogonCheck:
         # Casefolded like the database compares names, so "Alice" and "ALICE" share one budget.
         name_and_ip_key = (logon.player_name.casefold(), client_ip)
 
-        if logon.flags & LogonFlag.CREATE_PLAYER:
-            return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "the game's create player is not offered")
+        is_create_request = bool(logon.flags & LogonFlag.CREATE_PLAYER)
+        if is_create_request and not self._database.get_boolean_setting(Setting.ALLOW_CREATE_PLAYER):
+            return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "the game's create player is switched off")
         is_limited = self._failures_by_ip.is_exhausted(client_ip, now_seconds) or (
             self._failures_by_name_and_ip.is_exhausted(name_and_ip_key, now_seconds)
         )
@@ -114,6 +135,8 @@ class LogonCheck:
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many logons at once, try again later")
 
         account = self._database.find_account(logon.player_name)
+        if account is None and is_create_request:
+            return self._create_account(logon, client_ip, occupancy, now_seconds)
         if account is None:
             # One hash like for a wrong code, so the time of the answer does not tell which
             # names have accounts.
@@ -133,6 +156,35 @@ class LogonCheck:
 
         return self._decide_for_known_account(account, logon, occupancy)
 
+    def _create_account(
+        self, logon: Logon, client_ip: str, occupancy: LobbyOccupancy, now_seconds: float
+    ) -> AcceptedLogon | RefusedLogon:
+        """Make an account for the game's "Create Player" button, the name being free, and let the
+        player in with it. Every refusal here is the generic one, like a wrong code: the game would
+        show the same dialog text for any other code of ours anyway, and nothing in it may hint at
+        what went wrong for whom."""
+        if self._account_creations_by_ip.is_exhausted(client_ip, now_seconds):
+            return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many accounts created from this address")
+        if len(logon.password) < MIN_CHOSEN_PASSWORD_LENGTH:
+            # Counted like a wrong code: the address keeps no extra budget for trying.
+            self._failures_by_ip.record_event(client_ip, now_seconds)
+            return RefusedLogon(
+                ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE,
+                f"chosen password shorter than {MIN_CHOSEN_PASSWORD_LENGTH} characters",
+            )
+        try:
+            account = self._database.create_account(logon.player_name)
+            self._database.add_access_code(account.account_id, logon.password, CHOSEN_IN_GAME_LABEL)
+        except DatabaseError as error:
+            # Another logon took the name between the lookup and the insert, or the database failed.
+            log.warning("could not create the account %r from the game: %s", logon.player_name, error)
+            return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "the account could not be created")
+        self._account_creations_by_ip.record_event(client_ip, now_seconds)
+        log.info("account %r created with the game's create player button from %s", account.name, client_ip)
+        # The same checks as for any account after a correct code: a full lobby or a serial in use
+        # still refuses, and the new account can log on later.
+        return self._decide_for_known_account(account, logon, occupancy)
+
     def _is_development_logon(self, logon: Logon, client_ip: str) -> bool:
         """The development password, in development mode, from this machine or its LAN: a client
         from the internet never gets in with it, even if the mode was left on by mistake."""
@@ -146,6 +198,7 @@ class LogonCheck:
         self._failures_by_ip.forget_quiet_keys(now_seconds)
         self._failures_by_name_and_ip.forget_quiet_keys(now_seconds)
         self._access_code_checks.forget_quiet_keys(now_seconds)
+        self._account_creations_by_ip.forget_quiet_keys(now_seconds)
 
     def _decide_for_known_account(
         self, account: Account, logon: Logon, occupancy: LobbyOccupancy

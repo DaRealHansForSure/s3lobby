@@ -1,46 +1,77 @@
-{% extends "base.html" %}
+{% extends "admin_base.html" %}
 {% from "_macros.html" import csrf_field, action_button with context %}
 {% set active_nav = "board" %}
 {% block title %}Message board{% endblock %}
+{# SortableJS (static/vendor, MIT) for dragging themes and messages into order; app.js wires it up.
+   Without script, the Up and Down buttons do the same. #}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/Sortable.min.js') }}" defer></script>{% endblock %}
+
+{% macro order_buttons(action) -%}
+<form class="inline-form" method="post" action="{{ action }}">{{ csrf_field() }}<input type="hidden" name="direction" value="up"><button class="btn btn--quiet btn--sm" type="submit" title="Move up">Up</button></form>
+<form class="inline-form" method="post" action="{{ action }}">{{ csrf_field() }}<input type="hidden" name="direction" value="down"><button class="btn btn--quiet btn--sm" type="submit" title="Move down">Down</button></form>
+{%- endmacro %}
+
+{% macro hide_toggle(action, is_hidden) -%}
+{% if is_hidden %}{{ action_button(action, "Show", "btn--outline", {"hidden": "false"}) }}{% else %}{{ action_button(action, "Hide", "btn--outline", {"hidden": "true"}) }}{% endif %}
+{%- endmacro %}
+
 {% block content %}
 <section>
   <div class="section-head">
     <h1>Message board</h1>
-    <p>The MessageZone tab: themes per game language, each with its messages. Games in a language
-    without themes see the English ones.</p>
+    <p>The MessageZone tab: themes per game language, each with its messages, in the order the game
+    shows them. Drag them by their handle, or use Up and Down. Games in a language without themes see
+    the English ones. Hidden themes and messages stay here but are not sent to the game; the
+    server's own theme can only be hidden.</p>
   </div>
-  {% for entry in themes %}
-  <div class="card stack">
-    <div class="row">
-      <h3>{{ entry.theme.name }}</h3>
-      <span class="badge">{{ entry.theme.language }}</span>
-      {{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove theme", "btn--danger") }}
+  {% for language, entries in themes | groupby("theme.language") %}
+  <h2>{{ language }}</h2>
+  <div class="board-themes stack" data-sortable-url="{{ url_for('content.order_board_themes') }}">
+    {% for entry in entries %}
+    <div class="card board-theme{% if entry.theme.is_hidden %} is-hidden{% endif %}" data-id="{{ entry.theme.theme_id }}">
+      <div class="board-theme-head">
+        <span class="drag-handle" title="Drag to move" aria-hidden="true"></span>
+        <h3>{{ entry.theme.name }}</h3>
+        {% if entry.theme.is_server_written %}<span class="badge badge--accent" title="The ladder's texts; nobody can post here">written by the server</span>{% endif %}
+        {% if entry.theme.is_hidden %}<span class="badge badge--warn">hidden from the game</span>{% endif %}
+        <div class="board-actions">
+          {{ order_buttons(url_for('content.move_board_theme', theme_id=entry.theme.theme_id)) }}
+          {{ hide_toggle(url_for('content.set_board_theme_hidden', theme_id=entry.theme.theme_id), entry.theme.is_hidden) }}
+          {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove", "btn--outline", confirm="Remove the theme " ~ entry.theme.name ~ " with all its messages?") }}{% endif %}
+        </div>
+      </div>
+      {% if entry.theme.description %}<p>{{ entry.theme.description }}</p>{% endif %}
+      {% if entry.messages %}
+      <div class="scroll-x">
+        <table class="table">
+          <thead><tr><th class="cell-handle"></th><th>Message</th><th>Author</th><th>Posted</th><th class="cell-actions"></th></tr></thead>
+          <tbody data-sortable-url="{{ url_for('content.order_board_messages', theme_id=entry.theme.theme_id) }}">
+            {% for message in entry.messages %}
+            <tr data-id="{{ message.message_id }}"{% if message.is_hidden %} class="is-hidden"{% endif %}>
+              <td class="cell-handle"><span class="drag-handle" title="Drag to move" aria-hidden="true"></span></td>
+              <td>
+                <details>
+                  <summary>{{ message.title }}{% if message.is_hidden %} <span class="badge badge--warn">hidden</span>{% endif %}</summary>
+                  <p class="message-text">{{ message.body }}</p>
+                </details>
+              </td>
+              <td>{{ message.author or "-" }}</td>
+              <td class="cell-time">{{ message.posted_at | short_moment }}</td>
+              <td class="cell-actions">
+                {{ order_buttons(url_for('content.move_board_message', message_id=message.message_id)) }}
+                {{ hide_toggle(url_for('content.set_board_message_hidden', message_id=message.message_id), message.is_hidden) }}
+                {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--outline", confirm="Remove the message " ~ message.title ~ "?") }}{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="empty-state">No messages in this theme.</p>
+      {% endif %}
     </div>
-    {% if entry.theme.description %}<p>{{ entry.theme.description }}</p>{% endif %}
-    {% if entry.messages %}
-    <div class="scroll-x">
-      <table class="table">
-        <thead><tr><th>Message</th><th>Author</th><th>Posted</th><th class="cell-actions"></th></tr></thead>
-        <tbody>
-          {% for message in entry.messages %}
-          <tr>
-            <td>
-              <details>
-                <summary>{{ message.title }}</summary>
-                <p class="message-text">{{ message.body }}</p>
-              </details>
-            </td>
-            <td>{{ message.author or "-" }}</td>
-            <td>{{ message.posted_at | moment }}</td>
-            <td class="cell-actions">{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--danger") }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="empty-state">No messages in this theme.</p>
-    {% endif %}
+    {% endfor %}
   </div>
   {% else %}
   <p class="empty-state">No board themes yet.</p>
@@ -56,7 +87,7 @@
       <label class="field">
         <span class="label">Theme</span>
         <select class="select" name="theme_id" required>
-          {% for entry in themes %}
+          {% for entry in themes if not entry.theme.is_server_written %}
           <option value="{{ entry.theme.theme_id }}">{{ entry.theme.language }}: {{ entry.theme.name }}</option>
           {% endfor %}
         </select>

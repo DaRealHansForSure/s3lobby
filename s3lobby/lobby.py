@@ -28,19 +28,18 @@ from datetime import datetime
 from typing import Protocol, TypeVar
 
 from s3lobby.constants import (
+    ALL_LANGUAGES,
     ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
-    BOARD_CHAT_HINT_TEXT,
     BOARD_FALLBACK_LANGUAGE,
     BOARD_LANGUAGES,
     BOARD_LANGUAGE_GROUP_ID_BASE,
     BOARD_LANGUAGE_GROUP_PREFIX,
     BOARD_MESSAGE_TEXT_ID_BASE,
     BOARD_THEME_GROUP_ID_BASE,
+    BOARD_THEME_ID_SPAN,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
-    DEFAULT_CHAT_THEME_DESCRIPTION,
-    DEFAULT_CHAT_THEME_NAME,
     EMPTY_CHAT_GROUP_KEEP_SECONDS,
     FIRST_GAME_GROUP_ID,
     FIRST_PRINTABLE_CHARACTER,
@@ -49,13 +48,17 @@ from s3lobby.constants import (
     GROUP_UPDATE_BURST,
     HOME_GROUP_ID,
     JOINED_GROUP_PARENT_ID,
+    KICK_REASON_READING_SECONDS,
     LADDER_NOT_SUPPORTED_TEXT,
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
+    MAX_BOARD_THEMES_PER_LANGUAGE,
     MAX_CHAT_COMMAND_LENGTH,
     MAX_OPEN_GROUPS_PER_PLAYER,
+    MAX_REMEMBERED_GAME_LANGUAGES,
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
+    NEWS_AUDIENCE_GERMAN,
     NEWS_TEXT_ID_BY_AUDIENCE,
     NO_BANNER_ID,
     PASSWORD_CHAT_GROUP_PARENT_ID,
@@ -73,6 +76,8 @@ from s3lobby.constants import (
 )
 from s3lobby.commands import ChatCommands, fit_answer
 from s3lobby.database import (
+    BUILT_IN_CHAT_THEMES,
+    MAX_CHAT_THEME_ID,
     Clan,
     DatabaseError,
     LobbyDatabase,
@@ -89,11 +94,15 @@ from s3lobby.groups import (
     game_row_colour,
     is_ladder_game,
     kind_of_new_group,
+    ladder_type_of,
     room_announcement,
     stored_game_announcement,
     with_real_host_address,
 )
 from s3lobby.guards import RateLimiter, ThrottledLogger
+from s3lobby.ladder import report_can_count
+from s3lobby.ladder_book import LadderBook
+from s3lobby.ladder_texts import ENGLISH, GERMAN, LADDER_EVENT_MAX_AGE, LadderWriter, text_size
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
 from s3lobby.messages import (
@@ -148,6 +157,10 @@ class LobbyOutbox(Protocol):
     def close_connection(self, client_address: Address) -> None:
         """Close the connection to a client, as for a kick."""
 
+    def close_connection_later(self, client_address: Address, delay_seconds: float) -> None:
+        """Close the connection to a client after a while, unless the client has opened a new one
+        by then."""
+
     def player_logged_on(self, client_address: Address) -> None:
         """Tell the network side that the client at this address is now a logged on player."""
 
@@ -178,7 +191,9 @@ class Player:
     visible_groups: set[VisibleGroup] = field(default_factory=set)
     # The chat theme the player was in last; a chat group with a password is listed there.
     last_chat_theme_id: int | None = None
-    has_heard_board_chat_hint: bool = False
+    # The language the game reported in its patch check (a name from GAME_LANGUAGES); None when the
+    # lobby saw no patch check from this address, and then every chat theme is shown.
+    game_language: str | None = None
 
 
 class Lobby:
@@ -193,12 +208,20 @@ class Lobby:
         self._outbox = outbox
         self._database = database
         self._logon_check = LogonCheck(database, is_development_mode=is_development_mode)
+        self._ladder_book = LadderBook(database)
+        self._ladder_writer = LadderWriter(database, self._ladder_book)
         self._chat_commands = ChatCommands(
             database, self._online_player_names, self.announce, self.kick_player, outbox.reachability_of
         )
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
+        # The database id of the theme each board theme group shows (the group id holds its place,
+        # see board_theme_group_id).
+        self._board_theme_of_group: dict[int, int] = {}
+        # The language each address's game reported in its patch check, oldest first, for the
+        # player who logs on from there (see MAX_REMEMBERED_GAME_LANGUAGES).
+        self._game_language_by_address: dict[Address, str] = {}
         self._next_player_group_id = FIRST_GAME_GROUP_ID
         self._wrong_group_passwords = RateLimiter(WRONG_GROUP_PASSWORDS_PER_SECOND, WRONG_GROUP_PASSWORD_BURST)
         self._group_updates = RateLimiter(GROUP_UPDATES_PER_SECOND, GROUP_UPDATE_BURST)
@@ -286,9 +309,28 @@ class Lobby:
         return len(players)
 
     def send_pending_announcements(self) -> None:
-        """Send what another process (the command line, a web interface) queued in the database."""
-        for text in self._database.take_pending_announcements():
-            self.announce(text)
+        """Send what another process (the command line, a web interface) queued in the database:
+        lines for every player, and lines for one player, who gets them only while online."""
+        for line in self._database.take_pending_lines():
+            if line.account_id is None:
+                reached_count = self.announce(line.text)
+            else:
+                reached_count = self.tell_player(line.account_id, line.text)
+            self._do_bookkeeping(
+                "noting whom a line reached",
+                lambda: self._database.record_announcement_reach(line.announcement_id, reached_count),
+            )
+
+    def tell_player(self, player_id: int, text: str) -> int:
+        """Send a server line to one player; returns 1 when they are online and got it, else 0."""
+        player = self._players_by_id.get(player_id)
+        if player is None:
+            log.info("line for player %d not sent: not online", player_id)
+            return 0
+        message = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([text]))
+        self._outbox.send(player.address, message)
+        log.info("told player %d %r: %r", player.player_id, player.name, text)
+        return 1
 
     def is_logged_on(self, client_address: Address) -> bool:
         """True when a player is logged on from this address."""
@@ -313,7 +355,11 @@ class Lobby:
         log.info("player %d %r removed from the lobby: %s", player.player_id, player.name, reason)
         address = player.address
         self.forget_client(address)
-        self._outbox.close_connection(address)
+        # The others see the player leave at once, but the connection stays a few seconds: closed at
+        # once, the game jumps straight to "The connection to the lobby server dropped." and back to
+        # its menu, and nobody could read the reason in the chat (seen in a run: a ban's reason
+        # never showed).
+        self._outbox.close_connection_later(address, KICK_REASON_READING_SECONDS)
         return True
 
     def live_state(self) -> LiveLobbyState:
@@ -372,7 +418,19 @@ class Lobby:
             request.edition,
             request.language_name,
         )
+        self._remember_game_language(client_address, request.language_name)
         self._outbox.send(client_address, Result(ResultCode.NO_PATCH_NEEDED))
+
+    def _remember_game_language(self, client_address: Address, language: str) -> None:
+        """Keep the language a game reported for the logon that follows from the same address; the
+        oldest address is forgotten beyond MAX_REMEMBERED_GAME_LANGUAGES, so forged patch checks
+        cannot grow the memory without bound."""
+        # Taken out first, so the address moves to the end: a dict keeps the order of insertion.
+        self._game_language_by_address.pop(client_address, None)
+        self._game_language_by_address[client_address] = language
+        if len(self._game_language_by_address) > MAX_REMEMBERED_GAME_LANGUAGES:
+            oldest_address = next(iter(self._game_language_by_address))
+            del self._game_language_by_address[oldest_address]
 
     def _answer_lobby_server_list(self, client_address: Address, message: RawMessage) -> None:
         """GetLobbyServerList: answered with a list that holds only this server."""
@@ -423,6 +481,7 @@ class Lobby:
         welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
         if welcome_message:
             self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
+        self._do_bookkeeping("telling a player about the ladder", lambda: self._tell_ladder_at_logon(player))
         # Only an accepted logon gets the network side's extra work (the reachability probe, a
         # forwarded port on the router); a refused one has returned above.
         self._outbox.player_logged_on(client_address)
@@ -443,6 +502,7 @@ class Lobby:
             is_admin=account.is_admin,
             session_id=session_id,
             shown_clan=decision.shown_clan,
+            game_language=self._game_language_by_address.get(client_address),
         )
         self._players_by_address[client_address] = player
         self._players_by_id[player.player_id] = player
@@ -574,7 +634,11 @@ class Lobby:
             group.game_record_id = self._do_bookkeeping(
                 "recording the game's opening",
                 lambda: self._database.record_game_opened(
-                    readable_text(announcement.name), player.player_id, group_id, stored_game_announcement(announcement)
+                    readable_text(announcement.name),
+                    player.player_id,
+                    group_id,
+                    stored_game_announcement(announcement),
+                    ladder_type_of(announcement),
                 ),
             )
             self._send_statistics_to_home()
@@ -732,15 +796,35 @@ class Lobby:
         for audience, news_text_id in NEWS_TEXT_ID_BY_AUDIENCE.items():
             news = self._database.find_news(audience)
             if text_id == news_text_id and news is not None:
-                return text_message(text_id, news.title, news.body)
+                return text_message(text_id, news.title, self._news_with_ladder(news.title, news.body, audience))
         # Board texts are numbered from BOARD_MESSAGE_TEXT_ID_BASE up: the base plus the message's
         # database id (see _send_board_message_ids).
         if text_id >= BOARD_MESSAGE_TEXT_ID_BASE:
             board_message = self._database.find_board_message(text_id - BOARD_MESSAGE_TEXT_ID_BASE)
-            if board_message is not None:
+            if board_message is not None and not board_message.is_hidden:
                 byline = f"{board_message.author or self._server_name}, {board_message.posted_at:%Y-%m-%d}"
                 return text_message(text_id, board_message.title, f"{byline}\n\n{board_message.body}")
         return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
+
+    def _news_with_ladder(self, title: str, body: str, audience: str) -> str:
+        """The admins' news, and under it the ladder's standings while the ladder is on (setting
+        ladder_news_standings). The admins' text is never cut: the ladder block loses lines from its
+        end until both fit the game's limit."""
+        is_wanted = self._is_ladder_enabled() and self._database.get_boolean_setting(Setting.LADDER_NEWS_STANDINGS)
+        if not is_wanted:
+            return body
+        language = GERMAN if audience == NEWS_AUDIENCE_GERMAN else ENGLISH
+        block = self._do_bookkeeping(
+            "adding the ladder to the news", lambda: self._ladder_writer.texts.news_lines(language)
+        )
+        if not block:
+            return body
+        news_lines = body.splitlines()
+        while block and text_size(title, [*news_lines, "", *block]) > MAX_TEXT_MESSAGE_BYTES:
+            block.pop()
+        if not block:
+            return body
+        return "\n".join([*news_lines, "", *block])
 
     def _store_game_status(self, client_address: Address, message: RawMessage) -> None:
         """A client reports on its match, once at the start and once when a single team is left
@@ -777,9 +861,14 @@ class Lobby:
             status.game_time,
         )
         result_code = ResultCode.GAME_STATUS_STORED
-        if status.is_ladder_game:
-            # Stored like any report, but the game must not take it for a ranked ladder result: it
-            # shows "Game not valid for ladder." during the match (0x540b89).
+        if status.is_ladder_game and not self._is_ladder_enabled():
+            # Stored and evaluated like any report, but until the admins switch the ladder on the
+            # game must not take it for a ranked result: it shows "Game not valid for ladder."
+            # during the match (0x540b89).
+            result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
+        elif status.is_ladder_game and not report_can_count(status):
+            # A report that can never count (computer opponents, the game's own invalid mark) is
+            # told so at once; whether a good one counts is decided once every report is in.
             result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
         self._outbox.send(client_address, Result(result_code))
 
@@ -789,8 +878,10 @@ class Lobby:
         if game_record_id is None:
             return
         announcement = stored_game_announcement(group.announcement)
+        ladder_type = ladder_type_of(group.announcement)
         self._do_bookkeeping(
-            "recording the game's setup", lambda: self._database.record_game_announcement(game_record_id, announcement)
+            "recording the game's setup",
+            lambda: self._database.record_game_announcement(game_record_id, announcement, ladder_type),
         )
 
     def _record_game_player(self, group: Group, player: Player) -> None:
@@ -799,9 +890,83 @@ class Lobby:
         if game_record_id is None or player.player_id in group.recorded_player_ids:
             return
         group.recorded_player_ids.add(player.player_id)
+        # The ladder needs the clan the player shows now (Clanliga) and which copy of the game it
+        # plays (two copies of one installation never count against each other).
+        clan_id = player.shown_clan.clan_id if player.shown_clan is not None else None
+        installation = group.installation_of(player.serial_number)
         self._do_bookkeeping(
-            "recording a game's player", lambda: self._database.record_game_player(game_record_id, player.player_id)
+            "recording a game's player",
+            lambda: self._database.record_game_player(game_record_id, player.player_id, clan_id, installation),
         )
+
+    def evaluate_ladder_games(self) -> None:
+        """Turn ladder games whose reports are in (or whose time ran out) into results. The games
+        this server still has open are passed on, so a game left open by an earlier run of the
+        server can be told apart from one still being played."""
+        open_game_ids = [
+            group.game_record_id
+            for group in self._groups.values()
+            if group.kind == GroupKind.GAME and group.game_record_id is not None
+        ]
+        stored = self._ladder_book.evaluate_waiting_games(open_game_ids)
+        if not stored or not self._is_ladder_enabled():
+            return
+        # The players of each decided game who are online hear how it ended, as a server line: the
+        # game itself has no place to show a ladder result after the match.
+        for decided in stored:
+            account_ids = {player.account_id for player in decided.evaluation.players}
+            if not account_ids:
+                account_ids = {
+                    player.account_id
+                    for player in self._database.list_game_players(decided.evaluation.game_id)
+                    if player.account_id is not None
+                }
+            lines = self._ladder_book.match_lines(decided.evaluation, decided.game_name)
+            if not lines:
+                continue
+            answer = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer(lines))
+            for account_id in account_ids:
+                player = self._players_by_id.get(account_id)
+                if player is not None:
+                    self._outbox.send(player.address, answer)
+
+    def write_ladder_texts(self) -> None:
+        """Write the ladder's board texts that are due (season starts and ends, the weekly
+        summary) and announce a season's end to everyone online. Only while the ladder is on:
+        with it off the game is told that nothing is ranked."""
+        if not self._is_ladder_enabled():
+            return
+        written = self._ladder_writer.run()
+        for text in written.announcements:
+            self.announce(text)
+
+    def _tell_ladder_at_logon(self, player: Player) -> None:
+        """At logon, while the ladder is on: the player's place (setting ladder_logon_line), and how
+        an admin decided a disputed game of theirs since, once per decision."""
+        if not self._is_ladder_enabled():
+            return
+        lines = []
+        if self._database.get_boolean_setting(Setting.LADDER_LOGON_LINE):
+            place_line = self._ladder_writer.texts.logon_line(player.player_id)
+            if place_line is not None:
+                lines.append(place_line)
+        since = self._database.now() - LADDER_EVENT_MAX_AGE
+        for record in self._ladder_book.results():
+            # Only an admin's decisions, recent ones, and only for the player's own games.
+            is_admin_decision = bool(record.decided_by_name) and record.decided_at >= since
+            is_players_game = any(item.account_id == player.player_id for item in record.evaluation.players)
+            if not is_admin_decision or not is_players_game:
+                continue
+            # The result's row id is new with every decision, so a changed decision is told again.
+            if self._database.record_ladder_event(f"told-decision:{record.result_id}:{player.player_id}"):
+                lines.append(self._ladder_writer.texts.decision_line(record.evaluation, record.game_name))
+        if lines:
+            self._outbox.send(player.address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer(lines)))
+
+    def _is_ladder_enabled(self) -> bool:
+        """Whether the admins switched the ladder on (setting ladder_enabled): only then does the
+        game hear that a ladder report was stored, and players how their match counted."""
+        return self._database.get_boolean_setting(Setting.LADDER_ENABLED)
 
     def _online_player_names(self) -> list[str]:
         """The names of everyone logged on, for the chat commands."""
@@ -844,20 +1009,10 @@ class Lobby:
         self._send_counters_to_viewers(group)
         if group.group_id == HOME_GROUP_ID:
             self._send_home_page(player)
-        if group.group_id == MESSAGE_ZONE_GROUP_ID:
-            self._tell_about_board_chat(player)
         if is_board_theme_group(group.group_id):
-            self._send_board_message_ids(player, group.group_id - BOARD_THEME_GROUP_ID_BASE)
-
-    def _tell_about_board_chat(self, player: Player) -> None:
-        """Once per logon, when the setting asks for it: chat typed on the message board reaches
-        nobody (see BOARD_CHAT_HINT_TEXT)."""
-        if player.has_heard_board_chat_hint:
-            return
-        if not self._database.get_boolean_setting(Setting.BOARD_CHAT_HINT):
-            return
-        player.has_heard_board_chat_hint = True
-        self._outbox.send(player.address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([BOARD_CHAT_HINT_TEXT])))
+            theme_id = self._board_theme_of_group.get(group.group_id)
+            if theme_id is not None:
+                self._send_board_message_ids(player, group.group_id, theme_id)
 
     def _tell_about_ladder(self, group: Group, players: Iterable[Player]) -> None:
         """Blue Byte's server ranked ladder games; this one keeps no ladder, so a ladder game
@@ -865,7 +1020,8 @@ class Lobby:
         a server line: the host when opening it or when turning it into one during the setup, a
         joiner when joining."""
         is_ladder = group.kind == GroupKind.GAME and is_ladder_game(group.announcement)
-        if not is_ladder:
+        # With the ladder switched on, ladder games are ranked, so there is nothing to warn about.
+        if not is_ladder or self._is_ladder_enabled():
             return
         line = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([LADDER_NOT_SUPPORTED_TEXT]))
         for player in players:
@@ -1028,9 +1184,17 @@ class Lobby:
         log.info("%s %d %r closed", group.kind.value, group.group_id, group.announcement.name)
 
     def _show_group(self, player: Player, group: Group, parent_id: int) -> None:
-        """Show a group inside a parent to one player, unless the player already sees it there."""
+        """Show a group inside a parent to one player, unless the player already sees it there or
+        the group is a chat theme for the games of another language."""
         visible = (parent_id, group.group_id)
         if visible in player.visible_groups:
+            return
+        is_for_other_language = (
+            group.language != ALL_LANGUAGES
+            and player.game_language is not None
+            and group.language != player.game_language
+        )
+        if is_for_other_language:
             return
         player.visible_groups.add(visible)
         self._outbox.send(player.address, group.announcement.under_parent(parent_id))
@@ -1075,27 +1239,28 @@ class Lobby:
 
     def _sync_chat_themes(self) -> None:
         """Bring the chat theme groups listed in ChatZone in line with the database: themes added
-        while the server runs appear, removed ones disappear once nobody is in them. With no theme
-        configured a default one is offered, since players open chat groups inside a theme."""
+        while the server runs appear, removed ones disappear once nobody is in them. General is
+        always listed, since the game joins the theme it was in last as soon as the tab opens."""
         chat_zone = self._groups[CHAT_ZONE_GROUP_ID]
         wanted = {}
+        for built_in in BUILT_IN_CHAT_THEMES:
+            wanted[built_in.group_id] = (built_in.name, built_in.description, ALL_LANGUAGES)
         for theme in self._database.list_chat_themes():
-            wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description)
-        # The default theme takes the base id itself: generated database ids start at 1, so a theme
-        # added later never gets the id of a default theme that still has players in it.
-        if not wanted:
-            wanted[CHAT_THEME_GROUP_ID_BASE] = (DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION)
+            if theme.theme_id > MAX_CHAT_THEME_ID:
+                log.warning("chat theme %d %r not listed: its id is beyond the chat theme range", theme.theme_id, theme.name)
+                continue
+            wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description, theme.language)
 
         for group in self._groups_listed_in(CHAT_ZONE_GROUP_ID):
             is_removed = group.group_id not in wanted
             if is_removed and not group.member_ids:
                 self._unlist_group_from(group, CHAT_ZONE_GROUP_ID)
                 self._groups.pop(group.group_id, None)
-        for group_id, (name, description) in wanted.items():
+        for group_id, (name, description, language) in wanted.items():
             if group_id in self._groups:
                 continue
             announcement = room_announcement(group_id, name, description_text=description)
-            theme = Group(announcement=announcement, kind=GroupKind.ROOM)
+            theme = Group(announcement=announcement, kind=GroupKind.ROOM, language=language)
             self._groups[group_id] = theme
             self._list_group_in(theme, chat_zone)
 
@@ -1105,7 +1270,7 @@ class Lobby:
         """List one group per language that has board themes, named as the client looks for them
         ("MessageThemes" + language), and always the English one the client falls back to."""
         message_zone = self._groups[MESSAGE_ZONE_GROUP_ID]
-        languages_with_themes = {theme.language for theme in self._database.list_board_themes()}
+        languages_with_themes = {theme.language for theme in self._database.list_board_themes() if not theme.is_hidden}
         languages_with_themes.add(BOARD_FALLBACK_LANGUAGE)
         # A language group's id is its position in BOARD_LANGUAGES, so it never depends on the
         # database. Language groups are only ever added, never unlisted.
@@ -1118,31 +1283,44 @@ class Lobby:
                 self._list_group_in(language_group, message_zone)
 
     def _sync_board_themes(self, language: str) -> None:
-        """List the board themes of one language in its language group; themes removed from the
-        database disappear once nobody is in them."""
-        language_group_id = BOARD_LANGUAGE_GROUP_ID_BASE + BOARD_LANGUAGES.index(language)
+        """List the board themes of one language in its language group, in the board's order: the
+        game sorts them by group id, so each theme's group id holds its place (board_theme_group_id).
+        Themes removed, hidden or moved get their old group taken away once nobody is in it; a
+        moved theme whose old group still has players keeps that group until it empties."""
+        language_index = BOARD_LANGUAGES.index(language)
+        language_group_id = BOARD_LANGUAGE_GROUP_ID_BASE + language_index
         language_group = self._groups[language_group_id]
         wanted = {}
-        for theme in self._database.list_board_themes():
-            if theme.language == language:
-                wanted[BOARD_THEME_GROUP_ID_BASE + theme.theme_id] = theme
+        # list_board_themes gives the board's order; a hidden theme counts as gone for the game.
+        visible_themes = [
+            theme for theme in self._database.list_board_themes() if theme.language == language and not theme.is_hidden
+        ]
+        for rank, theme in enumerate(visible_themes[:MAX_BOARD_THEMES_PER_LANGUAGE]):
+            wanted[board_theme_group_id(language_index, rank, theme.theme_id)] = theme
+        themes_kept_in_old_groups = set()
         for group in self._groups_listed_in(language_group_id):
-            if group.group_id not in wanted and not group.member_ids:
-                self._unlist_group_from(group, language_group_id)
-                self._groups.pop(group.group_id, None)
-        for group_id, theme in wanted.items():
-            if group_id in self._groups:
+            if group.group_id in wanted:
                 continue
+            if group.member_ids:
+                themes_kept_in_old_groups.add(self._board_theme_of_group.get(group.group_id))
+                continue
+            self._unlist_group_from(group, language_group_id)
+            self._groups.pop(group.group_id, None)
+            self._board_theme_of_group.pop(group.group_id, None)
+        for group_id, theme in wanted.items():
+            if group_id in self._groups or theme.theme_id in themes_kept_in_old_groups:
+                continue
+            self._board_theme_of_group[group_id] = theme.theme_id
             announcement = room_announcement(group_id, theme.name, description_text=theme.description)
             theme_group = Group(announcement=announcement, kind=GroupKind.ROOM)
             self._groups[group_id] = theme_group
             self._list_group_in(theme_group, language_group)
 
-    def _send_board_message_ids(self, player: Player, theme_id: int) -> None:
-        """The ids of a theme's messages; the client asks for each text when it shows it."""
-        messages = self._database.list_board_messages(theme_id)
+    def _send_board_message_ids(self, player: Player, group_id: int, theme_id: int) -> None:
+        """The ids of a theme's messages, in the board's order (the game keeps the list as it
+        arrives, CGroup.SetIdList 0x5dbe30); the client asks for each text when it shows it."""
+        messages = [message for message in self._database.list_board_messages(theme_id) if not message.is_hidden]
         text_ids = tuple(BOARD_MESSAGE_TEXT_ID_BASE + message.message_id for message in messages)
-        group_id = BOARD_THEME_GROUP_ID_BASE + theme_id
         self._outbox.send(player.address, TextIdList(group_id=group_id, text_ids=text_ids))
 
     # Built-in groups and lookups.
@@ -1278,6 +1456,13 @@ def language_of_board_group(group_id: int) -> str:
 def is_chat_theme_group(group_id: int) -> bool:
     """True for the id of a chat theme, the range below the board language groups."""
     return CHAT_THEME_GROUP_ID_BASE <= group_id < BOARD_LANGUAGE_GROUP_ID_BASE
+
+
+def board_theme_group_id(language_index: int, rank: int, theme_id: int) -> int:
+    """The group id of a board theme at a place in its language (see BOARD_THEME_ID_SPAN): lower for
+    a higher place, since the game lists groups by ascending id."""
+    slot = language_index * MAX_BOARD_THEMES_PER_LANGUAGE + rank
+    return BOARD_THEME_GROUP_ID_BASE + slot * BOARD_THEME_ID_SPAN + theme_id % BOARD_THEME_ID_SPAN
 
 
 def is_board_theme_group(group_id: int) -> bool:
