@@ -572,5 +572,12 @@ MAX_CHAT_COMMAND_LENGTH = 256
 # lines the chat window shows; 256 characters stay within its line cap.
 MAX_ANNOUNCEMENT_LENGTH = 256
 
+# A chat group whose last member left stays open this long, and as long as a game opened in it is
+# open. A player who opens a game inside a chat group leaves the group in the same block (seen in a
+# run) and, back from the game setup, joins it again (0x451160 joins the channel kept at LM+0xc98).
+# A group closed meanwhile answers that join with Result 0xb, whose dialog Wine does not show over
+# the full screen game: it waited unseen, and the screen stayed frozen (seen in a run).
+EMPTY_CHAT_GROUP_KEEP_SECONDS = 120.0
+
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4

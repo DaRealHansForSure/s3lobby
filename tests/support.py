@@ -73,6 +73,11 @@ SIZE_THE_CLIENT_ASSERTS = {
 }
 
 
+async def run_now(action: Callable[[], None]) -> None:
+    """Run a plain function on the server's event loop, where the lobby lives."""
+    action()
+
+
 class BackgroundServer:
     """Runs a LobbyServer on its own event loop in a thread, for tests that talk to it over UDP.
 
@@ -113,6 +118,13 @@ class BackgroundServer:
     @property
     def address(self) -> Address:
         return self._server.bound_address
+
+    def close_abandoned_chat_groups(self, seconds_from_now: float) -> None:
+        """Run the server's chat group housekeeping as if seconds_from_now had passed."""
+        future = asyncio.run_coroutine_threadsafe(
+            run_now(lambda: self._server.close_abandoned_chat_groups(seconds_from_now)), self._loop
+        )
+        future.result(timeout=SERVER_START_TIMEOUT_SECONDS)
 
 
 class FakeGameClient:

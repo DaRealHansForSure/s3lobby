@@ -122,6 +122,11 @@ class LobbyServer(asyncio.DatagramProtocol):
         host, port = self._transport.get_extra_info("sockname")[:2]
         return (host, port)
 
+    def close_abandoned_chat_groups(self, seconds_from_now: float = 0.0) -> None:
+        """Close the chat groups that stayed empty long enough; tests look ahead with
+        seconds_from_now instead of waiting."""
+        self._lobby.close_abandoned_chat_groups(time.monotonic() + seconds_from_now)
+
     # asyncio.DatagramProtocol
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -321,6 +326,7 @@ class LobbyServer(asyncio.DatagramProtocol):
                 last_announcement_poll_seconds = time.monotonic()
                 self._run_guarded("sending announcements", self._lobby.send_pending_announcements)
                 self._run_guarded("carrying out kicks", self._lobby.carry_out_pending_kicks)
+                self._run_guarded("closing abandoned chat groups", self.close_abandoned_chat_groups)
             if time.monotonic() - last_live_state_check_seconds >= LIVE_STATE_WRITE_INTERVAL_SECONDS:
                 last_live_state_check_seconds = time.monotonic()
                 self._run_guarded(

@@ -11,6 +11,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - A player who opens a chat group or a game is told its id (Result 0xc), as the game expects:
   the chat group is their channel at once, so chat, whisper and new games work without leaving
   and joining again, and the game setup's updates name the game.
+- A chat group whose last player left stays open for two minutes, and as long as a game opened
+  in it is open: the game leaves the chat group when its player opens a game there and joins it
+  again on the way back, and found it closed (under Wine the screen then froze).
 
 ### Added
 

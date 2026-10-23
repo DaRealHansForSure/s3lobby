@@ -460,6 +460,14 @@ channel's group id (LM.SendChat 0x454140 sends to LM+0x490), so the server answe
 with Result 0xc, value = its id, after the group (parent 0) and the creator's member entry; the
 screen then takes it as its channel (0x452577). Without it the channel stayed without name and
 members and nothing worked until the player left and joined the group again (seen in a run).
+
+A player who opens a game inside a chat group ("Erzeuge Spiel") leaves the chat group in the
+same block (seen in a run). Leaving zone 3 keeps the channel (0x451ee0), and back from the game
+setup the client joins it again (SwitchZone 3 with an empty group joins the kept one, 0x451160).
+When that group no longer exists the answer is Result 0xb and its dialog; under Wine the dialog
+did not show over the full screen game and the screen stayed frozen (seen in a run). So s3lobby
+keeps an empty chat group open while a game opened in it is open and two minutes after that
+(*inferred*: what Blue Byte's server did is unknown).
 Without any theme listed, players cannot open chat groups at all.
 
 ### The MessageZone tab

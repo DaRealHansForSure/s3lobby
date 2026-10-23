@@ -59,6 +59,8 @@ class Group:
     password: str = ""
     creator_player_id: int | None = None
     game_record_id: int | None = None
+    # When the last member of a chat group left (time.monotonic()); None while it has members.
+    empty_since_seconds: float | None = None
     # Players of a ladder game who were told that this server keeps no ladder (each hears it once).
     ladder_notice_player_ids: set[int] = field(default_factory=set)
 
