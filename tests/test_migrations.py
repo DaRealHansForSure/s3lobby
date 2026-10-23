@@ -154,6 +154,15 @@ class CopyTest(unittest.TestCase):
         self.addCleanup(self.source.close)
         self.addCleanup(self.target.close)
 
+    def test_copy_replaces_the_starting_chat_themes_of_the_target(self) -> None:
+        """A new target already holds the chat themes migration 0014 adds; the copy must still be
+        allowed, and the target ends with the source's themes, a removed one staying removed."""
+        beginners = next(theme for theme in self.source.list_chat_themes() if theme.name == "Beginners")
+        self.source.delete_chat_theme(beginners.theme_id)
+        self.source.add_chat_theme("Tactics")
+        self.source.copy_to(self.target)
+        self.assertEqual(self.target.list_chat_themes(), self.source.list_chat_themes())
+
     def test_copy_keeps_every_row_and_its_id(self) -> None:
         """A copy carries every table with its row ids, gaps included, since the rows refer to each other by
         id; new rows in the target then continue after the copied ids."""

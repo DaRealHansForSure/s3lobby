@@ -87,6 +87,10 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "web_sessions",
 )
 
+# Tables a migration fills with starting rows in every new database (0014: the default chat
+# themes). A copy replaces them in its target instead of refusing it as not empty.
+TABLES_SEEDED_BY_MIGRATIONS = ("chat_themes",)
+
 # Shown for a game's player whose account was deleted since.
 DELETED_ACCOUNT_NAME = "(deleted account)"
 # The ladder states a result is stored in; WAITING is not a result.
@@ -764,17 +768,27 @@ class LobbyDatabase:
     def copy_to(self, target: LobbyDatabase) -> dict[str, int]:
         """Copy every row into target, which must be empty and at the same schema version; ids
         are kept, so every reference stays intact. Returns the rows copied per table. This moves a
-        lobby from SQLite to MySQL or back; no server may write to either database meanwhile."""
+        lobby from SQLite to MySQL or back; no server may write to either database meanwhile.
+        The starting rows a migration puts into a new database (TABLES_SEEDED_BY_MIGRATIONS) do
+        not count as content: the source's rows replace them."""
         if target.schema_version != self.schema_version:
             raise DatabaseError(
                 f"the target has schema version {target.schema_version}, the source {self.schema_version}"
             )
-        tables_with_rows = [table for table in TABLES_IN_DEPENDENCY_ORDER if target._has_rows(table)]
+        tables_with_rows = [
+            table
+            for table in TABLES_IN_DEPENDENCY_ORDER
+            if table not in TABLES_SEEDED_BY_MIGRATIONS and target._has_rows(table)
+        ]
         if tables_with_rows:
             raise DatabaseError(f"the target is not empty: {', '.join(tables_with_rows)} already hold rows")
         copied_rows = {}
         # One transaction on the target: a copy that fails halfway leaves it empty, ready for another try.
         with target._backend.transaction():
+            # The target is otherwise empty, so these rows are only what its migrations put there;
+            # the source has its own, kept or changed by its admins.
+            for table in TABLES_SEEDED_BY_MIGRATIONS:
+                target._backend.execute(f"DELETE FROM {table}")
             for table in TABLES_IN_DEPENDENCY_ORDER:
                 # ORDER BY 1 sorts by the first column, the id in most tables, so rows arrive in the
                 # order they were made and the copy is the same on every run.

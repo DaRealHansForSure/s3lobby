@@ -70,6 +70,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
+- `s3lobby database copy` accepts a new target again: the chat themes a new database starts
+  with no longer count as content and are replaced by the source's.
 - "General" stays on the ChatZone tab when admins add their own themes. The game joins the theme
   it was in last as soon as the tab opens, and failed with "Der Wechsel in die Gruppe hat nicht
   geklappt" once General was gone (seen in a run). It can no longer be added a second time.
