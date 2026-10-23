@@ -33,6 +33,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   and links each report to its game.
 - A page for each game (`/games/ID`): when it was opened, started, decided and closed, the winners,
   the teams with slot, race and lobby id, the setup, who joined when, and every report.
+  Players link to their account page while the account exists, with its id.
+- Each account page lists the games the account joined, with its team, race and result.
 
 ### Changed
 

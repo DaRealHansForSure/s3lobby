@@ -69,6 +69,39 @@
 </section>
 
 <section>
+  <div class="section-head">
+    <h2>Games</h2>
+    <p>The games {{ account.name }} joined, newest first, with team, race and result from the match's last report.</p>
+  </div>
+  {% if games %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Game</th><th>Host</th><th>Opened</th><th class="num">Team</th><th>Race</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for game in games %}
+        <tr>
+          <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
+          <td>{{ game.host_name or "-" }}</td>
+          <td class="cell-time">{{ game.opened_at | moment }}</td>
+          <td class="num">{% if game.team is not none %}{{ game.team }}{% else %}<span class="muted">-</span>{% endif %}</td>
+          <td>{{ game.race or "-" }}</td>
+          <td>
+            {% if game.result == "won" %}<span class="badge badge--good">won</span>
+            {%- elif game.result == "lost" %}<span class="badge badge--bad">lost</span>
+            {%- elif game.result %}<span class="muted">{{ game.result }}</span>
+            {%- else %}<span class="muted">not played</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No games recorded for {{ account.name }} yet.</p>
+  {% endif %}
+</section>
+
+<section>
   <div class="section-head"><h2>Clan and rights</h2></div>
   <div class="grid">
     <form class="card" method="post" action="{{ url_for('accounts.set_clan', account_id=account.account_id) }}">

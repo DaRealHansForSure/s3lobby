@@ -500,14 +500,31 @@ class GameDetailPageTest(WebInterfaceTestCase):
             f"won by {ADMIN_NAME}",
             "Team 0 won",
             "at game time 107",
-            f"<td>{PLAYER_NAME}</td>",
+            f'<a href="/accounts/{self.player.account_id}">{PLAYER_NAME}</a>',
+            f'<td class="num">{self.player.account_id}</td>',
             "race drawn at random",
             "Normal game",
-            f"<td>{PLAYER_NAME}</td><td>",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, page)
         self.assertEqual(page.count("Download"), 2)
+
+    def test_deleted_account_keeps_its_place_without_a_link(self) -> None:
+        """A game outlives its players' accounts; the page names the gap instead of a dead link."""
+        game_id = self.record_two_player_match()
+        self.database.delete_account(self.player.account_id)
+        page = self.client.get(f"/games/{game_id}").get_data(as_text=True)
+        self.assertNotIn(f'href="/accounts/{self.player.account_id}"', page)
+        self.assertIn("(deleted account)", page)
+
+    def test_account_page_lists_its_games_with_team_and_result(self) -> None:
+        game_id = self.record_two_player_match()
+        page = self.client.get(f"/accounts/{self.player.account_id}").get_data(as_text=True)
+        self.assertIn(f'href="/games/{game_id}"', page)
+        self.assertIn('<span class="badge badge--bad">lost</span>', page)
+        self.assertIn("Romans", page)
+        winner_page = self.client.get(f"/accounts/{self.admin.account_id}").get_data(as_text=True)
+        self.assertIn('<span class="badge badge--good">won</span>', winner_page)
 
     def test_unknown_game_is_not_found(self) -> None:
         self.assertEqual(self.client.get("/games/999").status_code, HTTP_NOT_FOUND)

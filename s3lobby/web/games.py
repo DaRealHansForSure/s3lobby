@@ -36,6 +36,8 @@ blueprint = Blueprint("games", __name__)
 blueprint.before_request(redirect_visitors_to_logon)
 
 RECENT_GAME_COUNT = 100
+# Games listed on an account's page, newest first.
+ACCOUNT_GAME_COUNT = 50
 RECENT_REPORT_COUNT = 100
 REPORT_CONTENT_TYPE = "application/octet-stream"
 RACE_NAMES = {
@@ -82,6 +84,8 @@ class ReportPlayerRow:
     race: str
     lobby_player_id: int
     notes: tuple[str, ...] = ()
+    # The account of the slot's player, when it still exists (the lobby id is the account id).
+    account_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,63 @@ class TeamRow:
     team: int
     players: tuple[ReportPlayerRow, ...]
     has_won: bool
+
+
+@dataclass(frozen=True)
+class AccountGameRow:
+    """A game one account joined, as its account page lists it. team, race and result come from
+    the match's last report and are empty for a game whose match was not played."""
+
+    game_id: int
+    name: str
+    host_name: str
+    opened_at: datetime
+    team: int | None = None
+    race: str = ""
+    result: str = ""
+
+
+def games_of_account(account_id: int) -> list[AccountGameRow]:
+    """The games an account joined, with its own team, race and result in each."""
+    database = get_database()
+    account_names = {account.account_id: account.name for account in database.list_accounts()}
+    games = database.list_games_of_account(account_id, ACCOUNT_GAME_COUNT)
+    reports = [
+        describe_report(report, account_names, {})
+        for report in database.list_reports_of_games([game.game_id for game in games])
+    ]
+    rows = []
+    for game in games:
+        own_reports = [report for report in reports if report.game_id == game.game_id and report.is_readable]
+        rows.append(account_game_row(game, own_reports, account_id))
+    return rows
+
+
+def account_game_row(game: GameRecord, reports: list[ReportRow], account_id: int) -> AccountGameRow:
+    row = AccountGameRow(game_id=game.game_id, name=game.name, host_name=game.host_name, opened_at=game.opened_at)
+    if not reports:
+        return row
+    final_report = reports[-1]
+    own_slot = None
+    for player in final_report.players:
+        if player.lobby_player_id == account_id:
+            own_slot = player
+    if own_slot is None:
+        return row
+    result = "no winner reported"
+    if final_report.winning_team is not None and own_slot.team == final_report.winning_team:
+        result = "won"
+    elif final_report.winning_team is not None:
+        result = "lost"
+    return AccountGameRow(
+        game_id=row.game_id,
+        name=row.name,
+        host_name=row.host_name,
+        opened_at=row.opened_at,
+        team=own_slot.team,
+        race=own_slot.race,
+        result=result,
+    )
 
 
 @blueprint.get("/games/<int:game_id>")
@@ -379,11 +440,16 @@ def describe_report(record: GameReportRecord, account_names: dict[int, str], gam
 
 
 def describe_report_player(player: MatchReportPlayer, account_names: dict[int, str]) -> ReportPlayerRow:
+    account_id = None
     if player.is_computer:
         name = "Computer"
+    elif player.lobby_player_id in account_names:
+        name = account_names[player.lobby_player_id]
+        account_id = player.lobby_player_id
     else:
-        name = account_names.get(player.lobby_player_id, f"player {player.lobby_player_id}")
+        name = f"player {player.lobby_player_id}"
     return ReportPlayerRow(
+        account_id=account_id,
         name=name,
         slot=player.slot,
         team=player.team,
