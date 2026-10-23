@@ -512,6 +512,26 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 20)
         self.assertFalse(self.database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS))
 
+    def test_each_settings_page_saves_only_its_own_settings(self) -> None:
+        """An unticked checkbox is missing from a form, so saving the server's page must not switch
+        off a ladder setting that lives on the Ladder settings page, and the other way round."""
+        self.database.set_setting(Setting.MARK_ADMINS, "true")
+        self.database.set_setting(Setting.LADDER_NEWS_STANDINGS, "true")
+        general = {"max_players": "5", "welcome_message": "", "banner_url": "", "banner_id": "1", "banner_sub_id": "0"}
+        self.post("/admin/settings", page="general", **general)
+        # The general page's own unticked box goes off; the ladder's box on the other page stays on.
+        self.assertFalse(self.database.get_boolean_setting(Setting.MARK_ADMINS))
+        self.assertTrue(self.database.get_boolean_setting(Setting.LADDER_NEWS_STANDINGS))
+        self.database.set_setting(Setting.MARK_ADMINS, "true")
+        self.post("/admin/settings", page="ladder", ladder_minimum_minutes="15")
+        self.assertTrue(self.database.get_boolean_setting(Setting.MARK_ADMINS))
+        self.assertFalse(self.database.get_boolean_setting(Setting.LADDER_NEWS_STANDINGS))
+        self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 5)
+        self.assertEqual(self.database.get_ladder_settings().minimum_minutes, 15)
+        for path in ("/admin/ladder/settings", "/admin/ladder/seasons"):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, HTTP_OK)
+
     def test_setting_set_to_yes_elsewhere_shows_as_ticked(self) -> None:
         """Otherwise the next save of the page would quietly turn it off."""
         self.database.set_setting(Setting.MARK_ADMINS, "yes")
