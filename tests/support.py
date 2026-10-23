@@ -46,6 +46,8 @@ from s3lobby.messages import (
 from s3lobby.server import LobbyServer, ServerSettings, start_server
 from s3lobby.wire import Address, RawMessage, decode_block, encode_block
 
+from tests.databases import database_location_for_test
+
 LOOPBACK = "127.0.0.1"
 ANY_FREE_PORT = 0
 RECEIVE_TIMEOUT_SECONDS = 2.0
@@ -70,16 +72,16 @@ SIZE_THE_CLIENT_ASSERTS = {
 class BackgroundServer:
     """Runs a LobbyServer on its own event loop in a thread, for tests that talk to it over UDP.
 
-    database_path names a SQLite file the test may also open itself, for example to create
+    database_location names a database the test may also open itself, for example to create
     accounts; the server opens its own connection to it.
     """
 
-    def __init__(self, database_path: str, server_name: str = "Test Lobby") -> None:
+    def __init__(self, database_location: str, server_name: str = "Test Lobby") -> None:
         self._settings = ServerSettings(
             bind_host=LOOPBACK,
             port=ANY_FREE_PORT,
             server_name=server_name,
-            database_path=database_path,
+            database_location=database_location,
         )
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
@@ -318,12 +320,12 @@ class LobbyTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self.database_folder = tempfile.TemporaryDirectory()
-        self.database_path = str(Path(self.database_folder.name) / "lobby.sqlite3")
-        self.database = LobbyDatabase(self.database_path)
+        self.database_location = database_location_for_test(str(Path(self.database_folder.name) / "lobby.sqlite3"))
+        self.database = LobbyDatabase(self.database_location)
         for name in self.ACCOUNT_NAMES:
             account = self.database.create_account(name)
             self.database.add_access_code(account.account_id, ACCESS_CODE)
-        self.server = BackgroundServer(self.database_path)
+        self.server = BackgroundServer(self.database_location)
         self.server.__enter__()
         self.clients: list[FakeGameClient] = []
 

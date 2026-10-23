@@ -1,8 +1,9 @@
-"""Administration from the command line: accounts, clans, news, chat themes, board, settings.
+"""Administration from the command line: accounts, clans, news, chat themes, board, settings, and
+the database itself.
 
 Each function takes the open database and the parsed command line options, does one thing, and
-prints what happened. They all run while the server may be running: SQLite lets the server and an
-administration command use the same file at the same time.
+prints what happened. They all run while the server may be running: the server and an
+administration command can use the same database at the same time.
 """
 
 from __future__ import annotations
@@ -202,6 +203,39 @@ def set_setting(database: LobbyDatabase, options: argparse.Namespace) -> None:
 def list_settings(database: LobbyDatabase, options: argparse.Namespace) -> None:
     for setting in Setting:
         print(f"{setting.key} = {database.get_setting(setting)}")
+
+
+# The database itself.
+
+
+def show_database_status(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Opened without migrating: shows what the next start of the server would apply."""
+    status = database.read_migration_status()
+    print(f"{database.description} ({database.dialect}), schema version {database.schema_version}")
+    for applied in status.applied:
+        print(f"  applied  {applied.version:04d} {applied.name}  ({applied.applied_at})")
+    for pending in status.pending:
+        print(f"  pending  {pending.version:04d} {pending.name}")
+    if not status.pending:
+        print("Up to date.")
+
+
+def migrate_database(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Opening the database has applied the migrations; this reports which."""
+    for migration in database.applied_migrations:
+        print(f"Applied {migration.version:04d} {migration.name}.")
+    print(f"{database.description} is at schema version {database.schema_version}.")
+
+
+def copy_database(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    target = LobbyDatabase(options.to)
+    try:
+        copied_rows = database.copy_to(target)
+    finally:
+        target.close()
+    for table, row_count in copied_rows.items():
+        print(f"{table}: {row_count}")
+    print(f"Copied {database.description} to {target.description}.")
 
 
 # Helpers.

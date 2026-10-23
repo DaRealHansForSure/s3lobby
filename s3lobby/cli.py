@@ -8,8 +8,10 @@
     s3lobby announce "Server restart at 22:00"
     s3lobby web --port 8080
 
-Every subcommand takes --database to choose the SQLite file (default: s3lobby.sqlite3 in the
-current folder). python -m s3lobby works the same as the installed s3lobby command.
+Every subcommand takes --database to choose where the data lives: a SQLite file (default:
+s3lobby.sqlite3 in the current folder) or mysql://user@host/name for MySQL or MariaDB, with the
+password in S3LOBBY_DATABASE_PASSWORD. python -m s3lobby works the same as the installed s3lobby
+command.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import sys
 from collections.abc import Sequence
 
 from s3lobby import __version__, admin
+from s3lobby.backends import describe_location
 from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_SERVER_PORT, NEWS_AUDIENCES
 from s3lobby.database import DatabaseError, LobbyDatabase
 from s3lobby.server import ALL_INTERFACES, DEFAULT_DATABASE_PATH, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
@@ -61,7 +64,7 @@ def run_server(options: argparse.Namespace) -> int:
         port=options.port,
         server_name=options.name,
         public_host=options.public_host,
-        database_path=options.database,
+        database_location=options.database,
     )
     try:
         asyncio.run(serve_forever(settings))
@@ -85,7 +88,7 @@ def run_web_interface(options: argparse.Namespace) -> int:
     configure_logging(options.verbose, log_file=None)
     try:
         app = create_app(
-            database_path=options.database,
+            database_location=options.database,
             secret_key=os.environ.get(WEB_SECRET_VARIABLE),
             secure_cookies=options.secure_cookies,
             is_behind_proxy=options.behind_proxy,
@@ -99,9 +102,10 @@ def run_web_interface(options: argparse.Namespace) -> int:
 
 def run_admin(options: argparse.Namespace) -> int:
     try:
-        database = LobbyDatabase(options.database)
+        applies_migrations = getattr(options, "applies_migrations", True)
+        database = LobbyDatabase(options.database, applies_migrations=applies_migrations)
     except (OSError, DatabaseError) as error:
-        print(f"error: cannot open {options.database}: {error}", file=sys.stderr)
+        print(f"error: cannot open {describe_location(options.database)}: {error}", file=sys.stderr)
         return EXIT_FAILURE
     try:
         admin.run_admin_command(database, options)
@@ -128,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     database_option.add_argument(
         "--database",
         default=DEFAULT_DATABASE_PATH,
-        help="SQLite file with accounts and lobby content (default: %(default)s)",
+        help="SQLite file, or mysql://user@host/name, with accounts and lobby content (default: %(default)s)",
     )
 
     parser = argparse.ArgumentParser(
@@ -147,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_setting_commands(commands, database_option)
     add_announce_command(commands, database_option)
     add_web_command(commands, database_option)
+    add_database_commands(commands, database_option)
     return parser
 
 
@@ -310,6 +315,31 @@ def add_announce_command(commands: argparse._SubParsersAction, database_option: 
     )
     announce.add_argument("text")
     announce.set_defaults(admin_function=admin.queue_announcement)
+
+
+def add_database_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
+    database = commands.add_parser("database", help="the database itself: its schema, moving it elsewhere")
+    actions = database.add_subparsers(dest="action", metavar="action", required=True)
+
+    status = actions.add_parser(
+        "status", parents=[database_option], help="show the applied and pending schema migrations"
+    )
+    # Looking must not change anything: the pending migrations are shown, not applied.
+    status.set_defaults(admin_function=admin.show_database_status, applies_migrations=False)
+
+    migrate = actions.add_parser(
+        "migrate", parents=[database_option], help="apply the pending migrations without starting the server"
+    )
+    migrate.set_defaults(admin_function=admin.migrate_database)
+
+    copy = actions.add_parser(
+        "copy",
+        parents=[database_option],
+        help="copy everything into another, empty database, e.g. from SQLite to MySQL",
+        description="Stop the server first. Then point every s3lobby command at the new location.",
+    )
+    copy.add_argument("--to", required=True, help="the target: a SQLite file or mysql://user@host/name")
+    copy.set_defaults(admin_function=admin.copy_database)
 
 
 def add_web_command(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:

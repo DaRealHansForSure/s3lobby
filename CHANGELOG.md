@@ -7,6 +7,23 @@ machines.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-23
+
+### Added
+
+- MySQL and MariaDB as an alternative to SQLite (optional `mysql` extra), chosen by a
+  `mysql://user@host/name` database location.
+- Schema migrations as numbered SQL files per database, recorded with checksums; older SQLite
+  files are upgraded in place.
+- `s3lobby database status`, `migrate` and `copy --to`, to move a lobby between databases.
+- GitHub Actions run the tests on SQLite, MySQL and MariaDB.
+- The MIT License.
+
+### Changed
+
+- The README is the project's front page, with a logo, a screenshot and guides.
+- The settings column is called `name` (migration 0004), as KEY is reserved in MySQL.
+
 ## [0.4.0] - 2026-10-23
 
 ### Added
@@ -75,7 +92,8 @@ machines.
 - `docs/protocol.md`: the protocol with the address in the game's executable for every fact.
 - README, packaging and CLAUDE.md.
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.1.0...v0.2.0

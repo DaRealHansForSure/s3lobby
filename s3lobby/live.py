@@ -2,7 +2,7 @@
 
 The server keeps its lobby in memory. Once a second it turns that state into a LiveLobbyState and,
 when something changed, writes it to the database as JSON (see LobbyDatabase.write_live_state).
-The web interface reads it from there, so the two processes share nothing but the SQLite file.
+The web interface reads it from there, so the two processes share nothing but the database.
 
 Only what an administrator needs to see goes in: names, rooms and games. Chat group passwords and
 access codes never do.

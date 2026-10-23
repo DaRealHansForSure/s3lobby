@@ -1,7 +1,8 @@
 """One database connection per request.
 
-SQLite connections belong to the thread that opened them, and Flask may answer requests on several
-threads, so each request opens its own and closes it when it ends. Opening is cheap: no pool.
+A database connection, SQLite or MySQL, belongs to the thread that opened it, and Flask may answer
+requests on several threads, so each request opens its own and closes it when it ends. Opening is
+cheap enough for an admin interface: no pool.
 """
 
 from __future__ import annotations

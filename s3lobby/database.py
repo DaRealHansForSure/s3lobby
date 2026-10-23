@@ -1,8 +1,9 @@
-"""Everything the lobby keeps between restarts, in one SQLite file.
+"""Everything the lobby keeps between restarts, in one database: a SQLite file, or a MySQL or
+MariaDB database (see backends.py for the locations, migrations.py for the schema).
 
 - accounts and their access codes: a player logs on with the account name as player name and an
-  access code as password. Codes are random strings the server generates (today with the command
-  line, later through a web interface); only a salted scrypt hash of each is stored.
+  access code as password. Codes are random strings the server generates (with the command line or
+  the web interface); only a salted scrypt hash of each is stored.
 - clans and who belongs to them
 - the news on the lobby's Home tab, and the message board of the MessageZone tab
 - the chat themes listed on the ChatZone tab
@@ -11,27 +12,32 @@
 - settings, such as the player limit or the welcome message
 - announcements queued for the running server, and the server's live lobby for the web interface
 
-Accounts are only ever created on the server side (the command line today, a web interface later).
-The game's own "create player" button is refused at logon.
+Accounts are only ever created on the server side (the command line or the web interface). The
+game's own "create player" button is refused at logon.
 
-All times are stored as UTC text in ISO 8601 format, which SQLite compares correctly as text.
+All times are stored as UTC text in ISO 8601 format, which every backend compares correctly as text.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 import re
 import secrets
-import sqlite3
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
+from s3lobby.backends import (
+    BackendError,
+    ConstraintViolation,
+    Row,
+    describe_location,
+    open_backend,
+    placeholders,
+)
 from s3lobby.constants import (
     BANNER_URL_PREFIX,
     BOARD_LANGUAGES,
@@ -42,118 +48,26 @@ from s3lobby.constants import (
     TEXT_ENCODING,
 )
 from s3lobby.live import LiveLobbyState, StoredLiveState
+from s3lobby.migrations import Migration, MigrationError, MigrationStatus, current_version, migrate, read_status
 
-IN_MEMORY_DATABASE = ":memory:"
-# The file holds access code hashes and player data: readable and writable by its owner only.
-DATABASE_FILE_MODE = 0o600
-
-# Bump together with a new entry in SCHEMA_UPGRADES whenever the schema changes.
-SCHEMA_VERSION = 3
-
-SCHEMA_UPGRADES = {
-    1: """
-        CREATE TABLE accounts (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-            is_admin INTEGER NOT NULL DEFAULT 0,
-            banned_until TEXT,
-            ban_reason TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL,
-            last_logon_at TEXT
-        );
-        CREATE TABLE access_codes (
-            id INTEGER PRIMARY KEY,
-            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-            code_hash TEXT NOT NULL,
-            label TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL,
-            last_used_at TEXT,
-            revoked_at TEXT
-        );
-        CREATE INDEX access_codes_by_account ON access_codes(account_id);
-        CREATE TABLE clans (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE clan_members (
-            account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-            clan_id INTEGER NOT NULL REFERENCES clans(id) ON DELETE CASCADE,
-            joined_at TEXT NOT NULL
-        );
-        CREATE TABLE news (
-            audience TEXT PRIMARY KEY CHECK (audience IN ('german', 'other')),
-            title TEXT NOT NULL,
-            body TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        CREATE TABLE chat_themes (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            description TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE board_themes (
-            id INTEGER PRIMARY KEY,
-            language TEXT NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL,
-            UNIQUE (language, name)
-        );
-        CREATE TABLE board_messages (
-            id INTEGER PRIMARY KEY,
-            theme_id INTEGER NOT NULL REFERENCES board_themes(id) ON DELETE CASCADE,
-            title TEXT NOT NULL,
-            body TEXT NOT NULL,
-            author TEXT NOT NULL DEFAULT '',
-            posted_at TEXT NOT NULL
-        );
-        CREATE INDEX board_messages_by_theme ON board_messages(theme_id);
-        CREATE TABLE lobby_sessions (
-            id INTEGER PRIMARY KEY,
-            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-            started_at TEXT NOT NULL,
-            ended_at TEXT
-        );
-        CREATE TABLE games (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            host_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
-            opened_at TEXT NOT NULL,
-            closed_at TEXT
-        );
-        CREATE TABLE game_reports (
-            id INTEGER PRIMARY KEY,
-            account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
-            group_id INTEGER NOT NULL,
-            report BLOB NOT NULL,
-            received_at TEXT NOT NULL
-        );
-        CREATE TABLE settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-    """,
-    # Announcements written by another process (the command line, later a web interface) for the
-    # running server to send to every player.
-    2: """
-        CREATE TABLE pending_announcements (
-            id INTEGER PRIMARY KEY,
-            text TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            sent_at TEXT
-        );
-    """,
-    # The running server's lobby as JSON (s3lobby/live.py), one row, for the web interface to show.
-    3: """
-        CREATE TABLE live_state (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            snapshot TEXT NOT NULL,
-            written_at TEXT NOT NULL
-        );
-    """,
-}
+# Every table of the schema, each after the tables its foreign keys point to: the order to copy
+# them in, and the reverse order to empty them in.
+TABLES_IN_DEPENDENCY_ORDER = (
+    "accounts",
+    "access_codes",
+    "clans",
+    "clan_members",
+    "news",
+    "chat_themes",
+    "board_themes",
+    "board_messages",
+    "lobby_sessions",
+    "games",
+    "game_reports",
+    "settings",
+    "pending_announcements",
+    "live_state",
+)
 
 # The game's own rule for player names (refusal text 0x9009e): letters A to Z in either case, and
 # single spaces between words.
@@ -215,6 +129,9 @@ SETTING_DEFAULTS = {
     Setting.BANNER_ID: "0",
     Setting.BANNER_SUB_ID: "0",
 }
+
+# live_state holds one row, the running server's lobby.
+LIVE_STATE_ROW_ID = 1
 
 TRUE_SETTING_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
@@ -446,53 +363,87 @@ def generate_access_code() -> str:
 
 
 class LobbyDatabase:
-    """The lobby's SQLite file. One instance per process; all calls come from the event loop's
-    thread, and each call is short, so they run synchronously."""
+    """The lobby's database. One instance per process and thread; all calls come from the event
+    loop's thread, and each call is short, so they run synchronously."""
 
-    def __init__(self, path: str | Path, clock: Callable[[], datetime] = utc_now) -> None:
-        """path may be ":memory:" for a database that lives only as long as this object."""
+    def __init__(
+        self, location: str | Path, clock: Callable[[], datetime] = utc_now, applies_migrations: bool = True
+    ) -> None:
+        """location is a SQLite file, ":memory:" for a SQLite database that lives only as long as
+        this object, or mysql://user@host/name (backends.py). The migrations the database is
+        missing are applied, and listed in applied_migrations; applies_migrations False opens it
+        as it is, which only suits looking at its migration status."""
         self._clock = clock
-        is_new_file = str(path) != IN_MEMORY_DATABASE and not Path(path).exists()
-        if is_new_file:
-            # Create the empty file with its final mode first; SQLite would create it world-readable.
-            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, DATABASE_FILE_MODE))
-        self._connection = sqlite3.connect(str(path))
-        self._connection.row_factory = sqlite3.Row
-        self._connection.execute("PRAGMA foreign_keys = ON")
-        if str(path) != IN_MEMORY_DATABASE:
-            # Write-ahead logging lets the web interface read while the server writes, instead of
-            # one waiting for the other. The setting is stored in the file.
-            self._connection.execute("PRAGMA journal_mode = WAL")
-        self._upgrade_schema()
+        self.location = str(location)
+        self.applied_migrations: list[Migration] = []
+        try:
+            self._backend = open_backend(self.location)
+        except BackendError as error:
+            raise DatabaseError(str(error)) from error
+        if not applies_migrations:
+            return
+        try:
+            self.applied_migrations = migrate(self._backend, to_stored_time(clock()))
+        except (BackendError, MigrationError) as error:
+            self._backend.close()
+            raise DatabaseError(str(error)) from error
 
     def close(self) -> None:
-        self._connection.close()
+        self._backend.close()
+
+    @property
+    def dialect(self) -> str:
+        return self._backend.dialect
+
+    @property
+    def description(self) -> str:
+        """The location as it may be shown in logs: without a password."""
+        return describe_location(self.location)
 
     @property
     def schema_version(self) -> int:
-        return self._connection.execute("PRAGMA user_version").fetchone()[0]
+        return current_version(self._backend)
 
-    @contextmanager
-    def _transaction(self) -> Iterator[sqlite3.Connection]:
-        """Commit when the block succeeds, roll back when it raises."""
-        with self._connection:
-            yield self._connection
+    def read_migration_status(self) -> MigrationStatus:
+        try:
+            return read_status(self._backend)
+        except MigrationError as error:
+            raise DatabaseError(str(error)) from error
 
-    def _upgrade_schema(self) -> None:
-        current_version = self.schema_version
-        if current_version > SCHEMA_VERSION:
+    def copy_to(self, target: LobbyDatabase) -> dict[str, int]:
+        """Copy every row into target, which must be empty and at the same schema version; ids
+        are kept, so every reference stays intact. Returns the rows copied per table. This moves a
+        lobby from SQLite to MySQL or back; no server may write to either database meanwhile."""
+        if target.schema_version != self.schema_version:
             raise DatabaseError(
-                f"the database has schema version {current_version}, this s3lobby knows up to {SCHEMA_VERSION}"
+                f"the target has schema version {target.schema_version}, the source {self.schema_version}"
             )
-        for version in range(current_version + 1, SCHEMA_VERSION + 1):
-            with self._transaction() as connection:
-                connection.executescript(SCHEMA_UPGRADES[version])
-                connection.execute(f"PRAGMA user_version = {version}")
+        tables_with_rows = [table for table in TABLES_IN_DEPENDENCY_ORDER if target._has_rows(table)]
+        if tables_with_rows:
+            raise DatabaseError(f"the target is not empty: {', '.join(tables_with_rows)} already hold rows")
+        copied_rows = {}
+        with target._backend.transaction():
+            for table in TABLES_IN_DEPENDENCY_ORDER:
+                rows = self._backend.fetch_all(f"SELECT * FROM {table} ORDER BY 1")
+                copied_rows[table] = len(rows)
+                if not rows:
+                    continue
+                columns = list(rows[0])
+                insert = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders(len(columns))})"
+                parameter_rows = []
+                for row in rows:
+                    parameter_rows.append([row[column] for column in columns])
+                target._backend.execute_many(insert, parameter_rows)
+        return copied_rows
+
+    def _has_rows(self, table: str) -> bool:
+        # The table name comes from TABLES_IN_DEPENDENCY_ORDER only.
+        return self._backend.fetch_one(f"SELECT 1 AS found FROM {table} LIMIT 1") is not None
 
     # Settings.
 
     def get_setting(self, setting: Setting) -> str:
-        row = self._connection.execute("SELECT value FROM settings WHERE key = ?", (setting.key,)).fetchone()
+        row = self._backend.fetch_one("SELECT value FROM settings WHERE name = ?", (setting.key,))
         if row is None:
             return setting.default
         return row["value"]
@@ -508,11 +459,8 @@ class LobbyDatabase:
 
     def set_setting(self, setting: Setting, value: str) -> None:
         check_setting_value(setting, value)
-        with self._transaction() as connection:
-            connection.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                (setting.key, value),
-            )
+        with self._backend.transaction():
+            self._backend.upsert("settings", ("name",), {"name": setting.key, "value": value})
 
     # Accounts and access codes.
 
@@ -520,54 +468,56 @@ class LobbyDatabase:
         if not is_valid_player_name(name):
             raise DatabaseError(f"{name!r} is not a valid player name: only letters A to Z and single spaces")
         try:
-            with self._transaction() as connection:
-                cursor = connection.execute(
+            with self._backend.transaction():
+                result = self._backend.execute(
                     "INSERT INTO accounts (name, is_admin, created_at) VALUES (?, ?, ?)",
                     (name, int(is_admin), to_stored_time(self._clock())),
                 )
-        except sqlite3.IntegrityError as error:
+        except ConstraintViolation as error:
             raise DatabaseError(f"an account named {name!r} already exists") from error
-        return self.find_account_by_id(cursor.lastrowid)
+        return self.find_account_by_id(result.last_row_id)
 
     def find_account(self, name: str) -> Account | None:
-        row = self._connection.execute("SELECT * FROM accounts WHERE name = ?", (name,)).fetchone()
+        row = self._backend.fetch_one("SELECT * FROM accounts WHERE name = ?", (name,))
         return account_from_row(row)
 
     def find_account_by_id(self, account_id: int) -> Account | None:
-        row = self._connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        row = self._backend.fetch_one("SELECT * FROM accounts WHERE id = ?", (account_id,))
         return account_from_row(row)
 
     def list_accounts(self) -> list[Account]:
-        rows = self._connection.execute("SELECT * FROM accounts ORDER BY name").fetchall()
+        rows = self._backend.fetch_all("SELECT * FROM accounts ORDER BY name")
         return [account_from_row(row) for row in rows]
 
     def delete_account(self, account_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
 
     def set_admin(self, account_id: int, is_admin: bool) -> None:
-        with self._transaction() as connection:
-            connection.execute("UPDATE accounts SET is_admin = ? WHERE id = ?", (int(is_admin), account_id))
+        with self._backend.transaction():
+            self._backend.execute("UPDATE accounts SET is_admin = ? WHERE id = ?", (int(is_admin), account_id))
 
     def ban_account(self, account_id: int, until: datetime, reason: str) -> None:
-        with self._transaction() as connection:
-            connection.execute(
+        with self._backend.transaction():
+            self._backend.execute(
                 "UPDATE accounts SET banned_until = ?, ban_reason = ? WHERE id = ?",
                 (to_stored_time(until), reason, account_id),
             )
 
     def unban_account(self, account_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute("UPDATE accounts SET banned_until = NULL, ban_reason = '' WHERE id = ?", (account_id,))
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE accounts SET banned_until = NULL, ban_reason = '' WHERE id = ?", (account_id,)
+            )
 
     def add_access_code(self, account_id: int, access_code: str, label: str = "") -> int:
         """Store an access code for an account and return its id. The code itself is not kept."""
-        with self._transaction() as connection:
-            cursor = connection.execute(
+        with self._backend.transaction():
+            result = self._backend.execute(
                 "INSERT INTO access_codes (account_id, code_hash, label, created_at) VALUES (?, ?, ?, ?)",
                 (account_id, hash_access_code(access_code), label, to_stored_time(self._clock())),
             )
-        return cursor.lastrowid
+        return result.last_row_id
 
     def issue_access_code(self, account_id: int, label: str = "") -> str:
         """Generate a new access code for an account, store its hash, and return the code: this is
@@ -578,27 +528,27 @@ class LobbyDatabase:
 
     def revoke_access_codes(self, account_id: int) -> int:
         """Revoke every active access code of an account; returns how many were revoked."""
-        with self._transaction() as connection:
-            cursor = connection.execute(
+        with self._backend.transaction():
+            result = self._backend.execute(
                 "UPDATE access_codes SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
                 (to_stored_time(self._clock()), account_id),
             )
-        return cursor.rowcount
+        return result.row_count
 
     def revoke_access_code(self, account_id: int, code_id: int) -> bool:
         """Revoke one access code of an account; False when it has no such active code."""
-        with self._transaction() as connection:
-            cursor = connection.execute(
+        with self._backend.transaction():
+            result = self._backend.execute(
                 "UPDATE access_codes SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
                 (to_stored_time(self._clock()), code_id, account_id),
             )
-        return cursor.rowcount == 1
+        return result.row_count == 1
 
     def list_access_codes(self, account_id: int) -> list[AccessCodeRecord]:
-        rows = self._connection.execute(
+        rows = self._backend.fetch_all(
             "SELECT id, label, created_at, last_used_at, revoked_at FROM access_codes WHERE account_id = ? ORDER BY id",
             (account_id,),
-        ).fetchall()
+        )
         return [
             AccessCodeRecord(
                 code_id=row["id"],
@@ -616,14 +566,14 @@ class LobbyDatabase:
 
     def match_access_code(self, account_id: int, access_code: str) -> int | None:
         """The id of the account's active code that matches, marked as used; None for no match."""
-        rows = self._connection.execute(
+        rows = self._backend.fetch_all(
             "SELECT id, code_hash FROM access_codes WHERE account_id = ? AND revoked_at IS NULL",
             (account_id,),
-        ).fetchall()
+        )
         for row in rows:
             if is_matching_access_code(access_code, row["code_hash"]):
-                with self._transaction() as connection:
-                    connection.execute(
+                with self._backend.transaction():
+                    self._backend.execute(
                         "UPDATE access_codes SET last_used_at = ? WHERE id = ?",
                         (to_stored_time(self._clock()), row["id"]),
                     )
@@ -633,26 +583,26 @@ class LobbyDatabase:
     def is_access_code_active(self, account_id: int, code_id: int) -> bool:
         """True while the code exists, belongs to the account and is not revoked. A web session
         remembers the code it logged on with and ends when this turns False."""
-        row = self._connection.execute(
-            "SELECT 1 FROM access_codes WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+        row = self._backend.fetch_one(
+            "SELECT id FROM access_codes WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
             (code_id, account_id),
-        ).fetchone()
+        )
         return row is not None
 
     def record_logon(self, account_id: int) -> int:
         """Note a logon for the statistics; returns the session id to close on logout."""
         now = to_stored_time(self._clock())
-        with self._transaction() as connection:
-            connection.execute("UPDATE accounts SET last_logon_at = ? WHERE id = ?", (now, account_id))
-            cursor = connection.execute(
+        with self._backend.transaction():
+            self._backend.execute("UPDATE accounts SET last_logon_at = ? WHERE id = ?", (now, account_id))
+            result = self._backend.execute(
                 "INSERT INTO lobby_sessions (account_id, started_at) VALUES (?, ?)",
                 (account_id, now),
             )
-        return cursor.lastrowid
+        return result.last_row_id
 
     def record_logout(self, session_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute(
+        with self._backend.transaction():
+            self._backend.execute(
                 "UPDATE lobby_sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
                 (to_stored_time(self._clock()), session_id),
             )
@@ -660,64 +610,64 @@ class LobbyDatabase:
     def close_open_sessions_and_games(self) -> None:
         """At server start nobody is connected: end what a previous run left open."""
         now = to_stored_time(self._clock())
-        with self._transaction() as connection:
-            connection.execute("UPDATE lobby_sessions SET ended_at = ? WHERE ended_at IS NULL", (now,))
-            connection.execute("UPDATE games SET closed_at = ? WHERE closed_at IS NULL", (now,))
+        with self._backend.transaction():
+            self._backend.execute("UPDATE lobby_sessions SET ended_at = ? WHERE ended_at IS NULL", (now,))
+            self._backend.execute("UPDATE games SET closed_at = ? WHERE closed_at IS NULL", (now,))
 
     # Clans.
 
     def create_clan(self, name: str) -> Clan:
         check_title("clan name", name)
         try:
-            with self._transaction() as connection:
-                cursor = connection.execute(
+            with self._backend.transaction():
+                result = self._backend.execute(
                     "INSERT INTO clans (name, created_at) VALUES (?, ?)",
                     (name, to_stored_time(self._clock())),
                 )
-        except sqlite3.IntegrityError as error:
+        except ConstraintViolation as error:
             raise DatabaseError(f"a clan named {name!r} already exists") from error
-        return Clan(clan_id=cursor.lastrowid, name=name)
+        return Clan(clan_id=result.last_row_id, name=name)
 
     def find_clan(self, name: str) -> Clan | None:
-        row = self._connection.execute("SELECT id, name FROM clans WHERE name = ?", (name,)).fetchone()
+        row = self._backend.fetch_one("SELECT id, name FROM clans WHERE name = ?", (name,))
         if row is None:
             return None
         return Clan(clan_id=row["id"], name=row["name"])
 
     def list_clans(self) -> list[Clan]:
-        rows = self._connection.execute("SELECT id, name FROM clans ORDER BY name").fetchall()
+        rows = self._backend.fetch_all("SELECT id, name FROM clans ORDER BY name")
         return [Clan(clan_id=row["id"], name=row["name"]) for row in rows]
 
     def delete_clan(self, clan_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute("DELETE FROM clans WHERE id = ?", (clan_id,))
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM clans WHERE id = ?", (clan_id,))
 
     def set_clan_of_account(self, account_id: int, clan_id: int | None) -> None:
         """Put an account into a clan, or take it out with clan_id None. One clan per account."""
-        with self._transaction() as connection:
-            connection.execute("DELETE FROM clan_members WHERE account_id = ?", (account_id,))
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM clan_members WHERE account_id = ?", (account_id,))
             if clan_id is not None:
-                connection.execute(
+                self._backend.execute(
                     "INSERT INTO clan_members (account_id, clan_id, joined_at) VALUES (?, ?, ?)",
                     (account_id, clan_id, to_stored_time(self._clock())),
                 )
 
     def find_clan_of_account(self, account_id: int) -> Clan | None:
-        row = self._connection.execute(
+        row = self._backend.fetch_one(
             "SELECT clans.id, clans.name FROM clans JOIN clan_members ON clan_members.clan_id = clans.id "
             "WHERE clan_members.account_id = ?",
             (account_id,),
-        ).fetchone()
+        )
         if row is None:
             return None
         return Clan(clan_id=row["id"], name=row["name"])
 
     def list_clan_member_names(self, clan_id: int) -> list[str]:
-        rows = self._connection.execute(
+        rows = self._backend.fetch_all(
             "SELECT accounts.name FROM accounts JOIN clan_members ON clan_members.account_id = accounts.id "
             "WHERE clan_members.clan_id = ? ORDER BY accounts.name",
             (clan_id,),
-        ).fetchall()
+        )
         return [row["name"] for row in rows]
 
     # Home tab news.
@@ -728,16 +678,12 @@ class LobbyDatabase:
             raise DatabaseError(f"unknown news audience {audience!r}; known: {', '.join(NEWS_AUDIENCES)}")
         check_title("news title", title)
         check_game_text("news text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
-        with self._transaction() as connection:
-            connection.execute(
-                "INSERT INTO news (audience, title, body, updated_at) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT (audience) DO UPDATE SET title = excluded.title, body = excluded.body, "
-                "updated_at = excluded.updated_at",
-                (audience, title, body, to_stored_time(self._clock())),
-            )
+        values = {"audience": audience, "title": title, "body": body, "updated_at": to_stored_time(self._clock())}
+        with self._backend.transaction():
+            self._backend.upsert("news", ("audience",), values)
 
     def find_news(self, audience: str) -> News | None:
-        row = self._connection.execute("SELECT title, body FROM news WHERE audience = ?", (audience,)).fetchone()
+        row = self._backend.fetch_one("SELECT title, body FROM news WHERE audience = ?", (audience,))
         if row is None:
             return None
         return News(title=row["title"], body=row["body"])
@@ -748,22 +694,22 @@ class LobbyDatabase:
         check_title("chat theme name", name)
         check_game_text("chat theme description", description, MAX_GROUP_TEXT_LENGTH)
         try:
-            with self._transaction() as connection:
-                cursor = connection.execute(
+            with self._backend.transaction():
+                result = self._backend.execute(
                     "INSERT INTO chat_themes (name, description, created_at) VALUES (?, ?, ?)",
                     (name, description, to_stored_time(self._clock())),
                 )
-        except sqlite3.IntegrityError as error:
+        except ConstraintViolation as error:
             raise DatabaseError(f"a chat theme named {name!r} already exists") from error
-        return ChatTheme(theme_id=cursor.lastrowid, name=name, description=description)
+        return ChatTheme(theme_id=result.last_row_id, name=name, description=description)
 
     def list_chat_themes(self) -> list[ChatTheme]:
-        rows = self._connection.execute("SELECT * FROM chat_themes ORDER BY id").fetchall()
+        rows = self._backend.fetch_all("SELECT * FROM chat_themes ORDER BY id")
         return [ChatTheme(theme_id=row["id"], name=row["name"], description=row["description"]) for row in rows]
 
     def delete_chat_theme(self, theme_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute("DELETE FROM chat_themes WHERE id = ?", (theme_id,))
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM chat_themes WHERE id = ?", (theme_id,))
 
     # MessageZone board.
 
@@ -773,22 +719,22 @@ class LobbyDatabase:
         check_title("board theme name", name)
         check_game_text("board theme description", description, MAX_GROUP_TEXT_LENGTH)
         try:
-            with self._transaction() as connection:
-                cursor = connection.execute(
+            with self._backend.transaction():
+                result = self._backend.execute(
                     "INSERT INTO board_themes (language, name, description, created_at) VALUES (?, ?, ?, ?)",
                     (language, name, description, to_stored_time(self._clock())),
                 )
-        except sqlite3.IntegrityError as error:
+        except ConstraintViolation as error:
             raise DatabaseError(f"a {language} board theme named {name!r} already exists") from error
-        return BoardTheme(theme_id=cursor.lastrowid, language=language, name=name, description=description)
+        return BoardTheme(theme_id=result.last_row_id, language=language, name=name, description=description)
 
     def list_board_themes(self) -> list[BoardTheme]:
-        rows = self._connection.execute("SELECT * FROM board_themes ORDER BY language, id").fetchall()
+        rows = self._backend.fetch_all("SELECT * FROM board_themes ORDER BY language, id")
         return [board_theme_from_row(row) for row in rows]
 
     def delete_board_theme(self, theme_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute("DELETE FROM board_themes WHERE id = ?", (theme_id,))
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM board_themes WHERE id = ?", (theme_id,))
 
     def post_board_message(self, theme_id: int, title: str, body: str, author: str = "") -> BoardMessage:
         check_title("message title", title)
@@ -796,66 +742,64 @@ class LobbyDatabase:
         check_game_text("author", author, MAX_GROUP_TEXT_LENGTH)
         posted_at = self._clock()
         try:
-            with self._transaction() as connection:
-                cursor = connection.execute(
+            with self._backend.transaction():
+                result = self._backend.execute(
                     "INSERT INTO board_messages (theme_id, title, body, author, posted_at) VALUES (?, ?, ?, ?, ?)",
                     (theme_id, title, body, author, to_stored_time(posted_at)),
                 )
-        except sqlite3.IntegrityError as error:
+        except ConstraintViolation as error:
             raise DatabaseError(f"there is no board theme {theme_id}") from error
-        return BoardMessage(cursor.lastrowid, theme_id, title, body, author, posted_at)
+        return BoardMessage(result.last_row_id, theme_id, title, body, author, posted_at)
 
     def list_board_messages(self, theme_id: int) -> list[BoardMessage]:
-        rows = self._connection.execute(
-            "SELECT * FROM board_messages WHERE theme_id = ? ORDER BY id", (theme_id,)
-        ).fetchall()
+        rows = self._backend.fetch_all("SELECT * FROM board_messages WHERE theme_id = ? ORDER BY id", (theme_id,))
         return [board_message_from_row(row) for row in rows]
 
     def find_board_message(self, message_id: int) -> BoardMessage | None:
-        row = self._connection.execute("SELECT * FROM board_messages WHERE id = ?", (message_id,)).fetchone()
+        row = self._backend.fetch_one("SELECT * FROM board_messages WHERE id = ?", (message_id,))
         if row is None:
             return None
         return board_message_from_row(row)
 
     def delete_board_message(self, message_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute("DELETE FROM board_messages WHERE id = ?", (message_id,))
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM board_messages WHERE id = ?", (message_id,))
 
     # Games and their reports.
 
     def record_game_opened(self, name: str, host_account_id: int | None) -> int:
-        with self._transaction() as connection:
-            cursor = connection.execute(
+        with self._backend.transaction():
+            result = self._backend.execute(
                 "INSERT INTO games (name, host_account_id, opened_at) VALUES (?, ?, ?)",
                 (name, host_account_id, to_stored_time(self._clock())),
             )
-        return cursor.lastrowid
+        return result.last_row_id
 
     def record_game_closed(self, game_record_id: int) -> None:
-        with self._transaction() as connection:
-            connection.execute(
+        with self._backend.transaction():
+            self._backend.execute(
                 "UPDATE games SET closed_at = ? WHERE id = ? AND closed_at IS NULL",
                 (to_stored_time(self._clock()), game_record_id),
             )
 
     def store_game_report(self, account_id: int | None, group_id: int, report: bytes) -> None:
-        with self._transaction() as connection:
-            connection.execute(
+        with self._backend.transaction():
+            self._backend.execute(
                 "INSERT INTO game_reports (account_id, group_id, report, received_at) VALUES (?, ?, ?, ?)",
                 (account_id, group_id, report, to_stored_time(self._clock())),
             )
 
     def count_game_reports(self) -> int:
-        return self._connection.execute("SELECT COUNT(*) FROM game_reports").fetchone()[0]
+        return self._backend.fetch_one("SELECT COUNT(*) AS report_count FROM game_reports")["report_count"]
 
     def list_recent_games(self, limit: int) -> list[GameRecord]:
         """The newest games first, open and closed."""
-        rows = self._connection.execute(
+        rows = self._backend.fetch_all(
             "SELECT games.id, games.name, accounts.name AS host_name, games.opened_at, games.closed_at "
             "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
             "ORDER BY games.id DESC LIMIT ?",
             (limit,),
-        ).fetchall()
+        )
         return [
             GameRecord(
                 game_id=row["id"],
@@ -869,13 +813,13 @@ class LobbyDatabase:
 
     def list_recent_game_reports(self, limit: int) -> list[GameReportRecord]:
         """The newest match reports first, without their bytes."""
-        rows = self._connection.execute(
+        rows = self._backend.fetch_all(
             "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
             "LENGTH(game_reports.report) AS size, game_reports.received_at "
             "FROM game_reports LEFT JOIN accounts ON accounts.id = game_reports.account_id "
             "ORDER BY game_reports.id DESC LIMIT ?",
             (limit,),
-        ).fetchall()
+        )
         return [
             GameReportRecord(
                 report_id=row["id"],
@@ -888,7 +832,7 @@ class LobbyDatabase:
         ]
 
     def find_game_report(self, report_id: int) -> bytes | None:
-        row = self._connection.execute("SELECT report FROM game_reports WHERE id = ?", (report_id,)).fetchone()
+        row = self._backend.fetch_one("SELECT report FROM game_reports WHERE id = ?", (report_id,))
         if row is None:
             return None
         return bytes(row["report"])
@@ -898,29 +842,31 @@ class LobbyDatabase:
     def queue_announcement(self, text: str) -> None:
         check_title("announcement", text)
         check_game_text("announcement", text, MAX_ANNOUNCEMENT_LENGTH)
-        with self._transaction() as connection:
-            connection.execute(
+        with self._backend.transaction():
+            self._backend.execute(
                 "INSERT INTO pending_announcements (text, created_at) VALUES (?, ?)",
                 (text, to_stored_time(self._clock())),
             )
 
     def take_pending_announcements(self) -> list[str]:
         """The announcements not sent yet, oldest first, marked as sent in the same step."""
-        with self._transaction() as connection:
-            rows = connection.execute(
+        with self._backend.transaction():
+            rows = self._backend.fetch_all(
                 "SELECT id, text FROM pending_announcements WHERE sent_at IS NULL ORDER BY id"
-            ).fetchall()
+            )
             sent_at = to_stored_time(self._clock())
             for row in rows:
-                connection.execute("UPDATE pending_announcements SET sent_at = ? WHERE id = ?", (sent_at, row["id"]))
+                self._backend.execute(
+                    "UPDATE pending_announcements SET sent_at = ? WHERE id = ?", (sent_at, row["id"])
+                )
         return [row["text"] for row in rows]
 
     def list_recent_announcements(self, limit: int) -> list[AnnouncementRecord]:
         """The newest announcements first; sent_at is None while the server has not taken one yet."""
-        rows = self._connection.execute(
+        rows = self._backend.fetch_all(
             "SELECT text, created_at, sent_at FROM pending_announcements ORDER BY id DESC LIMIT ?",
             (limit,),
-        ).fetchall()
+        )
         return [
             AnnouncementRecord(
                 text=row["text"],
@@ -933,16 +879,13 @@ class LobbyDatabase:
     # The running server's lobby, for the web interface.
 
     def write_live_state(self, state: LiveLobbyState) -> None:
-        with self._transaction() as connection:
-            connection.execute(
-                "INSERT INTO live_state (id, snapshot, written_at) VALUES (1, ?, ?) "
-                "ON CONFLICT (id) DO UPDATE SET snapshot = excluded.snapshot, written_at = excluded.written_at",
-                (state.to_json(), to_stored_time(self._clock())),
-            )
+        values = {"id": LIVE_STATE_ROW_ID, "snapshot": state.to_json(), "written_at": to_stored_time(self._clock())}
+        with self._backend.transaction():
+            self._backend.upsert("live_state", ("id",), values)
 
     def read_live_state(self) -> StoredLiveState | None:
         """The state last written, or None when no server ever wrote one or its text is unreadable."""
-        row = self._connection.execute("SELECT snapshot, written_at FROM live_state WHERE id = 1").fetchone()
+        row = self._backend.fetch_one("SELECT snapshot, written_at FROM live_state WHERE id = ?", (LIVE_STATE_ROW_ID,))
         if row is None:
             return None
         try:
@@ -953,8 +896,8 @@ class LobbyDatabase:
 
     def clear_live_state(self) -> None:
         """The server stops: nobody is online any more."""
-        with self._transaction() as connection:
-            connection.execute("DELETE FROM live_state")
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM live_state")
 
     # Statistics for the Home tab.
 
@@ -974,8 +917,8 @@ class LobbyDatabase:
         )
 
     def _count_open(self, table: str, end_column: str, count_distinct: str = "id") -> int:
-        query = f"SELECT COUNT(DISTINCT {count_distinct}) FROM {table} WHERE {end_column} IS NULL"
-        return self._connection.execute(query).fetchone()[0]
+        query = f"SELECT COUNT(DISTINCT {count_distinct}) AS counted FROM {table} WHERE {end_column} IS NULL"
+        return self._backend.fetch_one(query)["counted"]
 
     def _count_open_since(
         self, table: str, start_column: str, end_column: str, since: str, count_distinct: str = "id"
@@ -983,13 +926,13 @@ class LobbyDatabase:
         # Table and column names come from this class only, never from outside, so formatting
         # them into the query is safe; the time is passed as a parameter.
         query = (
-            f"SELECT COUNT(DISTINCT {count_distinct}) FROM {table} "
+            f"SELECT COUNT(DISTINCT {count_distinct}) AS counted FROM {table} "
             f"WHERE {end_column} IS NULL OR {end_column} >= ?"
         )
-        return self._connection.execute(query, (since,)).fetchone()[0]
+        return self._backend.fetch_one(query, (since,))["counted"]
 
 
-def account_from_row(row: sqlite3.Row | None) -> Account | None:
+def account_from_row(row: Row | None) -> Account | None:
     if row is None:
         return None
     return Account(
@@ -1003,11 +946,11 @@ def account_from_row(row: sqlite3.Row | None) -> Account | None:
     )
 
 
-def board_theme_from_row(row: sqlite3.Row) -> BoardTheme:
+def board_theme_from_row(row: Row) -> BoardTheme:
     return BoardTheme(theme_id=row["id"], language=row["language"], name=row["name"], description=row["description"])
 
 
-def board_message_from_row(row: sqlite3.Row) -> BoardMessage:
+def board_message_from_row(row: Row) -> BoardMessage:
     return BoardMessage(
         message_id=row["id"],
         theme_id=row["theme_id"],
