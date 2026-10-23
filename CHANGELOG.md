@@ -7,6 +7,34 @@ machines.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-23
+
+### Added
+
+- Admin chat commands wait for `/confirm` with a code only the admin sees.
+- MySQL connections encrypted and verified on request (`?tls=verify`, `?tls=verify-ca&ca=PATH`).
+- Indexes for the statistics queries (migration 0007).
+
+### Changed
+
+- Each database backend has a file of its own in `s3lobby/backends/`.
+- Tighter types and shared constants.
+
+### Fixed
+
+- SIGTERM stops the server cleanly; a start that fails halfway closes what it opened.
+- Database failures no longer break the lobby, and reach callers as `DatabaseError`.
+- Strict number checks, checked access code labels and ban reasons, and a Games page that
+  survives malformed reports.
+- Announcements queued while the server was stopped are dropped openly instead of being marked
+  as sent.
+
+### Security
+
+- The UPnP client ignores proxies and redirects, talks only to the device that answered, accepts
+  only a public external address, and forwards only game ports of machines in the LAN.
+- The reachability probe goes only to confirmed connections.
+
 ## [0.8.0] - 2026-10-23
 
 ### Added
@@ -146,7 +174,8 @@ machines.
 - `docs/protocol.md`: the protocol with the address in the game's executable for every fact.
 - README, packaging and CLAUDE.md.
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.5.0...v0.6.0
