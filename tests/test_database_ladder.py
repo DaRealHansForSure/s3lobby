@@ -162,7 +162,34 @@ class LadderDatabaseTest(LadderTestCase):
             self.database.post_board_message(theme.theme_id, f"Week {number}", "body", is_by_server=True)
         self.assertEqual(self.database.delete_board_messages_but_newest(theme.theme_id, 2), 3)
         titles = [message.title for message in self.database.list_board_messages(theme.theme_id)]
-        self.assertEqual(titles, ["Week 3", "Week 4"])
+        self.assertEqual(titles, ["Week 4", "Week 3"])
+
+    def test_board_order_and_hiding(self) -> None:
+        """New messages come first, admins reorder them, and a hidden one is kept but marked."""
+        theme = self.database.add_board_theme("English", "News")
+        first = self.database.post_board_message(theme.theme_id, "First", "body")
+        second = self.database.post_board_message(theme.theme_id, "Second", "body")
+        titles = [message.title for message in self.database.list_board_messages(theme.theme_id)]
+        self.assertEqual(titles, ["Second", "First"])
+        self.database.set_board_message_order(theme.theme_id, [first.message_id, second.message_id])
+        self.database.set_board_message_hidden(second.message_id, True)
+        messages = self.database.list_board_messages(theme.theme_id)
+        shown = [(message.title, message.is_hidden) for message in messages]
+        self.assertEqual(shown, [("First", False), ("Second", True)])
+
+    def test_the_server_s_theme_starts_on_top_and_is_only_hidden(self) -> None:
+        """The ladder's theme goes above the admins' themes; admins may hide it, not delete it or its
+        messages."""
+        self.database.add_board_theme("English", "Tournaments")
+        server_theme = self.database.add_board_theme("English", "Ladder", is_server_written=True)
+        self.assertEqual(self.database.list_board_themes()[0].name, "Ladder")
+        message = self.database.post_board_message(server_theme.theme_id, "Week", "body", is_by_server=True)
+        with self.assertRaises(DatabaseError):
+            self.database.delete_board_theme(server_theme.theme_id)
+        with self.assertRaises(DatabaseError):
+            self.database.delete_board_message(message.message_id)
+        self.database.set_board_theme_hidden(server_theme.theme_id, True)
+        self.assertTrue(self.database.list_board_themes()[0].is_hidden)
 
     def test_ladder_settings_are_bounded(self) -> None:
         """A huge number of days would not fit a date; the ceiling is far below it."""

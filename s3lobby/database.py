@@ -321,6 +321,9 @@ class BoardTheme:
     name: str
     description: str
     is_server_written: bool = False
+    # Lowest first on the board; a hidden theme is kept but not sent to the game.
+    position: int = 0
+    is_hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -334,6 +337,9 @@ class BoardMessage:
     body: str
     author: str
     posted_at: datetime
+    # Lowest first in its theme; a hidden message is kept but not sent to the game.
+    position: int = 0
+    is_hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -1171,22 +1177,48 @@ class LobbyDatabase:
         check_game_text("board theme description", description, MAX_GROUP_TEXT_LENGTH)
         try:
             with self._backend.transaction():
+                # The server's own theme starts above every other one (the ladder's news comes first
+                # unless an admin moves something above it); an admin's theme starts at the end.
+                bounds = self._backend.fetch_one(
+                    "SELECT MIN(position) AS first, MAX(position) AS last FROM board_themes WHERE language = ?",
+                    (language,),
+                )
+                position = 0
+                if bounds["first"] is not None and is_server_written:
+                    position = bounds["first"] - 1
+                elif bounds["last"] is not None:
+                    position = bounds["last"] + 1
                 result = self._backend.execute(
-                    "INSERT INTO board_themes (language, name, description, created_at, is_server_written) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (language, name, description, to_stored_time(self._clock()), int(is_server_written)),
+                    "INSERT INTO board_themes (language, name, description, created_at, is_server_written, position) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (language, name, description, to_stored_time(self._clock()), int(is_server_written), position),
                 )
         except ConstraintViolation as error:
             raise DatabaseError(f"a {language} board theme named {name!r} already exists") from error
-        return BoardTheme(result.last_row_id, language, name, description, is_server_written)
+        return BoardTheme(result.last_row_id, language, name, description, is_server_written, position)
 
     def list_board_themes(self) -> list[BoardTheme]:
         """Every board theme, by language and then in the order they were added."""
-        rows = self._backend.fetch_all("SELECT * FROM board_themes ORDER BY language, id")
+        rows = self._backend.fetch_all("SELECT * FROM board_themes ORDER BY language, position, id")
         return [board_theme_from_row(row) for row in rows]
 
+    def set_board_theme_order(self, theme_ids: list[int]) -> None:
+        """Put themes in this order (the first at the top); themes not named keep their places."""
+        with self._backend.transaction():
+            for position, theme_id in enumerate(theme_ids):
+                self._backend.execute("UPDATE board_themes SET position = ? WHERE id = ?", (position, theme_id))
+
+    def set_board_theme_hidden(self, theme_id: int, is_hidden: bool) -> None:
+        """Hide a theme from the game, or show it again; its messages stay as they are."""
+        with self._backend.transaction():
+            self._backend.execute("UPDATE board_themes SET is_hidden = ? WHERE id = ?", (int(is_hidden), theme_id))
+
     def delete_board_theme(self, theme_id: int) -> None:
-        """Remove a theme from the MessageZone board."""
+        """Remove a theme from the MessageZone board. Raises DatabaseError for a theme the server
+        writes itself: admins hide it instead, since the server would only create it again."""
+        theme = self._backend.fetch_one("SELECT is_server_written FROM board_themes WHERE id = ?", (theme_id,))
+        if theme is not None and theme["is_server_written"]:
+            raise DatabaseError("the server writes this board theme itself; hide it instead")
         with self._backend.transaction():
             self._backend.execute("DELETE FROM board_themes WHERE id = ?", (theme_id,))
 
@@ -1206,19 +1238,44 @@ class LobbyDatabase:
         posted_at = self._clock()
         try:
             with self._backend.transaction():
+                # A new message goes to the top of its theme; admins move it from there.
+                first = self._backend.fetch_one(
+                    "SELECT MIN(position) AS first FROM board_messages WHERE theme_id = ?", (theme_id,)
+                )["first"]
+                position = 0 if first is None else first - 1
                 result = self._backend.execute(
-                    "INSERT INTO board_messages (theme_id, title, body, author, posted_at) VALUES (?, ?, ?, ?, ?)",
-                    (theme_id, title, body, author, to_stored_time(posted_at)),
+                    "INSERT INTO board_messages (theme_id, title, body, author, posted_at, position) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (theme_id, title, body, author, to_stored_time(posted_at), position),
                 )
         except ConstraintViolation as error:
             # board_messages has no unique key, so only the foreign key to board_themes can refuse it.
             raise DatabaseError(f"there is no board theme {theme_id}") from error
-        return BoardMessage(result.last_row_id, theme_id, title, body, author, posted_at)
+        return BoardMessage(result.last_row_id, theme_id, title, body, author, posted_at, position)
 
     def list_board_messages(self, theme_id: int) -> list[BoardMessage]:
-        """The messages under a board theme, oldest first."""
-        rows = self._backend.fetch_all("SELECT * FROM board_messages WHERE theme_id = ? ORDER BY id", (theme_id,))
+        """The messages under a board theme in the board's order, hidden ones included."""
+        rows = self._backend.fetch_all(
+            "SELECT * FROM board_messages WHERE theme_id = ? ORDER BY position, id", (theme_id,)
+        )
         return [board_message_from_row(row) for row in rows]
+
+    def set_board_message_order(self, theme_id: int, message_ids: list[int]) -> None:
+        """Put a theme's messages in this order (the first at the top); ids of another theme are
+        left alone."""
+        with self._backend.transaction():
+            for position, message_id in enumerate(message_ids):
+                self._backend.execute(
+                    "UPDATE board_messages SET position = ? WHERE id = ? AND theme_id = ?",
+                    (position, message_id, theme_id),
+                )
+
+    def set_board_message_hidden(self, message_id: int, is_hidden: bool) -> None:
+        """Hide a message from the game, or show it again."""
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE board_messages SET is_hidden = ? WHERE id = ?", (int(is_hidden), message_id)
+            )
 
     def find_board_message(self, message_id: int) -> BoardMessage | None:
         """The board message with this id, or None."""
@@ -1230,7 +1287,8 @@ class LobbyDatabase:
     def delete_board_messages_but_newest(self, theme_id: int, keep_count: int) -> int:
         """Delete a theme's messages but its newest keep_count; returns how many went. The server
         keeps its own themes short this way."""
-        messages = self.list_board_messages(theme_id)
+        # Newest by when they were posted (the id), whatever order admins gave them on the board.
+        messages = sorted(self.list_board_messages(theme_id), key=lambda message: message.message_id)
         surplus = messages[: max(0, len(messages) - keep_count)]
         with self._backend.transaction():
             for message in surplus:
@@ -1238,7 +1296,15 @@ class LobbyDatabase:
         return len(surplus)
 
     def delete_board_message(self, message_id: int) -> None:
-        """Remove a message from the board."""
+        """Remove a message from the board. Raises DatabaseError for a message in a theme the
+        server writes itself: admins hide those instead."""
+        theme = self._backend.fetch_one(
+            "SELECT board_themes.is_server_written FROM board_messages "
+            "JOIN board_themes ON board_themes.id = board_messages.theme_id WHERE board_messages.id = ?",
+            (message_id,),
+        )
+        if theme is not None and theme["is_server_written"]:
+            raise DatabaseError("the server writes this message itself; hide it instead")
         with self._backend.transaction():
             self._backend.execute("DELETE FROM board_messages WHERE id = ?", (message_id,))
 
@@ -1799,6 +1865,8 @@ def board_theme_from_row(row: Row) -> BoardTheme:
         name=row["name"],
         description=row["description"],
         is_server_written=bool(row["is_server_written"]),
+        position=row["position"],
+        is_hidden=bool(row["is_hidden"]),
     )
 
 
@@ -1811,6 +1879,8 @@ def board_message_from_row(row: Row) -> BoardMessage:
         body=row["body"],
         author=row["author"],
         posted_at=from_stored_time(row["posted_at"]),
+        position=row["position"],
+        is_hidden=bool(row["is_hidden"]),
     )
 
 

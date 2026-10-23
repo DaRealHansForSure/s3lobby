@@ -88,6 +88,42 @@ function setUpNavigationMenus() {
     });
 }
 
+// Lists on the board page that can be put in order by dragging their handles. Each list names the
+// address its new order goes to; the order travels as the items' ids, top first. SortableJS
+// (static/vendor) is loaded on those pages only; without it, their Up and Down buttons still work.
+function setUpSortableLists() {
+    const lists = document.querySelectorAll("[data-sortable-url]");
+    if (lists.length === 0 || typeof window.Sortable === "undefined") {
+        return;
+    }
+    const tokenField = document.querySelector("input[name=csrf_token]");
+    for (const list of lists) {
+        window.Sortable.create(list, {
+            handle: ".drag-handle",
+            animation: 150,
+            onEnd: () => saveOrder(list, tokenField ? tokenField.value : ""),
+        });
+    }
+}
+
+// Sends a list's order; on any failure the page reloads, so it never shows an order the server
+// did not keep.
+function saveOrder(list, token) {
+    const ids = Array.from(list.children)
+        .map((item) => item.getAttribute("data-id"))
+        .filter((id) => id !== null);
+    const form = new FormData();
+    form.append("csrf_token", token);
+    form.append("ids", ids.join(","));
+    fetch(list.getAttribute("data-sortable-url"), { method: "POST", body: form, credentials: "same-origin" })
+        .then((response) => {
+            if (!response.ok) {
+                window.location.reload();
+            }
+        })
+        .catch(() => window.location.reload());
+}
+
 // Replaces the live part of the lobby page with a fresh copy rendered by the server. The server
 // escapes every name in it, so swapping the HTML in is safe. Skipped while the tab is hidden.
 function setUpLiveRefresh() {
@@ -117,4 +153,5 @@ function setUpLiveRefresh() {
 
 setUpThemeToggle();
 setUpNavigationMenus();
+setUpSortableLists();
 setUpLiveRefresh();

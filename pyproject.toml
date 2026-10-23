@@ -34,7 +34,7 @@ packages = ["s3lobby", "s3lobby.backends", "s3lobby.schema", "s3lobby.web"]
 
 [tool.setuptools.package-data]
 "s3lobby.schema" = ["sqlite/*.sql", "mysql/*.sql"]
-"s3lobby.web" = ["templates/*.html", "static/*.css", "static/*.js"]
+"s3lobby.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/vendor/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "s3lobby.__version__" }

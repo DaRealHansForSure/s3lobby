@@ -206,6 +206,8 @@ class Lobby:
         self._players_by_address: dict[Address, Player] = {}
         self._players_by_id: dict[int, Player] = {}
         self._groups: dict[int, Group] = {}
+        # Each board theme group's place in its language, as admins ordered the themes.
+        self._board_theme_ranks: dict[int, int] = {}
         self._next_player_group_id = FIRST_GAME_GROUP_ID
         self._wrong_group_passwords = RateLimiter(WRONG_GROUP_PASSWORDS_PER_SECOND, WRONG_GROUP_PASSWORD_BURST)
         self._group_updates = RateLimiter(GROUP_UPDATES_PER_SECOND, GROUP_UPDATE_BURST)
@@ -749,7 +751,7 @@ class Lobby:
         # database id (see _send_board_message_ids).
         if text_id >= BOARD_MESSAGE_TEXT_ID_BASE:
             board_message = self._database.find_board_message(text_id - BOARD_MESSAGE_TEXT_ID_BASE)
-            if board_message is not None:
+            if board_message is not None and not board_message.is_hidden:
                 byline = f"{board_message.author or self._server_name}, {board_message.posted_at:%Y-%m-%d}"
                 return text_message(text_id, board_message.title, f"{byline}\n\n{board_message.body}")
         return TextMessage(text_id=text_id, title=UNKNOWN_TEXT_TITLE)
@@ -952,7 +954,12 @@ class Lobby:
         if is_chat_theme_group(group.group_id):
             player.last_chat_theme_id = group.group_id
         self._record_game_player(group, player)
-        for child in self._groups_listed_in(group.group_id):
+        children = self._groups_listed_in(group.group_id)
+        # Board themes go out in the order admins gave them (inferred: the game lists groups in the
+        # order they arrive); every other parent keeps the order its groups were opened in.
+        if is_board_language_group(group.group_id):
+            children.sort(key=lambda child: self._board_theme_ranks.get(child.group_id, len(children)))
+        for child in children:
             self._show_group(player, child, group.group_id)
         self._send_counters_to_viewers(group)
         if group.group_id == HOME_GROUP_ID:
@@ -1219,7 +1226,7 @@ class Lobby:
         """List one group per language that has board themes, named as the client looks for them
         ("MessageThemes" + language), and always the English one the client falls back to."""
         message_zone = self._groups[MESSAGE_ZONE_GROUP_ID]
-        languages_with_themes = {theme.language for theme in self._database.list_board_themes()}
+        languages_with_themes = {theme.language for theme in self._database.list_board_themes() if not theme.is_hidden}
         languages_with_themes.add(BOARD_FALLBACK_LANGUAGE)
         # A language group's id is its position in BOARD_LANGUAGES, so it never depends on the
         # database. Language groups are only ever added, never unlisted.
@@ -1237,9 +1244,11 @@ class Lobby:
         language_group_id = BOARD_LANGUAGE_GROUP_ID_BASE + BOARD_LANGUAGES.index(language)
         language_group = self._groups[language_group_id]
         wanted = {}
+        # list_board_themes gives the board's order; a hidden theme counts as gone for the game.
         for theme in self._database.list_board_themes():
-            if theme.language == language:
+            if theme.language == language and not theme.is_hidden:
                 wanted[BOARD_THEME_GROUP_ID_BASE + theme.theme_id] = theme
+        self._board_theme_ranks.update({group_id: rank for rank, group_id in enumerate(wanted)})
         for group in self._groups_listed_in(language_group_id):
             if group.group_id not in wanted and not group.member_ids:
                 self._unlist_group_from(group, language_group_id)
@@ -1254,7 +1263,7 @@ class Lobby:
 
     def _send_board_message_ids(self, player: Player, theme_id: int) -> None:
         """The ids of a theme's messages; the client asks for each text when it shows it."""
-        messages = self._database.list_board_messages(theme_id)
+        messages = [message for message in self._database.list_board_messages(theme_id) if not message.is_hidden]
         text_ids = tuple(BOARD_MESSAGE_TEXT_ID_BASE + message.message_id for message in messages)
         group_id = BOARD_THEME_GROUP_ID_BASE + theme_id
         self._outbox.send(player.address, TextIdList(group_id=group_id, text_ids=text_ids))

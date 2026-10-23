@@ -34,6 +34,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   time, their place in running custom seasons, and the games the lobby saw them play with
   opponents, race, result and time of play. Names in the standings and the live lobby link to it.
 
+- The message board in an order admins choose: themes and messages are dragged into place
+  (SortableJS, bundled with the web interface) or moved with Up and Down, new messages come
+  first, and the server's ladder theme starts on top. Themes and messages can be hidden from the
+  game; the server's own theme and messages can only be hidden, not removed (migration 0011).
+
 ### Changed
 
 - The web interface is split: the live lobby and the ladder show everyone the same, and every admin

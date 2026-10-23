@@ -65,6 +65,34 @@ class MessageZoneTest(LobbyTestCase):
         self.assertTrue(text.lines[0].startswith("Alice, "))
         self.assertEqual(text.lines[2:], ("1 vs 1", "from 8 pm"))
 
+    def test_themes_come_in_the_board_s_order_and_hidden_ones_stay_away(self) -> None:
+        """Admins put the ladder's theme or an important one on top; the game lists the themes in the
+        order they arrive (inferred), and a hidden theme is not sent at all."""
+        cups = self.database.add_board_theme("English", "Cups")
+        rules = self.database.add_board_theme("English", "Rules")
+        hidden = self.database.add_board_theme("English", "Old news")
+        self.database.set_board_theme_order([rules.theme_id, cups.theme_id, hidden.theme_id])
+        self.database.set_board_theme_hidden(hidden.theme_id, True)
+        alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
+        join_group(alice, ENGLISH_GROUP_ID, alice_id)
+        self.assertEqual(receive_listed_names(alice, ENGLISH_GROUP_ID, 2), ["Rules", "Cups"])
+        alice.assert_nothing_matching(lambda message: b"Old news" in message.body)
+
+    def test_a_hidden_message_is_not_listed_or_sent(self) -> None:
+        """A hidden message stays stored for admins, but the game neither lists it nor gets its text."""
+        theme = self.database.add_board_theme("English", "Tournaments")
+        shown = self.database.post_board_message(theme.theme_id, "Shown", "text")
+        hidden = self.database.post_board_message(theme.theme_id, "Hidden", "text")
+        self.database.set_board_message_hidden(hidden.message_id, True)
+        alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
+        join_group(alice, ENGLISH_GROUP_ID, alice_id)
+        join_group(alice, BOARD_THEME_GROUP_ID_BASE + theme.theme_id, alice_id)
+        listed = TextIdList.decode(alice.receive_next(MessageType.TEXT_ID_LIST))
+        self.assertEqual(listed.text_ids, (BOARD_MESSAGE_TEXT_ID_BASE + shown.message_id,))
+        alice.send(GetTextMessage(BOARD_MESSAGE_TEXT_ID_BASE + hidden.message_id))
+        text = TextMessage.decode(alice.receive_next(MessageType.TEXT_MESSAGE))
+        self.assertNotEqual(text.title, "Hidden")
+
 
 class BoardChatHintTest(LobbyTestCase):
     """Chat typed on the message board reaches nobody, a bug of the game (0x452455). The optional

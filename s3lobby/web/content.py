@@ -8,8 +8,9 @@ show (check_game_text), the same as from the command line.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http import HTTPStatus
 
-from flask import Blueprint, flash, redirect, render_template, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.constants import BOARD_LANGUAGES, NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER, NEWS_AUDIENCES
@@ -34,6 +35,15 @@ class NewsForm:
     audience: str
     audience_title: str
     news: News | None
+
+
+# The board's order arrives as ids separated by commas; a board never holds this many themes or
+# messages in one list, so a longer list is refused unread.
+ID_SEPARATOR = ","
+MAX_ORDERED_IDS = 500
+MOVE_UP = "up"
+# The value of the hide forms' field that hides; anything else shows.
+HIDDEN_VALUE = "true"
 
 
 @dataclass(frozen=True)
@@ -158,6 +168,94 @@ def post_board_message() -> Response:
         f"Message {title} posted.",
     )
     return redirect(url_for("content.show_board"))
+
+
+@blueprint.post("/board/themes/order")
+def order_board_themes() -> tuple[str, int]:
+    """Store the order of one language's themes after a drag on the board page (app.js sends the
+    theme ids, top first). Answers 204 without a page: the script already shows the new order."""
+    theme_ids = ids_from_form("ids")
+    if theme_ids is None:
+        abort(HTTPStatus.BAD_REQUEST)
+    get_database().set_board_theme_order(theme_ids)
+    return "", HTTPStatus.NO_CONTENT
+
+
+@blueprint.post("/board/themes/<int:theme_id>/messages/order")
+def order_board_messages(theme_id: int) -> tuple[str, int]:
+    """Store the order of a theme's messages after a drag on the board page; 204 like the themes."""
+    message_ids = ids_from_form("ids")
+    if message_ids is None:
+        abort(HTTPStatus.BAD_REQUEST)
+    get_database().set_board_message_order(theme_id, message_ids)
+    return "", HTTPStatus.NO_CONTENT
+
+
+@blueprint.post("/board/themes/<int:theme_id>/move")
+def move_board_theme(theme_id: int) -> Response:
+    """Move a theme one place up or down among its language's themes: the board without script."""
+    database = get_database()
+    themes = database.list_board_themes()
+    theme = next((item for item in themes if item.theme_id == theme_id), None)
+    if theme is None:
+        abort(HTTPStatus.NOT_FOUND)
+    ids = [item.theme_id for item in themes if item.language == theme.language]
+    database.set_board_theme_order(moved(ids, theme_id, form_text("direction")))
+    return redirect(url_for("content.show_board"))
+
+
+@blueprint.post("/board/messages/<int:message_id>/move")
+def move_board_message(message_id: int) -> Response:
+    """Move a message one place up or down in its theme: the board without script."""
+    database = get_database()
+    message = database.find_board_message(message_id)
+    if message is None:
+        abort(HTTPStatus.NOT_FOUND)
+    ids = [item.message_id for item in database.list_board_messages(message.theme_id)]
+    database.set_board_message_order(message.theme_id, moved(ids, message_id, form_text("direction")))
+    return redirect(url_for("content.show_board"))
+
+
+@blueprint.post("/board/themes/<int:theme_id>/hidden")
+def set_board_theme_hidden(theme_id: int) -> Response:
+    """Hide a theme from the game, or show it again (the form's hidden field says which)."""
+    is_hidden = form_text("hidden") == HIDDEN_VALUE
+    get_database().set_board_theme_hidden(theme_id, is_hidden)
+    flash("Theme hidden from the game." if is_hidden else "Theme shown in the game again.", "good")
+    return redirect(url_for("content.show_board"))
+
+
+@blueprint.post("/board/messages/<int:message_id>/hidden")
+def set_board_message_hidden(message_id: int) -> Response:
+    """Hide a message from the game, or show it again."""
+    is_hidden = form_text("hidden") == HIDDEN_VALUE
+    get_database().set_board_message_hidden(message_id, is_hidden)
+    flash("Message hidden from the game." if is_hidden else "Message shown in the game again.", "good")
+    return redirect(url_for("content.show_board"))
+
+
+def ids_from_form(field_name: str) -> list[int] | None:
+    """Ids sent as "3,1,2"; None when anything in them is not an id, or there are too many."""
+    text = form_text(field_name)
+    if not text:
+        return []
+    parts = text.split(ID_SEPARATOR)
+    if len(parts) > MAX_ORDERED_IDS or not all(is_whole_number_text(part) for part in parts):
+        return None
+    return [int(part) for part in parts]
+
+
+def moved(ids: list[int], item_id: int, direction: str) -> list[int]:
+    """The ids with one of them a place up ("up") or down ("down"); unchanged at either end."""
+    if item_id not in ids:
+        return ids
+    index = ids.index(item_id)
+    target = index - 1 if direction == MOVE_UP else index + 1
+    if target < 0 or target >= len(ids):
+        return ids
+    reordered = list(ids)
+    reordered[index], reordered[target] = reordered[target], reordered[index]
+    return reordered
 
 
 @blueprint.post("/board/messages/<int:message_id>/delete")
