@@ -173,3 +173,15 @@ the log. Still to do, most important first:
   admin's address can run /ban today), ignoring a nonce reset from a logged on address, and a
   confirmation code for admin chat commands. MySQL over TLS (`ssl=` for remote hosts) is a choice
   for the owner.
+
+## Future work
+
+- Ladder games with a real ranking (owner's wish, see the README's Roadmap). Today ladder games are
+  played but unranked: players get a server line, and a ladder GameStatus is stored and answered
+  with 0x6A. Building blocks that exist: `GameStatus` decodes flags, winning team and every slot
+  (player id = account id, team, race, computer flag); reports are stored in `game_reports`;
+  `/games` already decodes them. Still to decide: when a result counts (every player's report
+  agreeing, both teams human, the match long enough), how to rank (wins, an Elo-like rating),
+  clan ladder for LadderType.CLANS, where to show it (web page, Home news text, a chat command),
+  and only then answering ladder reports with 0x6C instead of 0x6A, which the game shows as "Game
+  status stored at the Lobby server." (0x540a3e).

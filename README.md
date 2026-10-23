@@ -52,6 +52,7 @@ files: point the game at your server and log on.
 - [Running the game on Linux with Wine](#running-the-game-on-linux-with-wine)
 - [Security](#security)
 - [How it works](#how-it-works)
+- [Roadmap](#roadmap)
 - [Development](#development)
 - [Legal](#legal)
 
@@ -434,6 +435,22 @@ The code follows the same layers:
 | `s3lobby/live.py` | the running lobby as the server writes it for the web interface |
 | `s3lobby/cli.py`, `s3lobby/admin.py` | the command line |
 | `s3lobby/web/` | the web interface (Flask) |
+
+## Roadmap
+
+Planned or wished for, roughly in order:
+
+- **Tests with the real game** for everything marked as untried above, and with two players on
+  two machines.
+- **Ladder games ("Liga", "Clanliga") with a real ranking.** The game already reports each ladder
+  match to the server with its players, teams, races and the winning team. s3lobby stores those
+  reports but ranks nothing yet and answers "Game not valid for ladder." The plan: count the
+  results per player and per clan, show the standings on the web interface and the Home tab, and
+  confirm valid ladder results to the game (Result 0x6c) once the reports are trusted enough,
+  for example only when every player of a match sent a matching report.
+- Hardening that needs a recorded game session first: refusing forged datagrams from a logged on
+  player's address, and a confirmation code for admin chat commands.
+- MySQL over TLS for databases on another machine.
 
 ## Development
 
