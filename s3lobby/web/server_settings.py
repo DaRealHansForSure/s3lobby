@@ -49,6 +49,19 @@ SETTING_GROUPS = (
     "Ladder texts",
 )
 
+# The two settings pages: the server's own, and the ladder's in the Ladder menu.
+GENERAL_PAGE = "general"
+LADDER_PAGE = "ladder"
+SETTINGS_PAGES = {
+    GENERAL_PAGE: ("Logons", "Chat and Home tab", "Member lists and board", "Network"),
+    LADDER_PAGE: ("Ladder", "Ladder rating", "Ladder texts"),
+}
+SETTINGS_PAGE_TITLES = {GENERAL_PAGE: "Settings", LADDER_PAGE: "Ladder settings"}
+SETTINGS_PAGE_ENDPOINTS = {
+    GENERAL_PAGE: "server_settings.show_settings",
+    LADDER_PAGE: "server_settings.show_ladder_settings",
+}
+
 SETTING_FIELDS = (
     SettingField(
         Setting.MAX_PLAYERS,
@@ -247,26 +260,49 @@ class SettingSection:
 
 @blueprint.get("/settings")
 def show_settings() -> str:
-    """The settings page with every setting's current value."""
+    """The server's settings, without the ladder's, which have a page of their own."""
+    return render_settings_page(GENERAL_PAGE)
+
+
+@blueprint.get("/ladder/settings")
+def show_ladder_settings() -> str:
+    """The ladder's settings, on a page of their own in the Ladder menu."""
+    return render_settings_page(LADDER_PAGE)
+
+
+def render_settings_page(page: str) -> str:
+    """One settings page: the sections of SETTINGS_PAGES[page], each setting with its value."""
     database = get_database()
-    rows = [SettingRow(field=field, value=database.get_setting(field.setting)) for field in SETTING_FIELDS]
+    groups = SETTINGS_PAGES[page]
+    rows = [
+        SettingRow(field=field, value=database.get_setting(field.setting))
+        for field in SETTING_FIELDS
+        if field.group in groups
+    ]
     sections = [
         SettingSection(
             name=group,
             text_rows=tuple(row for row in rows if row.field.group == group and not row.field.is_checkbox),
             checkbox_rows=tuple(row for row in rows if row.field.group == group and row.field.is_checkbox),
         )
-        for group in SETTING_GROUPS
+        for group in groups
     ]
-    return render_template("settings.html", sections=sections)
+    return render_template("settings.html", sections=sections, page=page, title=SETTINGS_PAGE_TITLES[page])
 
 
 @blueprint.post("/settings")
 def save_settings() -> Response:
-    """Check every value first and save only when all pass, so a typo in one field never leaves
-    the settings half changed."""
+    """Save the settings of the page that sent the form, and only those: a checkbox missing from the
+    form means off, so a page must never touch another page's settings. Every value is checked
+    first and saved only when all pass, so a typo in one field never leaves the settings half
+    changed."""
+    page = form_text("page")
+    if page not in SETTINGS_PAGES:
+        page = GENERAL_PAGE
+    back = redirect(url_for(SETTINGS_PAGE_ENDPOINTS[page]))
     database = get_database()
-    new_values = {field.setting: setting_value_from_form(field, database) for field in SETTING_FIELDS}
+    fields = [field for field in SETTING_FIELDS if field.group in SETTINGS_PAGES[page]]
+    new_values = {field.setting: setting_value_from_form(field, database) for field in fields}
     has_error = False
     for setting, value in new_values.items():
         try:
@@ -276,10 +312,10 @@ def save_settings() -> Response:
             has_error = True
     if has_error:
         flash("Nothing was saved.", "warn")
-        return redirect(url_for("server_settings.show_settings"))
+        return back
 
     apply_change(lambda: get_database().set_settings(new_values), "Settings saved.")
-    return redirect(url_for("server_settings.show_settings"))
+    return back
 
 
 def setting_value_from_form(field: SettingField, database: LobbyDatabase) -> str:

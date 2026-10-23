@@ -209,7 +209,6 @@ def list_ladder_games() -> str:
             rows = [row for row in rows if search in searchable_text(row)]
         rows = rows[:ADMIN_RESULT_COUNT]
     show_waiting = tab in (WAITING_TAB, ALL_TAB)
-    now = database.now()
     return render_template(
         "ladder_games.html",
         tab=tab,
@@ -220,8 +219,6 @@ def list_ladder_games() -> str:
         rows=rows,
         waiting_games=waiting_games if show_waiting else [],
         teams_by_game=disputed_teams(database, rows),
-        seasons=[season_card(season, now) for season in database.list_ladder_seasons()],
-        counts_choices=[counts_choice.value for counts_choice in SeasonCounts],
     )
 
 
@@ -254,6 +251,18 @@ def void_game(game_id: int) -> Response:
     return redirect(url_for("ladder_admin.list_ladder_games"))
 
 
+@admin_blueprint.get("/ladder/seasons")
+def list_seasons() -> str:
+    """The custom seasons as cards, with editing, ending and deleting, and the form for a new one."""
+    database = get_database()
+    now = database.now()
+    return render_template(
+        "ladder_seasons.html",
+        seasons=[season_card(season, now) for season in database.list_ladder_seasons()],
+        counts_choices=[counts_choice.value for counts_choice in SeasonCounts],
+    )
+
+
 @admin_blueprint.post("/ladder/seasons")
 def create_season() -> Response:
     """Create a custom season from the form."""
@@ -268,12 +277,12 @@ def create_season() -> Response:
         )
     except DatabaseError as error:
         flash(sentence_from_error(error), "bad")
-        return redirect(url_for("ladder_admin.list_ladder_games"))
+        return redirect(url_for("ladder_admin.list_seasons"))
     except ValueError as error:
         flash(f"{error}.", "bad")
-        return redirect(url_for("ladder_admin.list_ladder_games"))
+        return redirect(url_for("ladder_admin.list_seasons"))
     flash(f"Season {season.name} created.", "good")
-    return redirect(url_for("ladder_admin.list_ladder_games"))
+    return redirect(url_for("ladder_admin.list_seasons"))
 
 
 @admin_blueprint.post("/ladder/seasons/<int:season_id>")
@@ -288,12 +297,12 @@ def edit_season(season_id: int) -> Response:
         database.update_ladder_season(season_id, form_text("name"), starts_at, ends_at, counts)
     except DatabaseError as error:
         flash(sentence_from_error(error), "bad")
-        return redirect(url_for("ladder_admin.list_ladder_games"))
+        return redirect(url_for("ladder_admin.list_seasons"))
     except ValueError as error:
         flash(f"{error}.", "bad")
-        return redirect(url_for("ladder_admin.list_ladder_games"))
+        return redirect(url_for("ladder_admin.list_seasons"))
     flash("Season saved; its standings follow at once.", "good")
-    return redirect(url_for("ladder_admin.list_ladder_games"))
+    return redirect(url_for("ladder_admin.list_seasons"))
 
 
 @admin_blueprint.post("/ladder/seasons/<int:season_id>/end")
@@ -305,9 +314,9 @@ def end_season(season_id: int) -> Response:
         database.update_ladder_season(season_id, season.name, season.starts_at, database.now(), season.counts)
     except DatabaseError as error:
         flash(sentence_from_error(error), "bad")
-        return redirect(url_for("ladder_admin.list_ladder_games"))
+        return redirect(url_for("ladder_admin.list_seasons"))
     flash(f"Season {season.name} ended.", "good")
-    return redirect(url_for("ladder_admin.list_ladder_games"))
+    return redirect(url_for("ladder_admin.list_seasons"))
 
 
 @admin_blueprint.post("/ladder/seasons/<int:season_id>/delete")
@@ -317,7 +326,7 @@ def delete_season(season_id: int) -> Response:
     season = require_season(database, season_id)
     database.delete_ladder_season(season_id)
     flash(f"Season {season.name} deleted; its results still count in the infinite season.", "good")
-    return redirect(url_for("ladder_admin.list_ladder_games"))
+    return redirect(url_for("ladder_admin.list_seasons"))
 
 
 # Helpers.

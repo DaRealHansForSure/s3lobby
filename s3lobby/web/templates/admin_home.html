@@ -24,7 +24,7 @@
       <p>{{ dashboard.banned_count }} banned. <a href="{{ url_for('accounts.list_accounts') }}">Accounts</a></p></div>
     <div class="card"><h3>Ladder</h3><div class="stat-number">{{ dashboard.disputed_count }}</div>
       <p>disputed, {{ dashboard.waiting_count }} waiting, {{ dashboard.custom_season_count }} custom season(s) running.
-      {% if dashboard.is_ladder_enabled %}The game is told about results.{% else %}Off for the game (<a href="{{ url_for('server_settings.show_settings') }}">ladder_enabled</a>).{% endif %}</p></div>
+      {% if dashboard.is_ladder_enabled %}The game is told about results.{% else %}Off for the game (<a href="{{ url_for('server_settings.show_ladder_settings') }}">ladder_enabled</a>).{% endif %}</p></div>
   </div>
 </section>
 

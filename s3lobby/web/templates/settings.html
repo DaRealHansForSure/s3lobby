@@ -1,16 +1,18 @@
 {% extends "admin_base.html" %}
 {% from "_macros.html" import csrf_field, checkbox_field with context %}
-{% set active_nav = "settings" %}
-{% block title %}Settings{% endblock %}
+{% if page == "ladder" %}{% set active_nav = "ladder_settings" %}{% else %}{% set active_nav = "settings" %}{% endif %}
+{% block title %}{{ title }}{% endblock %}
 {% block content %}
 <section>
   <div class="section-head">
-    <h1>Settings</h1>
+    <h1>{{ title }}</h1>
     <p>The running server reads these when it needs them, so a change applies from the next logon
-    or the next visit to the Home tab.</p>
+    or the next visit to the Home tab.{% if page == "ladder" %} Every number applies to every result
+    at once, since ratings are always computed from the results.{% endif %}</p>
   </div>
   <form method="post" action="{{ url_for('server_settings.save_settings') }}">
     {{ csrf_field() }}
+    <input type="hidden" name="page" value="{{ page }}">
     {% for section in sections %}
     <section class="card settings-group">
       <h2>{{ section.name }}</h2>
