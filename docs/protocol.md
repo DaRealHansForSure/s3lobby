@@ -296,6 +296,15 @@ Offsets count from the first byte after the header.
   | 0xb | dialog "Der Wechsel in die Gruppe hat nicht geklappt" (status 2/5, 0x5d0557) |
   | 0x62 | dialog "Das Passwort stimmte nicht", value = group id (status 2/6, 0x5d0542) |
 
+  The create dialog (0x43bf90) has the fields Name, Password and Repeat (texts 0x9006d..0x9006f)
+  and refuses an empty name (0x43c71e, 0x90070), an empty password (0x43c881, 0x90071) and a
+  repeat that differs (0x43c9ef, 0x90072) before anything is sent; it sets no length. s3lobby
+  answers a create request (flag 0x1) with 0x66 for a new account, or with the same codes as a
+  logon. It never sends 2: "There is already a player with this name" would tell anyone which
+  names have accounts, so a taken name is checked as an ordinary logon (its own password gets in,
+  any other gets 3). A password shorter than 8 characters, too many accounts from one address
+  and the setting `allow_create_player` being off all get 3 as well.
+
   The texts live in `GFX/siedler3_09.*.dat`: at offset 0x5c a u16 text count (374) and a u16
   language count (8), from 0x60 one u32 file offset per text, all texts of language 0 (German)
   first, then language 1 (English), and so on.

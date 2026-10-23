@@ -466,6 +466,15 @@ NO_BANNER_ID = 0
 LOGON_FAILURE_BURST = 10
 LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
 
+# Accounts made with the game's own "Create Player" button (setting allow_create_player): a few
+# per address at once, then one an hour, so one machine cannot fill the database with names. The
+# game itself refuses an empty password and a repeat that does not match (0x43c881, 0x43c9ef)
+# but sets no length, so the server asks for this many characters: the password becomes the
+# account's access code, compared without regard to case like every access code.
+ACCOUNT_CREATION_BURST = 3
+ACCOUNT_CREATIONS_PER_SECOND = 1 / (60 * 60)
+MIN_CHOSEN_PASSWORD_LENGTH = 8
+
 # Bans: whole hours from one hour up to ten years, one day unless said otherwise.
 MIN_BAN_HOURS = 1
 MAX_BAN_HOURS = 10 * 365 * 24

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from werkzeug.wrappers import Response
 
+from s3lobby.constants import MIN_CHOSEN_PASSWORD_LENGTH
 from s3lobby.database import TRUE_SETTING_VALUES, DatabaseError, LobbyDatabase, Setting, check_setting_value
 from s3lobby.web.auth import redirect_visitors_to_logon
 from s3lobby.web.lobby_view import read_live_lobby_page
@@ -74,6 +75,16 @@ SETTING_FIELDS = (
         "One logon per serial number",
         "Refuse a second player with the same serial number, as Blue Byte's server did. Copies in one"
         " household often share a serial, so this is off by default.",
+        is_checkbox=True,
+        group="Logons",
+    ),
+    SettingField(
+        Setting.ALLOW_CREATE_PLAYER,
+        "Players may create accounts in the game",
+        "The game's \"Create Player\" button makes an account with the name and password typed there "
+        f"(at least {MIN_CHOSEN_PASSWORD_LENGTH} characters, any case). Off by default: admins make the"
+        " accounts. Every refusal, a taken name included, shows the game's \"refuses your combination\""
+        " text, so nobody learns from it which names exist.",
         is_checkbox=True,
         group="Logons",
     ),

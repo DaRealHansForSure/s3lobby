@@ -16,7 +16,11 @@ s3lobby is built around that weakness:
 
 - **Players never choose a password.** The server issues random access codes (12 characters),
   and the game's "create player" button is refused. A code that leaks gives access to this lobby
-  and nothing else.
+  and nothing else. An admin may switch the button on (setting `allow_create_player`); then a
+  player chooses their own password (at least 8 characters, any case), which they may also use
+  elsewhere and which crosses the network in plain text like every password of this game. Each
+  address creates at most a few accounts an hour, and the game never hears that a name is taken:
+  every refusal is the one for a wrong password.
 - **Codes are stored only as salted scrypt hashes** and can be revoked one by one. Give every PC
   its own code (`s3lobby account code NAME --label ...`) and revoke the one that leaked.
 - **Failed logons are limited** per address and per name, so codes cannot be guessed.

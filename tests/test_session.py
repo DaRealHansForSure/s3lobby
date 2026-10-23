@@ -125,6 +125,22 @@ class LobbySessionTest(LobbyTestCase):
         self.assertEqual(result.code, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
         self.assertEqual(client.unread_messages_of_type(MessageType.OWN_PLAYER), [])
 
+    def test_create_player_with_a_taken_name_gets_the_wrong_code_answer(self) -> None:
+        """With the game's create button switched on, a taken name must not get Result 2: the game
+        would show "There is already a player with this name" and so tell anyone which names have
+        accounts. A free name gets the account and enters the lobby."""
+        self.database.set_setting(Setting.ALLOW_CREATE_PLAYER, "true")
+        taken = self.new_client("Alice", nonce=17)
+        go_to_lobby_server(taken)
+        refused = send_logon(taken, access_code="CHOSEN PASSWORD", flags=LogonFlag.CREATE_PLAYER)
+        self.assertEqual(refused.code, ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE)
+
+        newcomer = self.new_client("Newcomer", nonce=18)
+        go_to_lobby_server(newcomer)
+        accepted = send_logon(newcomer, access_code="CHOSEN PASSWORD", flags=LogonFlag.CREATE_PLAYER)
+        self.assertEqual(accepted.code, ResultCode.LOGON_ACCEPTED)
+        newcomer.receive_next(MessageType.OWN_PLAYER)
+
     def test_clan_member_is_shown_with_the_clan_to_others(self) -> None:
         """A player who ticked the clan box gets 0x24 instead of 0x0e, and the others see the
         clan name in the member list through 0x25."""
