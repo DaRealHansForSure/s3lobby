@@ -168,6 +168,12 @@ class Setting(Enum):
     LADDER_CLAN_MEMBER_DAYS = "ladder_clan_member_days"
     LADDER_INACTIVE_DAYS = "ladder_inactive_days"
     LADDER_MAX_CUSTOM_SEASONS = "ladder_max_custom_seasons"
+    # The lobby texts the ladder writes while it is switched on: how many board messages its own
+    # theme keeps, the standings under the news, and a line with the player's place at each logon
+    # (off by default: noise for players who do not play the ladder).
+    LADDER_BOARD_MESSAGES = "ladder_board_messages"
+    LADDER_NEWS_STANDINGS = "ladder_news_standings"
+    LADDER_LOGON_LINE = "ladder_logon_line"
 
     @property
     def key(self) -> str:
@@ -202,6 +208,9 @@ SETTING_DEFAULTS = {
     Setting.LADDER_CLAN_MEMBER_DAYS: "3",
     Setting.LADDER_INACTIVE_DAYS: "60",
     Setting.LADDER_MAX_CUSTOM_SEASONS: "50",
+    Setting.LADDER_BOARD_MESSAGES: "20",
+    Setting.LADDER_NEWS_STANDINGS: "true",
+    Setting.LADDER_LOGON_LINE: "false",
 }
 
 # A label tells an account's access codes apart, such as "laptop"; the reason for a ban is shown to
@@ -226,6 +235,8 @@ BOOLEAN_SETTINGS = frozenset(
         Setting.CHECK_REACHABILITY,
         Setting.BOARD_CHAT_HINT,
         Setting.LADDER_ENABLED,
+        Setting.LADDER_NEWS_STANDINGS,
+        Setting.LADDER_LOGON_LINE,
     }
 )
 MAX_INTEGER_SETTING = 0xFFFFFFFF
@@ -245,6 +256,7 @@ LADDER_INTEGER_SETTINGS = frozenset(
         Setting.LADDER_CLAN_MEMBER_DAYS,
         Setting.LADDER_INACTIVE_DAYS,
         Setting.LADDER_MAX_CUSTOM_SEASONS,
+        Setting.LADDER_BOARD_MESSAGES,
     }
 )
 MAX_LADDER_SETTING = 100_000
