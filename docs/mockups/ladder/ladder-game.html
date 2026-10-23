@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="../../../s3lobby/web/static/base.css">
 <link rel="stylesheet" href="../../../s3lobby/web/static/components.css">
 <link rel="stylesheet" href="../../../s3lobby/web/static/app.css">
+<link rel="stylesheet" href="ladder.css">
 </head>
 <body>
 <header class="site-header">
@@ -31,51 +32,80 @@
 <div class="note note--accent" role="status">Mockup of the ladder concept (docs/ladder.md). Not built yet; names and numbers are made up.</div>
 <section>
   <div class="section-head">
-    <h1>Greta's ladder</h1>
-    <p>Liga game opened by Greta in League 1 vs 1. This mockup shows only the new ladder part of the game page.</p>
+    <h1>Greta's ladder <span class="badge">Liga</span></h1>
+    <p>Opened by Greta in League 1 vs 1. Only the new ladder part of the game page is shown.</p>
   </div>
-  <div class="table-block">
-    <table class="table table--facts">
+  <div class="grid-12">
+    <div class="col-6"><div class="card report-card">
+  <h3><span class="game-row game-row--green">Greta</span>'s game reported</h3>
+  <table class="table table--facts"><tbody>
+    <tr><th>Received</th><td class="cell-time">today 19:41:58</td></tr>
+    <tr><th>Winner</th><td>team 0, Greta</td></tr>
+    <tr><th>Played</th><td>27:41</td></tr>
+    <tr><th>Slots</th><td>Greta (Romans, team 0), Ole (Asians, team 1)</td></tr>
+    <tr><th>Left</th><td>nobody</td></tr>
+  </tbody></table>
+</div></div>
+    <div class="col-6"><div class="card report-card">
+  <h3><span class="game-row game-row--green">Ole</span>'s game reported</h3>
+  <table class="table table--facts"><tbody>
+    <tr><th>Received</th><td class="cell-time">today 19:42:03</td></tr>
+    <tr><th>Winner</th><td>team 0, Greta</td></tr>
+    <tr><th>Played</th><td>27:41</td></tr>
+    <tr><th>Slots</th><td>Greta (Romans, team 0), Ole (Asians, team 1)</td></tr>
+    <tr><th>Left</th><td>nobody</td></tr>
+  </tbody></table>
+</div></div>
+  </div>
+  <div class="note note--good verdict" role="status"><strong>Counted.</strong> Both end reports agree,
+  the match lasted 27:41 (minimum 10:00), and it counts in the Infinite season and the Autumn Cup.</div>
+</section>
+<section>
+  <div class="section-head"><h2>Ratings</h2></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Season</th><th>Player</th><th class="num">Before</th><th class="num">After</th><th>Change</th></tr></thead>
       <tbody>
-        <tr><th>Ladder</th><td>Liga, 1 on 1</td></tr>
-        <tr><th>State</th><td><span class="badge badge--good">counted</span> Greta won; both end reports agree</td></tr>
-        <tr><th>Played</th><td>27:41 (minimum 10:00)</td></tr>
-        <tr><th>Seasons</th><td>Infinite season, Autumn Cup</td></tr>
-        <tr><th>Ratings</th><td>Greta 1022 to 1043 <span class="badge badge--good">+21</span>, Ole 961 to 931 <span class="badge badge--bad">-30</span> (provisional, K 32)</td></tr>
-        <tr><th>Answer to the game</th><td>0x6c, shown as "Game status stored at the Lobby server."</td></tr>
+        <tr><td rowspan="2">Infinite season</td><td><span class="game-row game-row--green">Greta</span></td><td class="num">1022</td><td class="num"><strong>1043</strong></td><td><span class="badge badge--good">+21</span></td></tr>
+        <tr><td><span class="game-row game-row--green">Ole</span> <span class="badge">provisional, K 32</span></td><td class="num">961</td><td class="num"><strong>931</strong></td><td><span class="badge badge--bad">-30</span></td></tr>
+        <tr><td rowspan="2">Autumn Cup</td><td><span class="game-row game-row--green">Greta</span></td><td class="num">1005</td><td class="num"><strong>1021</strong></td><td><span class="badge badge--good">+16</span></td></tr>
+        <tr><td><span class="game-row game-row--green">Ole</span></td><td class="num">986</td><td class="num"><strong>970</strong></td><td><span class="badge badge--bad">-16</span></td></tr>
       </tbody>
     </table>
   </div>
-  <div class="cell-actions"><button class="btn btn--outline btn--sm" type="button">Void this result</button></div>
+  <div class="row meta"><button class="btn btn--danger btn--sm" type="button">Void this result</button><span>Voiding recomputes every rating; the reports stay.</span></div>
 </section>
 <section>
   <div class="section-head"><h2>What the players read in the game</h2>
-  <p>Server lines in the lobby chat, the only place the game can show the ladder.</p></div>
-  <div class="card">
-<pre class="message-text">After the match, to both players:
-  Liga: Greta beats Ole, 1022 -> 1043 (Ole 961 -> 931).
-
-/rank Greta
+  <p>During the match the game shows the server's answer to its report; afterwards the server
+  writes lines into the lobby chat, the only place the game can show the ladder.</p></div>
+  <div class="grid-12">
+    <div class="col-6 card">
+      <h3>During the match</h3>
+      <pre class="message-text">Game status stored at the Lobby server.</pre>
+      <p>The game's own text for Result 0x6c (0x540a3e).</p>
+    </div>
+    <div class="col-6 card">
+      <h3>Back in the lobby</h3>
+<pre class="message-text">Liga: Greta beats Ole, 1022 -> 1043
+(Ole 961 -> 931).
+Autumn Cup: Greta 1021, place 3 of 9.</pre>
+    </div>
+    <div class="col-12 card">
+      <h3>Chat commands</h3>
+<pre class="message-text message-text--wide">/rank Greta
   Greta: Liga 1043, place 6 of 23 (infinite season).
   Won 9, lost 7, left 0. Autumn Cup: 1021, place 3 of 9.
-
 /top
-  Liga: 1 Thalia 1284, 2 Jin 1236, 3 Marcus 1179,
-  4 Lena 1121, 5 Pavel 1088.
-
+  Liga: 1 Thalia 1284, 2 Jin 1236, 3 Marcus 1179, 4 Lena 1121, 5 Pavel 1088.
 /top Autumn Cup
-  Autumn Cup: 1 Jin 1088, 2 Pavel 1040, 3 Greta 1021,
-  4 Lena 1003, 5 Ole 985.
-
+  Autumn Cup: 1 Jin 1088, 2 Pavel 1040, 3 Greta 1021, 4 Lena 1003, 5 Ole 985.
 /seasons
   Running: Autumn Cup (Liga), until 30 Nov 2026.
-
 /clanrank Romans
   Romans: Clanliga 1168, place 1 of 4. Won 7, lost 4.
-  Strength from Liga 1077 (Marcus, Lena, Ole).
-
-A match that does not count:
-  Liga: not ranked, the match was shorter than 10 minutes.</pre>
+  Strength from Liga 1077 (Marcus, Lena, Ole).</pre>
+    </div>
   </div>
 </section>
 </main>

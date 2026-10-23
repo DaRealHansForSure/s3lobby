@@ -202,15 +202,17 @@ them.
 
 ## Mockups
 
-Static pages on the web interface's own stylesheets, with made up names and numbers
-(`docs/mockups/ladder/`, each page as HTML and in light and dark):
+Static pages on the web interface's own stylesheets and the UI kit's components, with made up names
+and numbers (`docs/mockups/ladder/`, each page as HTML and in light and dark). The few new classes
+they need are in `docs/mockups/ladder/ladder.css`, built from the kit's tokens and without inline
+styles, so the real pages can take them over into `app.css` as they are.
 
 | Page | What it shows |
 |---|---|
-| [Liga](mockups/ladder/ladder-liga-light.png) ([dark](mockups/ladder/ladder-liga-dark.png)) | the public `/ladder` page: season choice, standings with rating, last change, won, lost, left, provisional players, and the last results |
-| [Clanliga](mockups/ladder/ladder-clanliga-light.png) ([dark](mockups/ladder/ladder-clanliga-dark.png)) | the clans' Clanliga ratings and their strength from Liga |
-| [Ladder games](mockups/ladder/ladder-admin-light.png) ([dark](mockups/ladder/ladder-admin-dark.png)) | for admins: every evaluated game with its state and reason, deciding and voiding, the infinite season and the custom seasons with their champions |
-| [Game page](mockups/ladder/ladder-game-light.png) ([dark](mockups/ladder/ladder-game-dark.png)) | the ladder part of a game's page, and the server lines and chat command answers the players read in the game |
+| [Liga](mockups/ladder/ladder-liga-light.png) ([dark](mockups/ladder/ladder-liga-dark.png), [phone](mockups/ladder/ladder-liga-light-phone.png)) | the public `/ladder` page: tabs for Liga, Clanliga and clan strength, season and player filters, the top three as cards, the rating over the last weeks as a chart, the standings with form (last five results), win rate bars and losses by leaving, and the last results |
+| [Clanliga](mockups/ladder/ladder-clanliga-light.png) ([dark](mockups/ladder/ladder-clanliga-dark.png)) | the clans as cards with rating, form, usual team size and members, and their strength from Liga as a bar chart |
+| [Ladder games](mockups/ladder/ladder-admin-light.png) ([dark](mockups/ladder/ladder-admin-dark.png)) | for admins: games filtered by state with counts, the decision dialog for a disputed game, the infinite and custom seasons as cards with progress, a form for a new custom season, and the ladder settings |
+| [Game page](mockups/ladder/ladder-game-light.png) ([dark](mockups/ladder/ladder-game-dark.png)) | the ladder part of a game's page: both end reports side by side, the verdict, the rating changes per season, and what the players read in the game |
 
 ## Building it in steps
 
