@@ -48,6 +48,8 @@ class SqliteBackend(DatabaseBackend):
         except sqlite3.Error as error:
             raise BackendError(str(error)) from error
         self._connection.row_factory = row_as_dict
+        # SQLite ignores the schema's foreign keys unless each connection turns them on, so without
+        # this a deleted account would leave its access codes, sessions and clan membership behind.
         self._connection.execute("PRAGMA foreign_keys = ON")
         if not is_in_memory:
             # Write-ahead logging lets the web interface read while the server writes, instead of
@@ -127,6 +129,7 @@ class SqliteBackend(DatabaseBackend):
 
     def note_schema_version(self, version: int) -> None:
         """Store the version in PRAGMA user_version as well."""
+        # PRAGMA takes no ? placeholders, hence the formatted value; int() keeps it a plain number.
         # Kept up to date so that an s3lobby from before the migrations table, which only reads
         # user_version, refuses a database newer than it knows instead of breaking it.
         self._connection.execute(f"PRAGMA user_version = {int(version)}")

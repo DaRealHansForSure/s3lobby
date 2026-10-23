@@ -13,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from s3lobby.commands import kick_reason
+from s3lobby.constants import NEWS_AUDIENCES
 from s3lobby.database import Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
 
 
@@ -92,6 +93,7 @@ def kick_account(database: LobbyDatabase, options: argparse.Namespace) -> None:
     The command only writes to the database: the server reads the queue and carries the kick out
     within a second."""
     account = require_account(database, options.name)
+    # The full line is stored here, so a kick from the command line reads the same as the chat command's.
     database.queue_kick(account.account_id, kick_reason(options.reason))
     print(f"Queued; a running server removes {account.name!r} from the lobby within a second, if online.")
 
@@ -171,7 +173,7 @@ def set_news(database: LobbyDatabase, options: argparse.Namespace) -> None:
 
 def show_news(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Print the Home tab news of both audiences."""
-    for audience in ("german", "other"):
+    for audience in NEWS_AUDIENCES:
         news = database.find_news(audience)
         if news is None:
             print(f"[{audience}] no news")
@@ -292,6 +294,7 @@ def copy_database(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Copy everything into another, empty database (--to) and print the rows per table.
 
     Meant for moving, for example from SQLite to MySQL, while the server is stopped."""
+    # Opened with migrations applied, so the target has the same schema as the source before copying.
     target = LobbyDatabase(options.to)
     try:
         copied_rows = database.copy_to(target)
@@ -341,6 +344,7 @@ def require_setting(key: str) -> Setting:
 def read_text_option(options: argparse.Namespace) -> str:
     """The text of a news item or message, from --text or from the file named by --file."""
     if options.file:
+        # Editors end a file with a newline; it would otherwise become part of the stored text.
         return Path(options.file).read_text(encoding="utf-8").strip()
     return options.text
 
@@ -349,6 +353,8 @@ def run_admin_command(database: LobbyDatabase, options: argparse.Namespace) -> N
     """Run the function the subcommand chose, turning expected failures into AdminError."""
     try:
         options.admin_function(database, options)
+    # The database refuses what breaks its rules (a taken name, an unknown id, a text the game
+    # cannot show); for the person at the command line that is a message, not a traceback.
     except DatabaseError as error:
         raise AdminError(str(error)) from error
 

@@ -11,7 +11,7 @@ access codes never do.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields as dataclass_fields, replace
 from datetime import datetime
 
 
@@ -67,6 +67,7 @@ class LiveLobbyState:
 
     def to_json(self) -> str:
         """The state as JSON text, keys sorted, so the same lobby always gives the same text."""
+        # ensure_ascii=False stores names such as "Müller" as they are rather than as \u escapes.
         return json.dumps(asdict(self), sort_keys=True, ensure_ascii=False)
 
     @classmethod
@@ -77,6 +78,8 @@ class LiveLobbyState:
             players = tuple(live_player_from_fields(player) for player in fields["players"])
             groups = tuple(live_group_from_fields(group) for group in fields["groups"])
             return cls(server_name=fields["server_name"], players=players, groups=groups)
+        # KeyError for a missing part, TypeError for JSON of another shape and for a field the
+        # dataclasses do not know (a state written by a newer server).
         except (KeyError, TypeError, json.JSONDecodeError) as error:
             raise ValueError(f"not a live lobby state: {error}") from error
 
@@ -90,14 +93,22 @@ class LiveLobbyState:
 
 
 def live_player_from_fields(fields: dict) -> LivePlayer:
-    """JSON has lists where the state has tuples."""
-    player = LivePlayer(**fields)
+    """JSON has lists where the state has tuples. Fields this version does not know (written by a
+    newer server) are left out, so the web page still shows the lobby."""
+    player = LivePlayer(**known_fields(LivePlayer, fields))
     return replace(player, group_ids=tuple(player.group_ids))
 
 
+def known_fields(record_class: type, fields: dict) -> dict:
+    """The fields of a stored record that record_class has; missing ones take their defaults."""
+    names = {record_field.name for record_field in dataclass_fields(record_class)}
+    return {name: value for name, value in fields.items() if name in names}
+
+
 def live_group_from_fields(fields: dict) -> LiveGroup:
-    """A LiveGroup from its JSON fields; JSON has lists where the state has tuples."""
-    group = LiveGroup(**fields)
+    """A LiveGroup from its JSON fields; JSON has lists where the state has tuples. Unknown fields
+    are left out, as for players."""
+    group = LiveGroup(**known_fields(LiveGroup, fields))
     return replace(group, member_names=tuple(group.member_names), listed_in_ids=tuple(group.listed_in_ids))
 
 

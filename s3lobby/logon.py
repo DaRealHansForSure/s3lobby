@@ -42,6 +42,7 @@ def is_development_client(client_ip: str) -> bool:
     try:
         ip = ipaddress.ip_address(client_ip)
     except ValueError:
+        # Not an IP address at all: never trusted.
         return False
     return ip.is_loopback or ip.is_private
 
@@ -96,6 +97,7 @@ class LogonCheck:
         """Run the checks in an order that tells a guesser nothing: the public rules first, then
         the access code, and only after a correct code anything about the account itself."""
         now_seconds = self._clock_seconds()
+        # Casefolded like the database compares names, so "Alice" and "ALICE" share one budget.
         name_and_ip_key = (logon.player_name.casefold(), client_ip)
 
         if logon.flags & LogonFlag.CREATE_PLAYER:
@@ -107,6 +109,7 @@ class LogonCheck:
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many failed attempts, try again later")
         if not is_valid_player_name(logon.player_name):
             return RefusedLogon(ResultCode.INVALID_PLAYER_NAME, "name breaks the game's name rule")
+        # One budget for all clients together: each check below costs a scrypt hash on the event loop.
         if not self._access_code_checks.allows(ALL_CHECKS_KEY, now_seconds):
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "too many logons at once, try again later")
 
@@ -122,6 +125,8 @@ class LogonCheck:
         else:
             is_known = self._database.check_access_code(account.account_id, logon.password)
         if not is_known:
+            # Kept per IP and per name from that IP: failures from elsewhere never lock out the
+            # owner of the account.
             self._failures_by_ip.record_event(client_ip, now_seconds)
             self._failures_by_name_and_ip.record_event(name_and_ip_key, now_seconds)
             return RefusedLogon(ResultCode.UNKNOWN_NAME_OR_ACCESS_CODE, "unknown account or wrong access code")
@@ -151,6 +156,7 @@ class LogonCheck:
             return RefusedLogon(ResultCode.BANNED, f"banned until {account.banned_until:%Y-%m-%d %H:%M} UTC")
 
         max_players = self._database.get_integer_setting(Setting.MAX_PLAYERS)
+        # A maximum of 0 means no limit.
         is_full = max_players > 0 and occupancy.player_count >= max_players
         if is_full:
             return RefusedLogon(ResultCode.SERVER_FULL, f"{occupancy.player_count} of {max_players} players online")

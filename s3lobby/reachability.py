@@ -102,6 +102,7 @@ class ReachabilityProber(asyncio.DatagramProtocol):
     def _send_probe(self, address: Address, probe_block: bytes, attempts_left: int) -> None:
         """Send the probe block and schedule the next attempt; once no attempt is left without an
         answer, the player is reported BLOCKED."""
+        # Called once more after the last attempt, when its wait for an answer is over.
         if attempts_left == 0:
             self._pending.pop(address, None)
             log.info("%s: not reachable from other ports", address)
@@ -119,6 +120,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
         """Acknowledge the game's answer and close, so it does not keep the connection for its
         minute of timeout. Its block has to be acknowledged in the same block as the close: the
         game checks it is in sync before it closes (PP.CheckInSync 0x606310)."""
+        # A garbled answer still proved the player reachable; only the close is skipped, and the
+        # game's connection times out by itself.
         try:
             messages = decode_block(data)
         except ProtocolError:
@@ -133,6 +136,8 @@ class ReachabilityProber(asyncio.DatagramProtocol):
             [
                 MessageId(CLOSING_BLOCK_ID).encode(),
                 AcknowledgeMessages((answer_block_id,)).encode(),
+                # The game's answer acknowledges the probe block (inferred), so this closing block is
+                # the lowest one of ours still waiting for an acknowledgement.
                 MinMissingAcknowledge(CLOSING_BLOCK_ID).encode(),
                 CloseConnection().encode(),
             ]

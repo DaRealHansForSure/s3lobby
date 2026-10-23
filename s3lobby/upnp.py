@@ -119,6 +119,7 @@ def discover_gateway(timeout_seconds: float = SSDP_DISCOVERY_SECONDS) -> Gateway
 
 def location_from_ssdp_answer(answer: bytes) -> str | None:
     """The LOCATION header of an SSDP answer, or None when it has none."""
+    # latin-1 decodes every byte, so a malformed answer cannot raise here; the header is ASCII anyway.
     for line in answer.decode("latin-1").split("\r\n"):
         name, separator, value = line.partition(":")
         if separator and name.strip().lower() == "location":
@@ -152,6 +153,7 @@ def gateway_from_description(location: str) -> Gateway:
         root = ElementTree.fromstring(description)
     except ElementTree.ParseError as error:
         raise UpnpError(f"unreadable device description: {error}") from error
+    # ElementTree names a namespaced tag "{namespace}tag"; doubled braces in an f-string are literal ones.
     for service in root.iter(f"{{{DEVICE_NAMESPACE}}}service"):
         service_type = service.findtext(f"{{{DEVICE_NAMESPACE}}}serviceType", "").strip()
         control_path = service.findtext(f"{{{DEVICE_NAMESPACE}}}controlURL", "").strip()
@@ -201,6 +203,7 @@ class PortMapper:
         try:
             self._call("AddPortMapping", arguments)
         except UpnpError as error:
+            # Only a router that rejected the lease time itself gets the same request again, as permanent.
             if error.error_code != ONLY_PERMANENT_LEASES_ERROR:
                 raise
             arguments["NewLeaseDuration"] = str(PERMANENT_LEASE)
@@ -251,6 +254,7 @@ def fetch(url: str) -> tuple[bytes, str]:
 def local_ip_towards(host: str) -> str:
     """This machine's address on the way to host: the address the router forwards to."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        # Connecting a UDP socket sends nothing, it only picks the route; any port will do.
         probe.connect((host, SSDP_GROUP[1]))
         return probe.getsockname()[0]
 
@@ -263,8 +267,11 @@ def answer_arguments(answer: bytes, action: str) -> dict[str, str]:
         raise UpnpError(f"{action}: unreadable answer: {error}") from error
     arguments = {}
     for element in root.iter():
+        # Envelope, Body and the action's response element only wrap others; the out arguments are
+        # the leaves with text.
         is_argument = len(element) == 0 and element.text is not None
         if is_argument:
+            # Drop the "{namespace}" ElementTree puts in front of the tag name.
             arguments[element.tag.rpartition("}")[2]] = element.text.strip()
     return arguments
 
@@ -278,6 +285,7 @@ def upnp_error_from_fault(action: str, fault: bytes) -> UpnpError:
     code_text = root.findtext(f".//{{{CONTROL_NAMESPACE}}}errorCode", "")
     description = root.findtext(f".//{{{CONTROL_NAMESPACE}}}errorDescription", "")
     error_code = None
+    # isdigit alone also accepts digits such as a superscript two, which int() refuses; isascii excludes them.
     if code_text.isascii() and code_text.isdigit():
         error_code = int(code_text)
     return UpnpError(f"{action} failed: {error_code} {description}".rstrip(), error_code)

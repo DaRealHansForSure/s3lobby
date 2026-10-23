@@ -31,7 +31,6 @@ from s3lobby.constants import (
     ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
     BOARD_CHAT_HINT_TEXT,
-    NO_BANNER_ID,
     BOARD_FALLBACK_LANGUAGE,
     BOARD_LANGUAGES,
     BOARD_LANGUAGE_GROUP_ID_BASE,
@@ -42,6 +41,7 @@ from s3lobby.constants import (
     CHAT_ZONE_GROUP_ID,
     DEFAULT_CHAT_THEME_DESCRIPTION,
     DEFAULT_CHAT_THEME_NAME,
+    EMPTY_CHAT_GROUP_KEEP_SECONDS,
     FIRST_GAME_GROUP_ID,
     FIRST_PRINTABLE_CHARACTER,
     GAME_ZONE_NAMES,
@@ -53,11 +53,11 @@ from s3lobby.constants import (
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
     MAX_CHAT_COMMAND_LENGTH,
-    EMPTY_CHAT_GROUP_KEEP_SECONDS,
     MAX_OPEN_GROUPS_PER_PLAYER,
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
     NEWS_TEXT_ID_BY_AUDIENCE,
+    NO_BANNER_ID,
     PASSWORD_CHAT_GROUP_PARENT_ID,
     PRIVATE_CHAT_GROUP_ID,
     SERVER_ASSIGNS_GROUP_ID,
@@ -170,7 +170,8 @@ class Player:
     address: Address
     serial_number: str
     is_admin: bool
-    session_id: int
+    # The lobby_sessions row of this logon; None when the database failed to record it.
+    session_id: int | None
     shown_clan: Clan | None = None
     logged_on_at: datetime = field(default_factory=utc_now)
     group_ids: set[int] = field(default_factory=set)
@@ -230,7 +231,9 @@ class Lobby:
         client's block is still handled, as the game handles each message on its own."""
         handler = self._handlers.get(message.message_type)
         if handler is None:
-            self._warn(client_address, "%s: no handler for %s (%d bytes)", client_address, message.type_name, len(message.body))
+            self._warn(
+                client_address, "%s: no handler for %s (%d bytes)", client_address, message.type_name, len(message.body)
+            )
             return
         try:
             handler(client_address, message)
@@ -239,7 +242,11 @@ class Lobby:
         except Exception:
             # A bug, not a broken message: the next message of the block still gets its turn.
             self._warnings.error_with_traceback(
-                client_address, time.monotonic(), "%s: internal error while handling %s", client_address, message.type_name
+                client_address,
+                time.monotonic(),
+                "%s: internal error while handling %s",
+                client_address,
+                message.type_name,
             )
 
     def forget_client(self, client_address: Address) -> None:
@@ -252,9 +259,12 @@ class Lobby:
             return
         del self._players_by_id[player.player_id]
         log.info("player %d %r left the lobby", player.player_id, player.name)
+        # A copy, since every removal also takes the group out of player.group_ids.
         for group_id in list(player.group_ids):
             self._remove_player_from_group(player, group_id, is_player_told=False)
-        self._do_bookkeeping("recording the logout", lambda: self._database.record_logout(player.session_id))
+        session_id = player.session_id
+        if session_id is not None:
+            self._do_bookkeeping("recording the logout", lambda: self._database.record_logout(session_id))
         self._send_statistics_to_home()
 
     def _do_bookkeeping(self, what: str, action: Callable[[], T]) -> T | None:
@@ -389,6 +399,8 @@ class Lobby:
             )
         # A logon on an address that already has a player starts that player over.
         self.forget_client(client_address)
+        # The player forgotten just above no longer counts in the occupancy, so logging on again
+        # from the same address is not refused as "already logged on".
         decision = self._logon_check.decide(logon, client_address[0], self._occupancy())
         if isinstance(decision, RefusedLogon):
             log.info("%s: logon of %r refused: %s", client_address, logon.player_name, decision.reason)
@@ -411,18 +423,25 @@ class Lobby:
         welcome_message = self._database.get_setting(Setting.WELCOME_MESSAGE)
         if welcome_message:
             self._outbox.send(client_address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([welcome_message])))
+        # Only an accepted logon gets the network side's extra work (the reachability probe, a
+        # forwarded port on the router); a refused one has returned above.
         self._outbox.player_logged_on(client_address)
 
     def _admit_player(self, client_address: Address, logon: Logon, decision: AcceptedLogon) -> Player:
         """Record the session and make the accepted account a player of the lobby."""
         account = decision.account
+        # Only the statistics need the session row: a database failure must not stop the logon,
+        # or the game would wait for an answer that never comes.
+        session_id = self._do_bookkeeping(
+            "recording the logon", lambda: self._database.record_logon(account.account_id)
+        )
         player = Player(
             player_id=account.account_id,
             name=account.name,
             address=client_address,
             serial_number=logon.serial_number,
             is_admin=account.is_admin,
-            session_id=self._database.record_logon(account.account_id),
+            session_id=session_id,
             shown_clan=decision.shown_clan,
         )
         self._players_by_address[client_address] = player
@@ -453,12 +472,15 @@ class Lobby:
         # zone or theme it saw it in; for a chat group the extra text carries the password.
         request = AddPlayerToGroup.decode(message)
         player = self._find_logged_on_player(client_address)
+        # Group id 0 is a private chat invitation between two clients, never a group on this server.
         if player is None or request.group_id == PRIVATE_CHAT_GROUP_ID:
             return
         group = self._groups.get(request.group_id)
         if group is None:
             self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "no such group")
             return
+        # Already a member: announcing the group again would fail the client's assert
+        # "! vJoinedGroups.contains" and drop the connection (see _remove_player_from_group).
         if player.player_id in group.member_ids:
             return
         if group.password:
@@ -511,6 +533,8 @@ class Lobby:
         if parent is None:
             raise ProtocolError(f"group {request.group_id} under {request.parent_id}, which does not exist")
         existing_group = self._groups.get(request.group_id)
+        # An id this server already gave out: the host wants its game listed in one more zone. A
+        # new group comes with SERVER_ASSIGNS_GROUP_ID instead, which never names an existing one.
         if existing_group is not None:
             self._list_existing_game(player, existing_group, parent)
             return
@@ -527,6 +551,8 @@ class Lobby:
             # A private chat invitation goes from client to client; one sent here is a mistake.
             return
         check_client_group_texts(request)
+        # Only groups this player opened that are still open count, so one client cannot fill the
+        # zones with groups while a host who closed its games may open new ones.
         open_group_count = sum(1 for group in self._groups.values() if group.creator_player_id == player.player_id)
         if open_group_count >= MAX_OPEN_GROUPS_PER_PLAYER:
             self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "too many open groups")
@@ -534,6 +560,7 @@ class Lobby:
 
         group_id = self._next_player_group_id
         self._next_player_group_id += 1
+        # The host only knows itself as 0.0.0.0; joiners need the address the server sees it at.
         announcement = with_real_host_address(request, player.address)
         # The third text is the password of a chat group: kept here, never shown to anyone.
         announcement = replace(announcement, group_id=group_id, third_text="")
@@ -569,6 +596,8 @@ class Lobby:
         # working chat, whisper or new game until leaving and joining again (seen in a run).
         self._outbox.send(player.address, Result(ResultCode.GROUP_OPENED, value=group_id))
         self._list_group_in(group, parent)
+        # Group 5 is listed nowhere and nobody stays in it, so a chat group listed only there would
+        # be invisible to everyone but its creator.
         if parent.group_id == PASSWORD_CHAT_GROUP_PARENT_ID and group.kind == GroupKind.CHAT_GROUP:
             self._list_in_creators_chat_theme(group, player)
         self._tell_about_ladder(group, [player])
@@ -577,6 +606,7 @@ class Lobby:
         """List a chat group with a password, opened under the hidden group 5, in the chat theme
         its creator just left, or in the first theme when there is none, so others can find it."""
         theme = self._groups.get(creator.last_chat_theme_id) if creator.last_chat_theme_id is not None else None
+        # Also None when the theme was removed from the database since the creator was in it.
         if theme is None:
             themes = self._groups_listed_in(CHAT_ZONE_GROUP_ID)
             if not themes:
@@ -611,12 +641,15 @@ class Lobby:
         if not self._group_updates.allows(player.player_id, time.monotonic()):
             raise ProtocolError("more group updates than the budget allows")
         check_client_group_texts(update)
+        # Every update carries a game block, and its host reads 0.0.0.0 just like at the opening.
         update = replace(update, game_block=game_block_with_real_host(update.game_block, player.address))
         updated = update.applied_to(group.announcement)
+        # A third text in the update is a new password; an empty one keeps the password there was.
         if updated.third_text:
             group.password = updated.third_text
         group.announcement = replace(updated, third_text="")
         self._record_game_announcement(group)
+        # The update passed on still carries the client's third text: viewers get it without.
         public_update = replace(update, third_text="")
         for viewer in self._viewers_of(group):
             self._outbox.send(viewer.address, public_update)
@@ -634,7 +667,11 @@ class Lobby:
         if player is None or group is None or player.player_id not in group.member_ids:
             raise ProtocolError(f"unlisting group {request.group_id} by a player not in it")
         log.info(
-            "player %d %r unlists group %d from group %d", player.player_id, player.name, group.group_id, request.parent_id
+            "player %d %r unlists group %d from group %d",
+            player.player_id,
+            player.name,
+            group.group_id,
+            request.parent_id,
         )
         self._unlist_group_from(group, request.parent_id)
 
@@ -696,6 +733,8 @@ class Lobby:
             news = self._database.find_news(audience)
             if text_id == news_text_id and news is not None:
                 return text_message(text_id, news.title, news.body)
+        # Board texts are numbered from BOARD_MESSAGE_TEXT_ID_BASE up: the base plus the message's
+        # database id (see _send_board_message_ids).
         if text_id >= BOARD_MESSAGE_TEXT_ID_BASE:
             board_message = self._database.find_board_message(text_id - BOARD_MESSAGE_TEXT_ID_BASE)
             if board_message is not None:
@@ -712,11 +751,18 @@ class Lobby:
         player = self._find_logged_on_player(client_address)
         if player is None:
             return
+        # A report that arrives after every player left is still stored, only without a link to the
+        # game's record, as the closed group is gone.
         game_record_id = None
         group = self._groups.get(status.group_id)
         if group is not None and group.kind == GroupKind.GAME:
             game_record_id = group.game_record_id
-        self._database.store_game_report(player.player_id, status.group_id, message.body, game_record_id)
+        # A report that cannot be stored is still answered like any other: the statistics are the
+        # only thing that suffers (the game shows the answer during a ladder match, 0x540a18).
+        self._do_bookkeeping(
+            "storing a match report",
+            lambda: self._database.store_game_report(player.player_id, status.group_id, message.body, game_record_id),
+        )
         outcome = "no winner yet"
         if status.has_winner:
             outcome = f"team {status.winning_team} won"
@@ -768,6 +814,8 @@ class Lobby:
         members and what is listed in it; the members get the newcomer; whoever sees the group in
         a parent gets its new counters."""
         log.info("player %d %r joins group %d", player.player_id, player.name, group.group_id)
+        # Brought in line with the database before the group goes out, so settings, themes and
+        # languages changed while the server runs show on this join.
         if group.group_id == HOME_GROUP_ID:
             group.announcement = replace(group.announcement, flags=self._home_flags())
         if group.group_id == CHAT_ZONE_GROUP_ID:
@@ -778,11 +826,14 @@ class Lobby:
             self._sync_board_themes(language_of_board_group(group.group_id))
         self._outbox.send(player.address, group.announcement.under_parent(JOINED_GROUP_PARENT_ID))
         marks_admins = self._database.get_boolean_setting(Setting.MARK_ADMINS)
+        # The newcomer is not in member_ids yet, so the loop only pairs it with the others; the
+        # newcomer's entry for itself is sent once after the loop.
         for member in self._members_of(group):
             self._outbox.send(player.address, member_entry(group.group_id, member, marks_admins))
             self._outbox.send(member.address, member_entry(group.group_id, player, marks_admins))
         self._outbox.send(player.address, member_entry(group.group_id, player, marks_admins))
         group.member_ids.append(player.player_id)
+        # A chat group with a member again no longer waits to be closed (close_abandoned_chat_groups).
         group.empty_since_seconds = None
         player.group_ids.add(group.group_id)
         if is_chat_theme_group(group.group_id):
@@ -822,7 +873,9 @@ class Lobby:
                 continue
             group.ladder_notice_player_ids.add(player.player_id)
             self._outbox.send(player.address, line)
-            log.info("player %d %r told that ladder game %d is not ranked", player.player_id, player.name, group.group_id)
+            log.info(
+                "player %d %r told that ladder game %d is not ranked", player.player_id, player.name, group.group_id
+            )
 
     # The Home tab.
 
@@ -892,6 +945,8 @@ class Lobby:
         also drops what it saw listed inside it.
         """
         group = self._groups.get(group_id)
+        # The player's own view is cleaned up first, even when the group is already gone, so the
+        # mirror of what the client sees never keeps a group it dropped.
         player.group_ids.discard(group_id)
         player.visible_groups = {visible for visible in player.visible_groups if visible[0] != group_id}
         if group is None or player.player_id not in group.member_ids:
@@ -943,13 +998,18 @@ class Lobby:
         """Close the chat groups that have been empty for EMPTY_CHAT_GROUP_KEEP_SECONDS and hold
         no open game. The time counts from the later of the last departure and the end of the last
         game opened in the group, so a host who played a long match still finds the group."""
+        # A game keeps the parent it was opened in, so for a game opened from a chat group this
+        # is the chat group's id.
         parent_ids_of_open_games = {
             group.announcement.parent_id for group in self._groups.values() if group.kind == GroupKind.GAME
         }
+        # A copy, since closing a group takes it out of self._groups.
         for group in list(self._groups.values()):
             if group.kind != GroupKind.CHAT_GROUP or group.empty_since_seconds is None:
                 continue
             if group.group_id in parent_ids_of_open_games:
+                # The wait starts over on every pass while the game is open, so it counts from the
+                # game's end once the game is closed.
                 group.empty_since_seconds = now_seconds
                 continue
             if now_seconds - group.empty_since_seconds >= EMPTY_CHAT_GROUP_KEEP_SECONDS:
@@ -957,6 +1017,7 @@ class Lobby:
 
     def _close_player_group(self, group: Group) -> None:
         """Remove a game or chat group: unlist it everywhere, forget it and, for a game, record its end."""
+        # A copy, since every unlisting takes the parent out of listed_in_parent_ids.
         for parent_id in list(group.listed_in_parent_ids):
             self._unlist_group_from(group, parent_id)
         self._groups.pop(group.group_id, None)
@@ -997,6 +1058,10 @@ class Lobby:
         """Players who see the group inside a parent; members of the group do not count."""
         viewers = []
         for player in self._players_by_id.values():
+            # A member takes no updates for its own group (0x5d8de6), even if it still saw the group
+            # listed somewhere before it joined.
+            if player.player_id in group.member_ids:
+                continue
             sees_group = any(visible[1] == group.group_id for visible in player.visible_groups)
             if sees_group:
                 viewers.append(player)
@@ -1016,6 +1081,8 @@ class Lobby:
         wanted = {}
         for theme in self._database.list_chat_themes():
             wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description)
+        # The default theme takes the base id itself: generated database ids start at 1, so a theme
+        # added later never gets the id of a default theme that still has players in it.
         if not wanted:
             wanted[CHAT_THEME_GROUP_ID_BASE] = (DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION)
 
@@ -1027,7 +1094,8 @@ class Lobby:
         for group_id, (name, description) in wanted.items():
             if group_id in self._groups:
                 continue
-            theme = Group(announcement=room_announcement(group_id, name, description_text=description), kind=GroupKind.ROOM)
+            announcement = room_announcement(group_id, name, description_text=description)
+            theme = Group(announcement=announcement, kind=GroupKind.ROOM)
             self._groups[group_id] = theme
             self._list_group_in(theme, chat_zone)
 
@@ -1039,6 +1107,8 @@ class Lobby:
         message_zone = self._groups[MESSAGE_ZONE_GROUP_ID]
         languages_with_themes = {theme.language for theme in self._database.list_board_themes()}
         languages_with_themes.add(BOARD_FALLBACK_LANGUAGE)
+        # A language group's id is its position in BOARD_LANGUAGES, so it never depends on the
+        # database. Language groups are only ever added, never unlisted.
         for index, language in enumerate(BOARD_LANGUAGES):
             group_id = BOARD_LANGUAGE_GROUP_ID_BASE + index
             if language in languages_with_themes and group_id not in self._groups:
@@ -1183,6 +1253,7 @@ def member_entry(group_id: int, player: Player, marks_admins: bool = False) -> E
 def text_message(text_id: int, title: str, body: str) -> TextMessage:
     """A text message with the body split into lines, cut to fit one unfragmented datagram."""
     lines = []
+    # Each string travels with a terminating NUL, hence one byte more than its text.
     used_bytes = len(title) + 1
     for line in body.splitlines():
         line_bytes = len(line.encode(TEXT_ENCODING, errors="replace")) + 1

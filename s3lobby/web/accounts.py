@@ -4,8 +4,8 @@ A new access code is shown once, on the page that answers the form that made it,
 the database keeps only its hash. It is never put in the session or a redirect, where it would end
 up in the cookie or the browser history.
 
-Bans, clan changes and admin rights apply from the player's next logon; a player in the lobby
-right now keeps the state it logged on with.
+Clan changes and admin rights apply from the player's next logon; a player in the lobby right now
+keeps the state it logged on with. A ban is the exception: it also removes a player who is online.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.commands import kick_reason
+from s3lobby.constants import DEFAULT_BAN_HOURS, MAX_BAN_HOURS, MIN_BAN_HOURS
 from s3lobby.database import MAX_BAN_REASON_LENGTH, Account, Clan, DatabaseError, Setting, is_whole_number_text, utc_now
 from s3lobby.groups import game_row_colour
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
@@ -25,7 +26,6 @@ from s3lobby.web.games import games_of_account
 from s3lobby.web.lobby_view import online_player_names
 from s3lobby.web.storage import apply_change, get_database, sentence_from_error
 from s3lobby.web.texts import form_flag, form_text
-from s3lobby.constants import DEFAULT_BAN_HOURS, MAX_BAN_HOURS, MIN_BAN_HOURS
 
 blueprint = Blueprint("accounts", __name__)
 blueprint.before_request(redirect_visitors_to_logon)
@@ -85,6 +85,7 @@ def create_account() -> str | Response:
 
     A name the database refuses (taken, or not a valid player name) sends the admin back to the list."""
     database = get_database()
+    # Only the creation can be refused; the code is issued after it, for an account that now exists.
     try:
         account = database.create_account(form_text("name"), is_admin=form_flag("is_admin"))
     except DatabaseError as error:
@@ -208,6 +209,7 @@ def kick_account(account_id: int) -> Response:
     if is_own_account(account):
         flash("You cannot remove yourself from the lobby.", "bad")
         return redirect_to_account(account_id)
+    # The form has no reason field, so the player is told the plain kick line.
     apply_change(
         lambda: get_database().queue_kick(account_id, kick_reason("")),
         f"{account.name} is removed from the lobby within a second.",

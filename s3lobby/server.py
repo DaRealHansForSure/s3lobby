@@ -121,6 +121,7 @@ class LobbyServer(asyncio.DatagramProtocol):
         """The address the socket is bound to; with port 0 in the settings this has the real port."""
         if self._transport is None:
             raise RuntimeError("the server has not started yet")
+        # An IPv6 socket name carries flow info and scope id after host and port; keep the pair.
         host, port = self._transport.get_extra_info("sockname")[:2]
         return (host, port)
 
@@ -143,7 +144,9 @@ class LobbyServer(asyncio.DatagramProtocol):
         dropped; it never stops the server for the other clients."""
         now_seconds = time.monotonic()
         if not self._datagram_rate.allows(client_address, now_seconds):
-            self._warnings.warning(client_address, now_seconds, "%s: over its rate limit, datagrams dropped", client_address)
+            self._warnings.warning(
+                client_address, now_seconds, "%s: over its rate limit, datagrams dropped", client_address
+            )
             return
         try:
             self._receive_datagram(data, client_address)
@@ -199,7 +202,7 @@ class LobbyServer(asyncio.DatagramProtocol):
             if connection is None:
                 self._probes_waiting_for_confirmation.discard(client_address)
                 continue
-            if connection.is_confirmed_by_client:
+            if connection.is_confirmed_by_client and self._prober is not None:
                 self._probes_waiting_for_confirmation.discard(client_address)
                 self._prober.probe(client_address)
 
@@ -245,11 +248,13 @@ class LobbyServer(asyncio.DatagramProtocol):
         """End the connection from the server's side: whatever is queued for the client goes out
         first, then, once the client acknowledged all of that, CloseConnection in a block of its
         own, retried until the client acknowledges it. A server that is stopping cannot wait for
-        acknowledgements and sends it at once. Closing an open connection moves the client to state 4 and on to its logout
-        (PP.ReceivedCloseConnection 0x606050, ConnectionClosed 0x5cc840)."""
+        acknowledgements and sends it at once. Closing an open connection moves the client to state 4
+        and on to its logout (PP.ReceivedCloseConnection 0x606050, ConnectionClosed 0x5cc840)."""
         connection = self._connections.get(client_address)
         if connection is None or connection.is_closing:
             return
+        # The answers already queued leave first as a numbered block of their own, so they count as
+        # unacknowledged and the CloseConnection waits behind them instead of overtaking them.
         self._send_due_datagrams(connection)
         connection.begin_closing(monotonic_ms(), waits_for_acknowledgements=not is_server_stopping)
         self._send_due_datagrams(connection)
@@ -285,6 +290,7 @@ class LobbyServer(asyncio.DatagramProtocol):
         except OSError as error:
             log.warning("cannot look up the public host %r: %s", self._settings.public_host, error)
             return
+        # Each entry is (family, type, proto, canonname, sockaddr); the IP is the sockaddr's first item.
         public_ip = addresses[0][4][0]
         if public_ip != self._public_ip:
             log.info("public host %r is at %s", self._settings.public_host, public_ip)
@@ -338,13 +344,16 @@ class LobbyServer(asyncio.DatagramProtocol):
         Every step is guarded on its own: an error in one (a locked database, a failing router) is
         logged and the others still run. Unguarded, a single exception would end this task, and
         with it every retry, timeout, kick and announcement for every player."""
+        # Every timer starts now: start_server already looked up the public host, set up the router
+        # and wrote the live lobby once, so the first periodic run is one interval away.
         last_announcement_poll_seconds = time.monotonic()
         last_live_state_check_seconds = time.monotonic()
         last_public_host_lookup_seconds = time.monotonic()
         last_forwarding_renewal_seconds = time.monotonic()
         while True:
             await asyncio.sleep(HOUSEKEEPING_INTERVAL_SECONDS)
-            if self._forwarding is not None and time.monotonic() - last_forwarding_renewal_seconds >= UPNP_RENEW_SECONDS:
+            is_renewal_due = time.monotonic() - last_forwarding_renewal_seconds >= UPNP_RENEW_SECONDS
+            if self._forwarding is not None and is_renewal_due:
                 last_forwarding_renewal_seconds = time.monotonic()
                 self._run_in_background(self._renew_forwarding())
             if time.monotonic() - last_public_host_lookup_seconds >= PUBLIC_HOST_REFRESH_SECONDS:
@@ -360,6 +369,8 @@ class LobbyServer(asyncio.DatagramProtocol):
                 self._run_guarded(
                     "writing the live lobby", lambda: self.write_live_state_when_due(last_live_state_check_seconds)
                 )
+            # These run every round: the connections time their retries and keepalives in
+            # milliseconds themselves and only send what is due.
             self._run_guarded("serving connections", self._serve_connections)
             self._run_guarded("sending reachability probes", self._send_confirmed_probes)
             self._run_guarded("pruning limits", self._forget_quiet_keys)
@@ -381,6 +392,8 @@ class LobbyServer(asyncio.DatagramProtocol):
                 if connection.is_finished(now_ms):
                     self._end_connection(client_address, "it went quiet or was closed")
                     continue
+                # A closing connection is left to finish on its own, so the CloseConnection and
+                # whatever was queued before it can still be delivered.
                 is_past_logon_deadline = (
                     connection.age_ms(now_ms) > LOGON_DEADLINE_MS
                     and not connection.is_closing
@@ -438,12 +451,16 @@ class LobbyServer(asyncio.DatagramProtocol):
         if received.is_close_requested and not connection.is_closing:
             log.info("%s: connection closed by the client", client_address)
             connection.begin_closing(monotonic_ms())
+        # Too many blocks wait for an acknowledgement: the client is gone or ignores the server, and
+        # each further answer would only pile up in memory.
         if connection.is_overloaded:
             self._end_connection(client_address, "it stopped acknowledging")
             return
         self._send_due_datagrams(connection)
 
-    def _find_or_open_connection(self, client_address: Address, messages: list[RawMessage]) -> ReliableConnection | None:
+    def _find_or_open_connection(
+        self, client_address: Address, messages: list[RawMessage]
+    ) -> ReliableConnection | None:
         """The connection a datagram belongs to. An OpenConnection with a new nonce starts a new one
         (the client restarted or reconnects, 0x605eec); a datagram without one for an unknown
         address is a leftover of a connection that already ended and is ignored, as the game does."""
@@ -465,6 +482,8 @@ class LobbyServer(asyncio.DatagramProtocol):
         if connection is not None:
             # The client started over; whatever it had in the lobby is gone on its side too.
             self._end_connection(client_address, "the client opened a new one")
+        # Checked only after the old connection of this address ended, so a client that restarts
+        # does not count against its own limit.
         refusal = self._refusal_for_new_connection(client_address)
         if refusal:
             raise ProtocolError(f"new connection refused: {refusal}")

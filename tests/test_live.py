@@ -65,6 +65,20 @@ class LiveLobbyStateTest(unittest.TestCase):
         [game] = LiveLobbyState.from_json(old_text).groups
         self.assertEqual((game.map_name, game.team_count, game.is_ladder_game), ("", 0, False))
 
+    def test_fields_a_newer_server_wrote_are_ignored(self) -> None:
+        """The server may be newer than the web interface; a field it does not know must not make the
+        live page fail to read the whole lobby."""
+        newer_text = (
+            '{"server_name": "x", "players": [{"player_id": 1, "name": "Alice", "clan": "", "is_admin": false, '
+            '"address": "127.0.0.1:2300", "logged_on_at": "2026-10-23T12:00:00+00:00", "group_ids": [3], '
+            '"rank": 7}], "groups": [{"group_id": 3, "kind": "room", "name": "GameZone", "max_players": 0, '
+            '"is_full": false, "has_password": false, "member_names": ["Alice"], "listed_in_ids": [], '
+            '"weather": "rain"}]}'
+        )
+        state = LiveLobbyState.from_json(newer_text)
+        self.assertEqual([player.name for player in state.players], ["Alice"])
+        self.assertEqual(state.groups[0].member_names, ("Alice",))
+
     def test_text_that_is_not_a_state_is_refused(self) -> None:
         """Text that is not a whole live state raises ValueError, which the web interface can handle, rather
         than showing a half read lobby."""

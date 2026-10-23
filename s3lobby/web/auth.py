@@ -47,6 +47,7 @@ REFUSED_LOGON_TEXT = "Unknown name or access code, or the account has no admin r
 
 def current_admin() -> Account | None:
     """The logged on admin, checked against the database once per request; None for a visitor."""
+    # Tested with "in", as None (a visitor) is a result worth keeping for the request too.
     if ADMIN_ATTRIBUTE in g:
         return g.get(ADMIN_ATTRIBUTE)
     admin = load_admin_from_session()
@@ -109,6 +110,7 @@ def log_on() -> str | Response | tuple[str, int]:
     if limiter.is_address_blocked(client_address):
         flash("Too many failed attempts. Try again in a few minutes.", "bad")
         return render_template("logon.html", next_path=next_path, name=name), HTTPStatus.TOO_MANY_REQUESTS
+    # Not waiting for a free slot: waiting requests would pile up threads, the very thing this limits.
     if not logon_checks().acquire(blocking=False):
         flash("The server is busy. Try again in a moment.", "bad")
         return render_template("logon.html", next_path=next_path, name=name), HTTPStatus.TOO_MANY_REQUESTS
@@ -184,6 +186,7 @@ def newest_active_access_code_id(account: Account) -> int | None:
     with and ends when that code is revoked, so this logon behaves like one with the code itself;
     an account without an active code cannot log on this way either."""
     newest_code_id = None
+    # The list is oldest first, so the last active code seen is the newest.
     for code in get_database().list_access_codes(account.account_id):
         if code.revoked_at is None:
             newest_code_id = code.code_id

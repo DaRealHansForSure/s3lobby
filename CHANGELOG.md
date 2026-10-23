@@ -22,6 +22,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - A chat group whose last player left stays open for two minutes, and as long as a game opened
   in it is open: the game leaves the chat group when its player opens a game there and joins it
   again on the way back, and found it closed (under Wine the screen then froze).
+- A player who joined a game no longer gets the host's updates for it: the game takes no update for
+  a group its player is in (0x5d8de6).
+- A logon no longer fails when the database cannot record the session, and a match report that
+  cannot be stored is still answered; both only feed the statistics.
+- The verbose log hides a chat group's password in the clan forms of a join (0x25, 0x26) too.
+- The web interface reads a live lobby written by a newer server, ignoring fields it does not know.
 
 ### Added
 

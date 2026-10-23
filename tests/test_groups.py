@@ -221,6 +221,14 @@ class GameTest(LobbyTestCase):
         late_view = receive_announcement(carol)
         self.assertEqual((late_view.name, late_view.max_players), ("Renamed", 4))
 
+    def test_joiner_takes_no_update_for_the_game_it_is_in(self) -> None:
+        """A joiner saw the game listed in the zone before it joined; once it is a member, an update for
+        that game must not reach it (0x5d8de6), however the server remembers what it saw."""
+        self.alice.send(AddPlayerToGroup(FIRST_GAME_GROUP_ID, self.alice_id, ("0.0.0.0", 0), ""))
+        receive_announcement(self.alice)
+        self.bob.send(game_update(FIRST_GAME_GROUP_ID, GroupUpdateMask.NAME, "Renamed"))
+        self.alice.assert_nothing_arrives(MessageType.UPDATE_GROUP_2)
+
     def test_game_counts_in_the_statistics_while_it_is_open(self) -> None:
         """An open game counts in the statistics the Home tab and the web interface show."""
         self.assertEqual(self.database.collect_statistics().games_open, 1)

@@ -67,7 +67,8 @@ def set_news(audience: str) -> Response:
     body = form_multiline_text("body")
     apply_change(
         lambda: get_database().set_news(audience, title, body),
-        f"News for {NEWS_AUDIENCE_TITLES[audience]} saved. Players see it the next time they open the Home tab.",
+        f"News for {NEWS_AUDIENCE_TITLES[audience]} saved. Players see it from their next logon "
+        "(the game keeps a text it fetched for the session).",
     )
     return redirect(url_for("content.show_news"))
 
@@ -124,6 +125,8 @@ def add_board_theme() -> Response:
     language = form_text("language")
     name = form_text("name")
     description = form_text("description")
+    # The language is not checked here: the database refuses one outside BOARD_LANGUAGES, for the
+    # command line and the web alike.
     apply_change(
         lambda: get_database().add_board_theme(language, name, description),
         f"Board theme {name} added for {language}.",
@@ -145,6 +148,8 @@ def post_board_message() -> Response:
     title = form_text("title")
     body = form_multiline_text("body")
     author = form_text("author")
+    # Checked before int(), which would raise on a forged value; whether the theme exists is the
+    # database's check.
     if not is_whole_number_text(theme_id_text):
         flash("Choose the theme the message belongs to.", "bad")
         return redirect(url_for("content.show_board"))

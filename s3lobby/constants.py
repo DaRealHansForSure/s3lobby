@@ -549,7 +549,9 @@ LADDER_NOT_SUPPORTED_TEXT = "Ladder games are not supported on this server: you 
 # screen with a chat view, so the line may only appear once the player is back in a room, and is
 # worded to make sense there too.
 # At most 100 characters (MAX_ANSWER_LINE_LENGTH), so it stays one chat line.
-BOARD_CHAT_HINT_TEXT = "Chat typed on the message board reaches nobody (a bug of the game); please chat in the ChatZone."
+BOARD_CHAT_HINT_TEXT = (
+    "Chat typed on the message board reaches nobody (a bug of the game); please chat in the ChatZone."
+)
 
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.

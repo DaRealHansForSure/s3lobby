@@ -115,6 +115,8 @@ def describe_live_lobby(stored: StoredLiveState | None, now: datetime) -> LiveLo
     """Turn the state the server wrote into the page's tables."""
     if stored is None:
         return LiveLobbyPage(is_running=False)
+    # A running server rewrites the state at least every LIVE_STATE_HEARTBEAT_SECONDS; an older one
+    # was left by a server that stopped without clearing it, for example after a crash.
     age_seconds = (now - stored.written_at).total_seconds()
     if age_seconds > LIVE_STATE_STALE_SECONDS:
         return LiveLobbyPage(is_running=False, server_name=stored.state.server_name, written_at=stored.written_at)
@@ -148,8 +150,12 @@ def describe_players(state: LiveLobbyState, names_by_id: dict[int, str]) -> tupl
     }
     rows = []
     for player in state.players:
-        tab_names = tuple(LOBBY_TAB_GROUP_NAMES[group_id] for group_id in player.group_ids if group_id in LOBBY_TAB_GROUP_NAMES)
-        group_names = tuple(names_by_id[group_id] for group_id in player.group_ids if group_id in game_and_chat_group_ids)
+        tab_names = tuple(
+            LOBBY_TAB_GROUP_NAMES[group_id] for group_id in player.group_ids if group_id in LOBBY_TAB_GROUP_NAMES
+        )
+        group_names = tuple(
+            names_by_id[group_id] for group_id in player.group_ids if group_id in game_and_chat_group_ids
+        )
         rows.append(
             PlayerRow(
                 name=player.name,

@@ -132,6 +132,7 @@ class AcknowledgeMessages:
         whole number of u32 values."""
         reader = open_message_body(message, {cls.MESSAGE_TYPE})
         block_ids = []
+        # One to three bytes left at the end make read_u32 raise, which is the whole-number check.
         while reader.remaining_size > 0:
             block_ids.append(reader.read_u32())
         return cls(block_ids=tuple(block_ids))
@@ -458,11 +459,14 @@ class GameSettings:
         reader = FieldReader(game_block.remainder)
         session_guid = reader.read_bytes(SESSION_GUID_SIZE)
         game_version = reader.read_u32()
+        # The 64-bit checksum travels as two u32, the low half first.
         checksum_low = reader.read_u32()
         checksum_high = reader.read_u32()
         settings = cls(session_guid, game_version, (checksum_high << 32) | checksum_low)
+        # The short block (0x0f, 0x19) ends here; only the long one (0x20, 0x21) goes on.
         if reader.remaining_size == 0:
             return settings
+        # Of the Amazons value only AMAZONS_ALLOWED_BIT is known; the other bits are ignored here.
         amazons_value = reader.read_u32()
         ladder_type = reader.read_u32()
         if reader.remaining_size:
@@ -500,6 +504,8 @@ class GameDescription:
     @classmethod
     def decode(cls, description: bytes) -> GameDescription:
         """Raises ProtocolError unless the bytes hold exactly one game description message."""
+        # The description is a whole serialized message, header included, so the block parser
+        # reads it like a datagram holding one message.
         messages = decode_block(description)
         is_one_description = len(messages) == 1 and messages[0].message_type == GAME_DESCRIPTION_MESSAGE_TYPE
         if not is_one_description:
@@ -565,6 +571,7 @@ class GroupAnnouncement:
         The game block's size depends on the message type. Raises ProtocolError for a body cut short
         or for bytes left after the last field."""
         reader = open_message_body(message, GROUP_ANNOUNCEMENT_MESSAGE_TYPES)
+        # Safe to convert: open_message_body already refused every type that is not one of ours.
         message_type = MessageType(message.message_type)
         parent_id = reader.read_u32()
         group_id = reader.read_u32()
@@ -722,6 +729,8 @@ def write_description(writer: FieldWriter, description: bytes) -> None:
 def read_description(reader: FieldReader) -> bytes:
     """u32 length, then that many bytes. A game's host stores a serialized GameDescription there;
     the server keeps the bytes and passes them on unchanged."""
+    # The length comes from the client; read_bytes refuses one longer than what is left of the
+    # body, so a forged length cannot make the server read or allocate more than it received.
     length = reader.read_u32()
     return reader.read_bytes(length)
 
@@ -988,6 +997,8 @@ class ChatCommandAnswer:
         group_id = reader.read_u32()
         reader.read_u32()
         line_count = reader.read_u32()
+        # A forged count ends at the end of the body: every line takes at least its NUL byte, so
+        # read_string raises long before the loop could run for billions of lines.
         lines = tuple(reader.read_string() for _ in range(line_count))
         return cls(group_id=group_id, lines=lines)
 
@@ -1049,7 +1060,9 @@ class ImageList:
         image_count = reader.read_u32()
         images = []
         for _ in range(image_count):
-            images.append(ImageEntry(banner_id=reader.read_u32(), banner_sub_id=reader.read_u32(), url=reader.read_string()))
+            banner_id = reader.read_u32()
+            banner_sub_id = reader.read_u32()
+            images.append(ImageEntry(banner_id=banner_id, banner_sub_id=banner_sub_id, url=reader.read_string()))
         return cls(group_id=group_id, images=tuple(images))
 
 
@@ -1180,8 +1193,8 @@ class MatchReportPlayer:
     player (0 for a computer opponent, inferred); in a ladder game a slot without one makes the
     report not valid for the ladder (0x5405ec). race is a Race: the race the game played, drawn by
     the game when the setup said "Random" (flag RANDOM_RACE). unused is always 0 (0x54061d). slot is
-    the slot number, 0 to 19;
-    team the slot's team as the game numbers it (the winning team uses the same numbers).
+    the slot number, 0 to 19; team the slot's team as the game numbers it (the winning team uses
+    the same numbers).
     """
 
     flags: int
@@ -1288,6 +1301,11 @@ def describe_for_log(message: RawMessage) -> str:
             return describe_decoded(message, Logon)
         case MessageType.ADD_PLAYER_TO_GROUP:
             return describe_decoded(message, AddPlayerToGroup, secret_field="extra_text")
+        # The clan forms carry the same extra text, which a join fills with a chat group's password.
+        case MessageType.ADD_PLAYER_TO_GROUP_WITH_CLAN:
+            return describe_decoded(message, AddPlayerToGroupWithClan, secret_field="extra_text")
+        case MessageType.ADD_PLAYER_TO_GROUP_WITH_FLAGS:
+            return describe_decoded(message, AddPlayerToGroupWithFlags, secret_field="extra_text")
         case MessageType.ADD_GROUP_TO_GROUP | MessageType.ADD_GROUP_TO_GROUP_2:
             return describe_decoded(message, GroupAnnouncement, secret_field="third_text")
         case MessageType.UPDATE_GROUP | MessageType.UPDATE_GROUP_2:
@@ -1305,8 +1323,10 @@ def describe_decoded(message: RawMessage, message_class: type, secret_field: str
     An unreadable message is not shown in hex: its bytes could still hold the secret."""
     try:
         decoded = message_class.decode(message)
+    # A logging helper must never raise: a message that does not decode is described, not refused.
     except ProtocolError:
         return f"{message.type_name}[{len(message.body)} bytes, unreadable, not shown]"
+    # An empty secret stays as it is, so the log still shows that none was given.
     if secret_field is not None and getattr(decoded, secret_field):
         decoded = replace(decoded, **{secret_field: SECRET_PLACEHOLDER})
     return repr(decoded)

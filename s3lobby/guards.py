@@ -24,6 +24,7 @@ class TokenBucket:
 
     def try_take(self, now_seconds: float) -> bool:
         """Refill the tokens for the time since the last call, then use one up; False when none is left."""
+        # A clock that steps back must not drain the bucket with a negative refill.
         elapsed_seconds = max(0.0, now_seconds - self.last_refill_seconds)
         self.tokens = min(self.capacity, self.tokens + elapsed_seconds * self.refill_per_second)
         self.last_refill_seconds = now_seconds
@@ -139,6 +140,8 @@ class ThrottledLogger:
         if is_within_interval:
             self._suppressed_counts[throttle_key] = self._suppressed_counts.get(throttle_key, 0) + 1
             return
+        # Lines over the shared budget are only counted in total, not per key, and the key's interval
+        # does not start: the next line about it may get through once the budget allows.
         if not self._total_lines.allows(TOTAL_BUDGET_KEY, now_seconds):
             self._lines_over_budget += 1
             return
@@ -149,19 +152,25 @@ class ThrottledLogger:
         self._last_logged_seconds[throttle_key] = now_seconds
 
     def forget_quiet_keys(self, now_seconds: float) -> None:
-        """Drop keys whose interval has passed, after reporting warnings still held back for them."""
+        """Drop keys whose interval has passed, after reporting the lines (warnings or errors) still
+        held back for them."""
         quiet_keys = [
             key
             for key, last_logged in self._last_logged_seconds.items()
             if now_seconds - last_logged >= self._interval_seconds
         ]
+        # These reports skip the line budget, but each belongs to a line that did go out within it,
+        # so there are never more of them than lines logged.
         for throttle_key in quiet_keys:
             suppressed_count = self._suppressed_counts.pop(throttle_key, 0)
             if suppressed_count:
+                # Throttle keys are (level, key); the report names only the key.
                 _, key = throttle_key
                 self._logger.warning("%s: %d more similar messages held back", key, suppressed_count)
             del self._last_logged_seconds[throttle_key]
         if self._lines_over_budget:
-            self._logger.warning("%d log messages held back: more than the log takes per second", self._lines_over_budget)
+            self._logger.warning(
+                "%d log messages held back: more than the log takes per second", self._lines_over_budget
+            )
             self._lines_over_budget = 0
         self._total_lines.forget_quiet_keys(now_seconds)

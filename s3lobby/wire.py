@@ -108,7 +108,10 @@ def decode_block(datagram: bytes, max_messages: int | None = None) -> list[RawMe
             raise ProtocolError(f"more than {max_messages} messages in one datagram")
         if len(datagram) - position < MESSAGE_HEADER_SIZE:
             raise ProtocolError(f"message header cut off at byte {position}")
+        # The middle byte is the padding the game always writes as 0; it is skipped, not checked.
         message_type, _, size = struct.unpack_from(HEADER_FORMAT, datagram, position)
+        # The size counts the header too. One smaller than the header would not move the position
+        # forward (a size of 0 would loop here for ever), one larger would read past the datagram.
         is_size_valid = MESSAGE_HEADER_SIZE <= size <= len(datagram) - position
         if not is_size_valid:
             raise ProtocolError(f"message {message_type:#04x} at byte {position} claims {size} bytes")
@@ -129,6 +132,8 @@ def encode_block(messages: Iterable[RawMessage]) -> bytes:
 def readable_text(text: str) -> str:
     """Text from a client as it may be stored or shown: bytes Windows-1252 leaves undefined become
     the replacement character instead of the placeholders that carry them over the wire."""
+    # Back to the bytes that came off the wire first, so the undefined ones can be decoded a second
+    # time, now into the replacement character.
     raw = text.encode(TEXT_ENCODING, errors=TEXT_ERROR_HANDLING)
     return raw.decode(TEXT_ENCODING, errors=READABLE_TEXT_ERROR_HANDLING)
 
@@ -238,12 +243,15 @@ def encode_socket_address(address: Address) -> bytes:
     """struct sockaddr_in as the game writes it: family u16 little endian, port u16 big endian,
     the IPv4 address in network order, then zero bytes up to 16."""
     host, port = address
+    # inet_aton raises OSError for a host name or an IPv6 address; callers expect a ProtocolError
+    # for anything that cannot go on the wire.
     try:
         packed_host = socket.inet_aton(host)
     except OSError as error:
         raise ProtocolError(f"{host!r} is not an IPv4 address") from error
     family = struct.pack(SOCKET_ADDRESS_FAMILY_FORMAT, ADDRESS_FAMILY_IPV4)
     network_order_port = struct.pack(SOCKET_ADDRESS_PORT_FORMAT, port)
+    # The last eight bytes are the struct's sin_zero field, which Winsock expects to be zero.
     zero_padding = bytes(SOCKET_ADDRESS_SIZE - SOCKET_ADDRESS_PADDING_OFFSET)
     return family + network_order_port + packed_host + zero_padding
 

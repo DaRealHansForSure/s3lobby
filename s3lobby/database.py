@@ -1,5 +1,5 @@
 """Everything the lobby keeps between restarts, in one database: a SQLite file, or a MySQL or
-MariaDB database (see backends.py for the locations, migrations.py for the schema).
+MariaDB database (see s3lobby/backends/ for the locations, migrations.py for the schema).
 
 - accounts and their access codes: a player logs on with the account name as player name and an
   access code as password. Codes are random strings the server generates (with the command line or
@@ -371,6 +371,8 @@ def check_game_text(label: str, text: str, max_length: int, allows_line_breaks: 
     code page, it must fit max_length characters, and it may hold no control characters (line
     breaks only where allows_line_breaks). Texts reach the game exactly as stored, so a text that
     passes here never makes the server fail while encoding it for a client."""
+    # Encoding is the test: the game's code page (Windows-1252) has no place for most of Unicode, and
+    # error.start points at the first character it could not encode.
     try:
         text.encode(TEXT_ENCODING)
     except UnicodeEncodeError as error:
@@ -378,6 +380,8 @@ def check_game_text(label: str, text: str, max_length: int, allows_line_breaks: 
         raise DatabaseError(f"{label} contains {bad_character!r}, which the game cannot show") from error
     if len(text) > max_length:
         raise DatabaseError(f"{label} is {len(text)} characters long; the most is {max_length}")
+    # Every character below the space is a control character (tab, line break, NUL and the like);
+    # comparing strings compares their code points.
     for character in text:
         is_allowed_line_break = allows_line_breaks and character == LINE_BREAK
         if character < FIRST_PRINTABLE_CHARACTER and not is_allowed_line_break:
@@ -409,6 +413,8 @@ def check_setting_value(setting: Setting, value: str) -> None:
     if setting == Setting.WELCOME_MESSAGE:
         check_game_text(setting.key, value, MAX_ANNOUNCEMENT_LENGTH)
         return
+    # Reached only when a new Setting member was added without a check here: a programming error,
+    # not bad input, so it is not a DatabaseError.
     raise AssertionError(f"no check for setting {setting.key}")
 
 
@@ -419,10 +425,14 @@ def check_banner_url(url: str) -> None:
     if not url.startswith(BANNER_URL_PREFIX):
         raise DatabaseError(usage)
     host, slash, path = url[len(BANNER_URL_PREFIX):].partition("/")
+    # partition returns an empty separator when there is no slash at all, so "ftp://host" fails
+    # here as well as "ftp:///file" and "ftp://host/".
     if not host or not slash or not path:
         raise DatabaseError(usage)
     if ":" in host or "@" in host:
-        raise DatabaseError(f"{Setting.BANNER_URL.key}: the game fetches from port 21 without a user, so the host must have neither")
+        raise DatabaseError(
+            f"{Setting.BANNER_URL.key}: the game fetches from port 21 without a user, so the host must have neither"
+        )
 
 
 def ban_kick_reason(until: datetime, reason: str) -> str:
@@ -474,6 +484,8 @@ def is_matching_access_code(access_code: str, stored_hash: str) -> bool:
     if len(fields) != SCRYPT_HASH_FIELD_COUNT or fields[0] != SCRYPT_PREFIX:
         return False
     _, cost, block_size, parallelism, salt_hex, digest_hex = fields
+    # The parameters are read from the stored hash, not from the SCRYPT_ constants, so hashes made
+    # before the constants were raised still check correctly.
     try:
         expected_digest = bytes.fromhex(digest_hex)
         salt = bytes.fromhex(salt_hex)
@@ -521,7 +533,7 @@ class LobbyDatabase:
         self, location: str | Path, clock: Callable[[], datetime] = utc_now, applies_migrations: bool = True
     ) -> None:
         """location is a SQLite file, ":memory:" for a SQLite database that lives only as long as
-        this object, or mysql://user@host/name (backends.py). The migrations the database is
+        this object, or mysql://user@host/name (s3lobby/backends/). The migrations the database is
         missing are applied, and listed in applied_migrations; applies_migrations False opens it
         as it is, which only suits looking at its migration status."""
         self._clock = clock
@@ -536,6 +548,7 @@ class LobbyDatabase:
         try:
             self.applied_migrations = migrate(self._backend, to_stored_time(clock()))
         except (BackendError, MigrationError) as error:
+            # The caller never gets this object, so nobody else could close the connection.
             self._backend.close()
             raise DatabaseError(str(error)) from error
 
@@ -578,12 +591,17 @@ class LobbyDatabase:
         if tables_with_rows:
             raise DatabaseError(f"the target is not empty: {', '.join(tables_with_rows)} already hold rows")
         copied_rows = {}
+        # One transaction on the target: a copy that fails halfway leaves it empty, ready for another try.
         with target._backend.transaction():
             for table in TABLES_IN_DEPENDENCY_ORDER:
+                # ORDER BY 1 sorts by the first column, the id in most tables, so rows arrive in the
+                # order they were made and the copy is the same on every run.
                 rows = self._backend.fetch_all(f"SELECT * FROM {table} ORDER BY 1")
                 copied_rows[table] = len(rows)
                 if not rows:
                     continue
+                # The column names come from the source's rows; both databases are at the same
+                # schema version, so the target has the same columns.
                 columns = list(rows[0])
                 insert = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders(len(columns))})"
                 parameter_rows = []
@@ -645,6 +663,8 @@ class LobbyDatabase:
                     (name, int(is_admin), to_stored_time(self._clock())),
                 )
         except ConstraintViolation as error:
+            # The only unique key a new account can break is the one on its name, which ignores case:
+            # "Hans" is refused while "hans" exists.
             raise DatabaseError(f"an account named {name!r} already exists") from error
         account = self.find_account_by_id(result.last_row_id)
         if account is None:
@@ -652,7 +672,8 @@ class LobbyDatabase:
         return account
 
     def find_account(self, name: str) -> Account | None:
-        """The account with exactly this name, or None."""
+        """The account with this name, or None. The name is compared without regard to case, as the
+        schema's collation of accounts.name does."""
         row = self._backend.fetch_one("SELECT * FROM accounts WHERE name = ?", (name,))
         return account_from_row(row)
 
@@ -669,6 +690,8 @@ class LobbyDatabase:
     def delete_account(self, account_id: int) -> None:
         """Delete the account; a running server also removes the player from the lobby."""
         with self._backend.transaction():
+            # The foreign keys delete the account's codes, sessions and clan membership with it.
+            # pending_kicks has no foreign key on purpose, so the kick queued next survives.
             self._backend.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
             self._queue_kick(account_id, ACCOUNT_REMOVED_KICK_REASON)
 
@@ -706,6 +729,8 @@ class LobbyDatabase:
 
     def take_pending_kicks(self) -> list[PendingKick]:
         """The kicks not carried out yet, oldest first, marked as taken in the same step."""
+        # Reading and marking in one transaction: the marks are written all or none, so a failure
+        # halfway leaves every kick to be taken again instead of some lost.
         with self._backend.transaction():
             rows = self._backend.fetch_all(
                 "SELECT id, account_id, reason FROM pending_kicks WHERE taken_at IS NULL ORDER BY id"
@@ -792,6 +817,7 @@ class LobbyDatabase:
             return None
         for row in rows:
             if is_matching_access_code(access_code, row["code_hash"]):
+                # Only a successful logon writes: last_used_at tells an admin which codes are still in use.
                 with self._backend.transaction():
                     self._backend.execute(
                         "UPDATE access_codes SET last_used_at = ? WHERE id = ?",
@@ -817,6 +843,8 @@ class LobbyDatabase:
         token = secrets.token_urlsafe(WEB_SESSION_TOKEN_BYTES)
         now = self._clock()
         with self._backend.transaction():
+            # Sessions this old are dead by WEB_SESSION_LIFETIME already. Clearing them on each new
+            # logon keeps the table small without a timer of its own.
             self._backend.execute(
                 "DELETE FROM web_sessions WHERE created_at < ?",
                 (to_stored_time(now - WEB_SESSION_LIFETIME * WEB_SESSIONS_KEPT_LIFETIMES),),
@@ -845,6 +873,8 @@ class LobbyDatabase:
         if row is None:
             return None
         last_seen_at = from_stored_time(row["last_seen_at"])
+        # last_seen_at only needs minute precision for the idle timeout; skipping the write saves a
+        # write lock on every poll of the live lobby page.
         if now - last_seen_at >= WEB_SESSION_TOUCH_INTERVAL:
             with self._backend.transaction():
                 self._backend.execute(
@@ -904,7 +934,8 @@ class LobbyDatabase:
         return Clan(clan_id=result.last_row_id, name=name)
 
     def find_clan(self, name: str) -> Clan | None:
-        """The clan with exactly this name, or None."""
+        """The clan with this name, or None. The name is compared without regard to case, as the
+        schema's collation of clans.name does."""
         row = self._backend.fetch_one("SELECT id, name, is_highlighted FROM clans WHERE name = ?", (name,))
         if row is None:
             return None
@@ -923,11 +954,14 @@ class LobbyDatabase:
     def delete_clan(self, clan_id: int) -> None:
         """Delete the clan; its members are left without a clan."""
         with self._backend.transaction():
+            # The foreign key on clan_members deletes the memberships; the accounts themselves stay.
             self._backend.execute("DELETE FROM clans WHERE id = ?", (clan_id,))
 
     def set_clan_of_account(self, account_id: int, clan_id: int | None) -> None:
         """Put an account into a clan, or take it out with clan_id None. One clan per account."""
         with self._backend.transaction():
+            # account_id is the key of clan_members, so the old membership goes first; both steps
+            # share one transaction, so the account is never seen without a clan in between.
             self._backend.execute("DELETE FROM clan_members WHERE account_id = ?", (account_id,))
             if clan_id is not None:
                 self._backend.execute(
@@ -1045,6 +1079,7 @@ class LobbyDatabase:
                     (theme_id, title, body, author, to_stored_time(posted_at)),
                 )
         except ConstraintViolation as error:
+            # board_messages has no unique key, so only the foreign key to board_themes can refuse it.
             raise DatabaseError(f"there is no board theme {theme_id}") from error
         return BoardMessage(result.last_row_id, theme_id, title, body, author, posted_at)
 
@@ -1123,6 +1158,8 @@ class LobbyDatabase:
         "FROM games LEFT JOIN accounts ON accounts.id = games.host_account_id "
     )
     GAME_REPORT_COLUMNS = (
+        # LENGTH of a binary column counts bytes in SQLite and in MySQL alike. The LEFT JOIN keeps a
+        # report whose sender's account was deleted since, with a NULL name.
         "SELECT game_reports.id, accounts.name AS sender_name, game_reports.group_id, "
         "LENGTH(game_reports.report) AS size, game_reports.received_at, game_reports.report, "
         "game_reports.game_id "
@@ -1176,11 +1213,11 @@ class LobbyDatabase:
         not one per game; the ids are numbers from the database, joined into the IN list."""
         if not game_ids:
             return {}
-        placeholders = ", ".join("?" for _ in game_ids)
+        id_placeholders = placeholders(len(game_ids))
         rows = self._backend.fetch_all(
             "SELECT game_players.game_id, accounts.name FROM game_players "
             "LEFT JOIN accounts ON accounts.id = game_players.account_id "
-            f"WHERE game_players.game_id IN ({placeholders}) ORDER BY game_players.id",
+            f"WHERE game_players.game_id IN ({id_placeholders}) ORDER BY game_players.id",
             tuple(game_ids),
         )
         names_by_game: dict[int, list[str]] = {}
@@ -1198,9 +1235,9 @@ class LobbyDatabase:
         are numbers from the database, joined into the IN list."""
         if not game_ids:
             return []
-        placeholders = ", ".join("?" for _ in game_ids)
+        id_placeholders = placeholders(len(game_ids))
         rows = self._backend.fetch_all(
-            self.GAME_REPORT_COLUMNS + f"WHERE game_reports.game_id IN ({placeholders}) ORDER BY game_reports.id",
+            self.GAME_REPORT_COLUMNS + f"WHERE game_reports.game_id IN ({id_placeholders}) ORDER BY game_reports.id",
             tuple(game_ids),
         )
         return [game_report_record_from_row(row) for row in rows]
@@ -1244,6 +1281,7 @@ class LobbyDatabase:
 
     def take_pending_announcements(self) -> list[str]:
         """The announcements not sent yet, oldest first, marked as sent in the same step."""
+        # One transaction, as in take_pending_kicks: a failure halfway marks none as sent.
         with self._backend.transaction():
             rows = self._backend.fetch_all(
                 "SELECT id, text FROM pending_announcements WHERE sent_at IS NULL ORDER BY id"
@@ -1286,6 +1324,8 @@ class LobbyDatabase:
         try:
             state = LiveLobbyState.from_json(row["snapshot"])
         except ValueError:
+            # Such as a snapshot written by another s3lobby version; the page then shows no lobby
+            # instead of failing.
             return None
         return StoredLiveState(state=state, written_at=from_stored_time(row["written_at"]))
 
@@ -1304,11 +1344,11 @@ class LobbyDatabase:
         day_ago = to_stored_time(now - timedelta(days=1))
         return LobbyStatistics(
             players_online=self._count_open("lobby_sessions", "ended_at", count_distinct="account_id"),
-            players_last_hour=self._count_open_since("lobby_sessions", "started_at", "ended_at", hour_ago, "account_id"),
-            players_last_day=self._count_open_since("lobby_sessions", "started_at", "ended_at", day_ago, "account_id"),
+            players_last_hour=self._count_open_since("lobby_sessions", "ended_at", hour_ago, "account_id"),
+            players_last_day=self._count_open_since("lobby_sessions", "ended_at", day_ago, "account_id"),
             games_open=self._count_open("games", "closed_at"),
-            games_last_hour=self._count_open_since("games", "opened_at", "closed_at", hour_ago),
-            games_last_day=self._count_open_since("games", "opened_at", "closed_at", day_ago),
+            games_last_hour=self._count_open_since("games", "closed_at", hour_ago),
+            games_last_day=self._count_open_since("games", "closed_at", day_ago),
         )
 
     def _count_open(self, table: str, end_column: str, count_distinct: str = "id") -> int:
@@ -1317,13 +1357,13 @@ class LobbyDatabase:
         query = f"SELECT COUNT(DISTINCT {count_distinct}) AS counted FROM {table} WHERE {end_column} IS NULL"
         return self._backend.fetch_one(query)["counted"]
 
-    def _count_open_since(
-        self, table: str, start_column: str, end_column: str, since: str, count_distinct: str = "id"
-    ) -> int:
+    def _count_open_since(self, table: str, end_column: str, since: str, count_distinct: str = "id") -> int:
         """How many rows of the table were open at any moment since the given stored time: still
         open, or ended since. Each value of count_distinct counts once."""
         # Table and column names come from this class only, never from outside, so formatting
         # them into the query is safe; the time is passed as a parameter.
+        # Every stored row started before now, so a row overlaps the period exactly when it has not
+        # ended before the period's start. Stored times compare correctly as text (to_stored_time).
         query = (
             f"SELECT COUNT(DISTINCT {count_distinct}) AS counted FROM {table} "
             f"WHERE {end_column} IS NULL OR {end_column} >= ?"

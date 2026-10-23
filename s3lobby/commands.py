@@ -144,12 +144,17 @@ class ChatCommands:
             lines.append("/confirm CODE: carry out the command you just gave")
         return lines
 
-    def _ask_for_confirmation(self, sender: CommandSender, description: str, action: Callable[[], list[str]]) -> list[str]:
+    def _ask_for_confirmation(
+        self, sender: CommandSender, description: str, action: Callable[[], list[str]]
+    ) -> list[str]:
         """Hold an admin command until the admin confirms it with a random code. A datagram forged
         from an admin's address is sent blind: its sender never sees the code, and a wrong one
         cancels the command, so guessing does not work either."""
+        # A random number padded with leading zeros, so every code has exactly
+        # CONFIRMATION_CODE_DIGITS digits.
         code = f"{secrets.randbelow(10 ** CONFIRMATION_CODE_DIGITS):0{CONFIRMATION_CODE_DIGITS}d}"
         expires_at = self._clock_seconds() + CONFIRMATION_SECONDS
+        # One pending command per admin: a new one replaces the command given before.
         self._pending_confirmations[sender.player_id] = PendingConfirmation(code, action, expires_at)
         return [f"To {description}, type {COMMAND_PREFIX}confirm {code} within {CONFIRMATION_SECONDS} seconds."]
 
@@ -162,6 +167,7 @@ class ChatCommands:
             return ["There is nothing to confirm."]
         if self._clock_seconds() > pending.expires_at:
             return ["That command ran out; give it again."]
+        # Compared in constant time, so the time of the answer does not tell how much of a guess was right.
         if not hmac.compare_digest(code.encode("utf-8"), pending.code.encode("utf-8")):
             return ["Wrong code: the command was cancelled."]
         if not self._is_admin_now(sender):
@@ -233,13 +239,18 @@ class ChatCommands:
             return ["Only admins may ban."]
         usage = [f"Usage: {COMMAND_PREFIX}ban NAME HOURS [REASON], HOURS from {MIN_BAN_HOURS} to {MAX_BAN_HOURS}"]
         name, rest = split_leading_name(argument, lambda candidate: self._database.find_account(candidate) is not None)
+        # After the name come HOURS and then the optional reason, which may hold spaces.
         hours_text, _, reason = rest.partition(" ")
         if not name or not is_whole_number_text(hours_text):
             return usage
         hours = int(hours_text)
         if hours < MIN_BAN_HOURS or hours > MAX_BAN_HOURS:
             return usage
+        # split_leading_name only accepted a name that has an account, but the account may have been
+        # deleted since (by another admin or the command line).
         account = self._database.find_account(name)
+        if account is None:
+            return usage
         if account.account_id == sender.player_id:
             return ["You cannot ban yourself."]
 
@@ -271,8 +282,12 @@ def describe_network(address: Address, reachability: Reachability = Reachability
     it means a router rewrote it, so others cannot know the way in without a forwarding."""
     host, port = address
     lines = [f"The server sees you at {host}:{port}."]
+    # A loopback or LAN player: router and port advice does not apply, as the server rewrites the
+    # address others see (see addresses.py).
     if not ipaddress.ip_address(host).is_global:
-        lines.append("You are in the server's own network: the server shows you to others at an address they can reach.")
+        lines.append(
+            "You are in the server's own network: the server shows you to others at an address they can reach."
+        )
         return lines
     if port != GAME_CLIENT_FIRST_PORT:
         lines.append(
@@ -306,6 +321,7 @@ def split_leading_name(argument: str, is_name: Callable[[str], bool]) -> tuple[s
     Legion": the longest run of leading words that is_name accepts, and the rest. ("", argument)
     when no run is a name."""
     words = argument.split()
+    # From the most words down, so "Roman Legion" wins over a player named "Roman".
     for word_count in range(len(words), 0, -1):
         candidate = " ".join(words[:word_count])
         if is_name(candidate):
@@ -317,5 +333,6 @@ def fit_answer(lines: list[str]) -> tuple[str, ...]:
     """Wrap long lines and cap the answer's length."""
     wrapped = []
     for line in lines:
+        # textwrap.wrap returns nothing for an empty line; the empty line is kept as a gap.
         wrapped.extend(textwrap.wrap(line, MAX_ANSWER_LINE_LENGTH) or [""])
     return tuple(wrapped[:MAX_ANSWER_LINES])

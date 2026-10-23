@@ -82,8 +82,10 @@ def check_csrf_token() -> None:
 def add_security_headers(response: Response) -> Response:
     """Add the security headers to every response: the fixed set, no caching except for static
     files, and HSTS when the interface runs on HTTPS only."""
+    # setdefault keeps a header a view set itself, should one ever need its own value.
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
+    # Stylesheets and scripts hold nothing private and may be cached; every page may not.
     if not request.path.startswith(STATIC_PATH_PREFIX):
         response.headers["Cache-Control"] = NO_STORE
     if current_app.config.get("S3LOBBY_HTTPS_ONLY"):

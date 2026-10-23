@@ -26,7 +26,13 @@ from collections.abc import Sequence
 
 from s3lobby import __version__, admin
 from s3lobby.backends import describe_location
-from s3lobby.constants import BOARD_LANGUAGES, DEFAULT_BAN_HOURS, DEFAULT_SERVER_PORT, DEVELOPMENT_PASSWORD, NEWS_AUDIENCES
+from s3lobby.constants import (
+    BOARD_LANGUAGES,
+    DEFAULT_BAN_HOURS,
+    DEFAULT_SERVER_PORT,
+    DEVELOPMENT_PASSWORD,
+    NEWS_AUDIENCES,
+)
 from s3lobby.database import DatabaseError, LobbyDatabase
 from s3lobby.server import ALL_INTERFACES, DEFAULT_DATABASE_PATH, DEFAULT_SERVER_NAME, ServerSettings, serve_forever
 
@@ -111,7 +117,9 @@ def run_web_interface(options: argparse.Namespace) -> int:
             is_development_mode=options.dev,
         )
         # Never the interactive debugger, even with FLASK_DEBUG set: it would run code for anyone.
-        app.run(host=options.host, port=options.port, threaded=True, debug=False, use_debugger=False, use_reloader=False)
+        app.run(
+            host=options.host, port=options.port, threaded=True, debug=False, use_debugger=False, use_reloader=False
+        )
     except OSError as error:
         log.error("cannot serve the web interface: %s", error)
         return EXIT_FAILURE
@@ -124,6 +132,7 @@ def run_admin(options: argparse.Namespace) -> int:
     Errors are printed for the person who typed the command, not logged. database status opens
     the database without applying migrations, so looking changes nothing."""
     try:
+        # Only database status sets applies_migrations; every other subcommand brings the schema up to date.
         applies_migrations = getattr(options, "applies_migrations", True)
         database = LobbyDatabase(options.database, applies_migrations=applies_migrations)
     except (OSError, DatabaseError) as error:
@@ -154,6 +163,7 @@ def configure_logging(is_verbose: bool, log_file: str | None) -> None:
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(detail_level)
         handlers.append(file_handler)
+    # force replaces the handlers of an earlier call, as main() may run more than once in one process.
     logging.basicConfig(level=detail_level, format=LOG_FORMAT, datefmt=LOG_TIME_FORMAT, handlers=handlers, force=True)
     # asyncio announces its event loop selector at debug level; that is noise in this log.
     logging.getLogger("asyncio").setLevel(logging.WARNING)
@@ -193,7 +203,9 @@ def add_serve_command(commands: argparse._SubParsersAction, database_option: arg
     serve = commands.add_parser("serve", parents=[database_option], help="run the lobby server")
     serve.add_argument("--host", default=ALL_INTERFACES, help="address to listen on (default: all interfaces)")
     serve.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT, help="UDP port (default: %(default)s)")
-    serve.add_argument("--name", default=DEFAULT_SERVER_NAME, help="server name shown in the game (default: %(default)s)")
+    serve.add_argument(
+        "--name", default=DEFAULT_SERVER_NAME, help="server name shown in the game (default: %(default)s)"
+    )
     serve.add_argument(
         "--public-host",
         default="",
@@ -213,7 +225,10 @@ def add_serve_command(commands: argparse._SubParsersAction, database_option: arg
     serve.add_argument(
         "--verbose",
         action="store_true",
-        help="log every datagram (secrets removed): into the --log-file only when one is given, the console stays at INFO",
+        help=(
+            "log every datagram (secrets removed): into the --log-file only when one is given, "
+            "the console stays at INFO"
+        ),
     )
     serve.add_argument("--log-file", help="also write the log to this file")
 
@@ -299,7 +314,9 @@ def add_clan_commands(commands: argparse._SubParsersAction, database_option: arg
     highlight.add_argument("name")
     highlight.set_defaults(admin_function=admin.highlight_clan)
 
-    unhighlight = actions.add_parser("unhighlight", parents=[database_option], help="list the clan's members in the usual colour")
+    unhighlight = actions.add_parser(
+        "unhighlight", parents=[database_option], help="list the clan's members in the usual colour"
+    )
     unhighlight.add_argument("name")
     unhighlight.set_defaults(admin_function=admin.unhighlight_clan)
 

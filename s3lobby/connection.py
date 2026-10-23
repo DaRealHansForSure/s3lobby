@@ -132,8 +132,10 @@ class ReliableConnection:
 
     @property
     def is_confirmed_by_client(self) -> bool:
-        """True once the client acknowledged one of the server's blocks: it proved it receives at
-        the address it claims, which a forged sender address cannot."""
+        """True once the client acknowledged one of the server's blocks: a sign it receives at the
+        address it claims. Not proof: acknowledgements carry no secret, and the server's first block
+        is always number 1, so a forger could guess it. What protects others is that before a logon
+        the server never sends more than it received (see CLAUDE.md, network safety)."""
         return self._is_confirmed_by_client
 
     def age_ms(self, now_ms: int) -> int:
@@ -156,14 +158,19 @@ class ReliableConnection:
 
         Raises ProtocolError when a connection layer message in it is malformed.
         """
+        # Set before any check, so even a datagram refused below counts as a sign of life.
         self._last_heard_from_client_ms = now_ms
         received = ReceivedBlock()
 
+        # Only a MessageId in first place numbers the block (0x601d70); a block without one is
+        # unnumbered and may only carry connection layer messages (checked below).
         client_block_id = None
         if messages and messages[0].message_type == MessageType.MESSAGE_ID:
             client_block_id = MessageId.decode(messages[0]).block_id
             messages = messages[1:]
 
+        # Connection layer messages count even in a duplicate block: an acknowledgement or a new
+        # timeout is just as true in a repeated block as in the first copy.
         for message in messages:
             self._apply_connection_layer_message(message, received)
         lobby_messages = [m for m in messages if m.message_type not in CONNECTION_LAYER_MESSAGE_TYPES]
@@ -185,6 +192,8 @@ class ReliableConnection:
             return received
 
         is_new_block = self._accept_client_block_id(client_block_id)
+        # A duplicate is acknowledged as well: the client repeats a block when the server's
+        # acknowledgement for it got lost, and keeps repeating it until one arrives.
         self._client_block_ids_to_acknowledge.add(client_block_id)
         self._forget_acknowledgements_outside_the_window()
         self._is_acknowledgement_due = True
@@ -239,6 +248,7 @@ class ReliableConnection:
         """Everything that should go out now: a new block, due retries, or acknowledgements and a
         keepalive when nothing else is going out."""
         datagrams = []
+        # A close held back by begin_closing goes out once the client holds every earlier block.
         if self._is_close_waiting_for_acknowledgements and not self._unacknowledged_blocks:
             self._is_close_waiting_for_acknowledgements = False
             self._queued_leading_messages.append(CloseConnection().encode())
@@ -246,6 +256,7 @@ class ReliableConnection:
         if has_queued_messages and self._may_send_new_block:
             datagrams.append(self._send_queued_messages_as_new_block(now_ms))
 
+        # A block sent just above has last_sent_ms set to now, so it is not sent a second time here.
         for block in self._unacknowledged_blocks.values():
             if block.is_retry_due(now_ms):
                 block.retry_count += 1
@@ -259,6 +270,8 @@ class ReliableConnection:
         if not datagrams and needs_acknowledgement_block:
             datagrams.append(self._encode_acknowledgement_block())
 
+        # Every datagram built above carries the current acknowledgements, so whichever went out
+        # settles the acknowledgement that was due and counts as contact for the keepalive.
         if datagrams:
             self._is_acknowledgement_due = False
             self._last_sent_to_client_ms = now_ms
@@ -279,6 +292,8 @@ class ReliableConnection:
         if is_duplicate:
             return False
         self._client_block_ids_received_early.add(client_block_id)
+        # The new id may close a gap: move the contiguous mark forward over every id that now
+        # follows it without a hole, and drop those ids from the early set.
         while self._highest_contiguous_client_block_id + 1 in self._client_block_ids_received_early:
             self._highest_contiguous_client_block_id += 1
             self._client_block_ids_received_early.remove(self._highest_contiguous_client_block_id)
@@ -292,10 +307,14 @@ class ReliableConnection:
         Raises ProtocolError when one of these messages is malformed."""
         match message.message_type:
             case MessageType.ACKNOWLEDGE_MESSAGES:
+                # An id that is not outstanding (acknowledged before, or never sent) changes nothing;
+                # only an acknowledgement that ends a block's retries confirms the client.
                 for block_id in AcknowledgeMessages.decode(message).block_ids:
                     if self._unacknowledged_blocks.pop(block_id, None) is not None:
                         self._is_confirmed_by_client = True
             case MessageType.MIN_MISSING_ACKNOWLEDGE:
+                # The client holds the server's acknowledgements for all its blocks below this id, so
+                # only ids from this one up still need repeating.
                 lowest_unconfirmed = MinMissingAcknowledge.decode(message).lowest_unconfirmed_block_id
                 still_unconfirmed = {i for i in self._client_block_ids_to_acknowledge if i >= lowest_unconfirmed}
                 self._client_block_ids_to_acknowledge = still_unconfirmed
@@ -347,7 +366,10 @@ class ReliableConnection:
         # again on every retry.
         datagram = self._encode_numbered_block(block)
         self._next_server_block_id += 1
+        # The block now owns the old list, so the queue gets a new one; clearing the old list in
+        # place would empty the stored block's leading messages as well.
         self._queued_leading_messages = []
+        # Lobby messages left in the queue did not fit the byte budget and wait for this block.
         self._is_rest_of_queue_held_back = bool(self._queued_lobby_messages)
         self._unacknowledged_blocks[block.block_id] = block
         return datagram

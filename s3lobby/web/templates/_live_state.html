@@ -35,7 +35,7 @@
         {% for player in page.players %}
         <tr>
           <td>{{ in_game_colour(player.name, player.row_colour) }}{% if admin and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
-          <td>{{ player.clan or "-" }}</td>
+          <td>{{ in_game_colour(player.clan, player.row_colour) if player.clan else "-" }}</td>
           <td>{{ names(player.tab_names) }}</td>
           <td>{{ names(player.group_names) }}</td>
           <td>{{ player.logged_on_at | relative_moment }}</td>

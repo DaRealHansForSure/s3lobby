@@ -67,6 +67,8 @@ class MysqlBackend(DatabaseBackend):
             )
         except pymysql.err.Error as error:
             raise BackendError(f"cannot connect to {location.describe()}: {error}") from error
+        # MariaDB reports a version such as "10.11.6-MariaDB"; MySQL's version names no product.
+        # The two differ in the upsert syntax they accept (_upsert_sql).
         self._is_mariadb = MARIADB_SERVER_MARKER in self._connection.get_server_info()
         self._is_in_transaction = False
         self._last_used_at = time.monotonic()
@@ -95,7 +97,9 @@ class MysqlBackend(DatabaseBackend):
         for long is checked first, since a dropped one cannot be reopened in the middle of a transaction."""
         with self._errors_translated():
             self._reconnect_if_idle()
+            # begin() suspends autocommit until commit() or rollback().
             self._connection.begin()
+        # From here on _cursor must not reconnect: a new connection would not know this transaction.
         self._is_in_transaction = True
         try:
             yield
@@ -154,6 +158,7 @@ class MysqlBackend(DatabaseBackend):
         row = self.fetch_one(
             "SELECT GET_LOCK(?, ?) AS is_locked", (MYSQL_MIGRATION_LOCK_NAME, MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS)
         )
+        # GET_LOCK returns 1 when it got the lock, 0 after the timeout, and NULL on an error.
         if row["is_locked"] != 1:
             raise BackendError("another process has been migrating the schema for too long")
         try:
@@ -173,6 +178,8 @@ class MysqlBackend(DatabaseBackend):
             self._reconnect_if_idle()
         with self._connection.cursor() as cursor:
             yield cursor
+        # Only reached when the statement succeeded; a failed one leaves the idle clock as it was,
+        # so the next statement may still ping.
         self._last_used_at = time.monotonic()
 
     def _reconnect_if_idle(self) -> None:
@@ -191,4 +198,5 @@ class MysqlBackend(DatabaseBackend):
 def to_pymysql_placeholders(sql: str) -> str:
     """PyMySQL takes %s where SQLite takes ?, and reads every other % as a format character. The
     queries of this program have no ? or % inside string literals, so plain replacing is safe."""
+    # The order matters: escaping % first keeps the %s placeholders made next from being escaped too.
     return sql.replace("%", "%%").replace("?", "%s")

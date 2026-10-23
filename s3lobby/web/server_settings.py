@@ -141,6 +141,7 @@ def save_settings() -> Response:
 
 def setting_value_from_form(field: SettingField) -> str:
     """The value the form sent for a setting; a checkbox becomes the stored on or off value."""
+    # A browser leaves an unticked checkbox out of the form, so "off" has to be written explicitly.
     if field.is_checkbox:
         if form_flag(field.setting.key):
             return CHECKED_SETTING_VALUE

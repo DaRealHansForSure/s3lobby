@@ -27,6 +27,8 @@ from s3lobby.database import LobbyDatabase
 from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.messages import (
     AddPlayerToGroup,
+    AddPlayerToGroupWithClan,
+    AddPlayerToGroupWithFlags,
     CheckFileVersion,
     GameBlock,
     GetImageList,
@@ -139,6 +141,19 @@ class SecretsInLogTest(unittest.TestCase):
         """The password a player gives to join a chat group is left out of the log."""
         join = AddPlayerToGroup(5, 1, ("0.0.0.0", 0), "", extra_text="hunter").encode()
         self.assertNotIn("hunter", describe_for_log(join))
+
+    def test_chat_group_password_is_removed_from_the_clan_variants(self) -> None:
+        """0x25 and 0x26 carry the same password field as 0x0c, so a clan member's password stays out of
+        the log as well."""
+        joins = (
+            AddPlayerToGroupWithClan(5, 1, ("0.0.0.0", 0), "", 7, "Romans", extra_text="hunter"),
+            AddPlayerToGroupWithFlags(5, 1, ("0.0.0.0", 0), "", 7, "Romans", 0, extra_text="hunter"),
+        )
+        for join in joins:
+            with self.subTest(message_type=join.MESSAGE_TYPE):
+                description = describe_for_log(join.encode())
+                self.assertNotIn("hunter", description)
+                self.assertNotIn(b"hunter".hex(), description)
 
     def test_chat_group_password_set_by_an_update_is_removed(self) -> None:
         """A chat group's password changed by an update is left out of the log too, as text and as hex."""

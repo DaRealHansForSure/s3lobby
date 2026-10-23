@@ -99,9 +99,12 @@ class RouterForwarding:
             log.warning("UPnP: %s:%d is not a game in this network, nothing forwarded", *player_address)
             return
         host, port = player_address
+        # The router cannot forward to 127.0.0.1: for a game on this machine it needs this machine's
+        # address in the router's network.
         if host.startswith(LOOPBACK_PREFIX):
             host = self._mapper.gateway.local_ip
         target = (host, port)
+        # Ports this server already gave to other players are skipped without asking the router.
         used_ports = {mapping[0] for mapping in self._player_mappings.values()}
         for outside_port in range(UPNP_FIRST_PLAYER_PORT, UPNP_LAST_PLAYER_PORT + 1):
             if outside_port in used_ports:
@@ -109,6 +112,8 @@ class RouterForwarding:
             try:
                 await self._run(self._mapper.add, outside_port, UDP, host, port, UPNP_LEASE_SECONDS)
             except UpnpError as error:
+                # Another machine or program holds this outside port; try the next one. Any other
+                # error would fail for every port alike, so the search stops.
                 if error.error_code == CONFLICT_IN_MAPPING_ERROR:
                     continue
                 log.warning("UPnP: cannot forward a port to %s:%d: %s", host, port, error)
@@ -149,6 +154,8 @@ class RouterForwarding:
         router fails. Callers hold the change lock."""
         try:
             local_ip = self._mapper.gateway.local_ip
+            # UPnP has no renew action: adding a mapping again for the same machine replaces it,
+            # and with it starts a fresh lease.
             await self._run(self._mapper.add, self._server_port, UDP, local_ip, self._server_port, UPNP_LEASE_SECONDS)
             for outside_port, (host, port) in list(self._player_mappings.values()):
                 await self._run(self._mapper.add, outside_port, UDP, host, port, UPNP_LEASE_SECONDS)
@@ -167,6 +174,8 @@ class RouterForwarding:
                 await self._run(self._mapper.delete, self._server_port, UDP)
             except UpnpError as error:
                 log.debug("UPnP: removing the server's forwarding: %s", error)
+        # Not waiting: a router call that hangs must not hold up the server's stop on the event loop;
+        # the thread ends by itself when its call times out.
         self._executor.shutdown(wait=False)
 
     async def _run(self, function: Callable[..., T], *arguments: object) -> T:
@@ -184,6 +193,8 @@ def is_game_in_this_network(player_address: Address) -> bool:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False
+    # Python counts link-local addresses (169.254.x.x) as private, but they are not a network the
+    # router serves.
     is_local_address = ip.is_loopback or (ip.is_private and not ip.is_link_local)
     is_game_port = GAME_CLIENT_FIRST_PORT <= port < GAME_CLIENT_FIRST_PORT + GAME_CLIENT_PORT_COUNT
     return is_local_address and is_game_port

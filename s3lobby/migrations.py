@@ -106,6 +106,8 @@ def load_migrations(dialect: str) -> tuple[Migration, ...]:
             continue
         migration = Migration(int(match["version"]), match["name"], entry.read_text(encoding="utf-8"))
         migrations.append(migration)
+    # iterdir() returns files in no particular order. After sorting, the n-th file must carry
+    # number n: a gap or two files with the same number both break that.
     migrations.sort(key=lambda migration: migration.version)
     for expected_version, migration in enumerate(migrations, start=1):
         if migration.version != expected_version:
@@ -141,6 +143,8 @@ def read_status(backend: DatabaseBackend) -> MigrationStatus:
     migrations = load_migrations(backend.dialect)
     if MIGRATIONS_TABLE not in backend.table_names():
         legacy_version = backend.legacy_schema_version()
+        # The legacy versions are not in a table yet, so they count as neither applied nor pending:
+        # migrate() records them when it adopts the database.
         return MigrationStatus(applied=[], pending=list(migrations[legacy_version:]))
     return MigrationStatus(applied=read_applied(backend), pending=find_pending(backend, migrations))
 
@@ -151,6 +155,7 @@ def current_version(backend: DatabaseBackend) -> int:
     if MIGRATIONS_TABLE not in backend.table_names():
         return backend.legacy_schema_version()
     row = backend.fetch_one(f"SELECT MAX(version) AS version FROM {MIGRATIONS_TABLE}")
+    # MAX over an empty table is NULL, which arrives as None.
     return row["version"] or 0
 
 
@@ -165,6 +170,7 @@ def adopt_legacy_schema(backend: DatabaseBackend, migrations: tuple[Migration, .
         raise MigrationError(
             f"the database has schema version {legacy_version}, this s3lobby knows up to {len(migrations)}"
         )
+    # The tables of these versions exist already, so they are only recorded, not run again.
     for migration in migrations[:legacy_version]:
         record_migration(backend, migration, applied_at)
 
@@ -180,6 +186,8 @@ def find_pending(backend: DatabaseBackend, migrations: tuple[Migration, ...]) ->
             f"the database has migration {newest.version} ({newest.name}), this s3lobby knows up to "
             f"{len(migrations)}: it was migrated by a newer s3lobby"
         )
+    # Both lists are in order of version, so the n-th record must be the n-th file. A record with
+    # another number means the database jumped over a file, for instance one added in between later.
     for record, migration in zip(applied, migrations):
         if record.version != migration.version:
             raise MigrationError(f"the database skipped migration {migration.version} ({migration.name})")
