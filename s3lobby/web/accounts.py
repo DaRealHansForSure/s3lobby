@@ -219,6 +219,17 @@ def create_clan() -> Response:
     return redirect(url_for("accounts.list_clans"))
 
 
+@blueprint.post("/clans/<int:clan_id>/highlight")
+def highlight_clan(clan_id: int) -> Response:
+    is_highlighted = form_flag("is_highlighted")
+    if is_highlighted:
+        done = "The clan's members are listed green in the game from their next logon."
+    else:
+        done = "The clan's members are listed in the usual colour from their next logon."
+    apply_change(lambda: get_database().set_clan_highlighted(clan_id, is_highlighted), done)
+    return redirect(url_for("accounts.list_clans"))
+
+
 @blueprint.post("/clans/<int:clan_id>/delete")
 def delete_clan(clan_id: int) -> Response:
     apply_change(lambda: get_database().delete_clan(clan_id), "Clan removed; its members are in no clan now.")

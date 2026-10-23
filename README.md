@@ -227,6 +227,7 @@ same database:
 ```sh
 s3lobby clan add Romans
 s3lobby clan join Romans Alice
+s3lobby clan highlight Romans    # members who show the clan get a green row in the game; not yet tried with the game
 s3lobby news set --audience german --title "Willkommen" --file news-de.txt
 s3lobby news set --audience other --title "Welcome" --file news-en.txt
 s3lobby chat-theme add "General" --description "Talk about anything"

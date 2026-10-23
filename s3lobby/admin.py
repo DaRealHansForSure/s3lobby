@@ -105,7 +105,23 @@ def remove_clan(database: LobbyDatabase, options: argparse.Namespace) -> None:
 def list_clans(database: LobbyDatabase, options: argparse.Namespace) -> None:
     for clan in database.list_clans():
         members = database.list_clan_member_names(clan.clan_id)
-        print(f"{clan.name}: {', '.join(members) if members else 'no members'}")
+        member_text = ", ".join(members) if members else "no members"
+        highlight_text = ""
+        if clan.is_highlighted:
+            highlight_text = " (green in the game)"
+        print(f"{clan.name}{highlight_text}: {member_text}")
+
+
+def highlight_clan(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    clan = require_clan(database, options.name)
+    database.set_clan_highlighted(clan.clan_id, True)
+    print(f"Members of clan {clan.name!r} who show the clan are listed green in the game from their next logon.")
+
+
+def unhighlight_clan(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    clan = require_clan(database, options.name)
+    database.set_clan_highlighted(clan.clan_id, False)
+    print(f"Members of clan {clan.name!r} are listed in the usual colour from their next logon.")
 
 
 def join_clan(database: LobbyDatabase, options: argparse.Namespace) -> None:

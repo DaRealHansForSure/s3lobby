@@ -199,8 +199,10 @@ class GameStatusFlag(IntFlag):
 class PlayerFlag(IntFlag):
     """Bits of the player flags in AddPlayerToGroup 0x26 (handler 0x5d6520, read by 0x5e7900)."""
 
-    # The room member list draws the player's row in another colour (0x449e09..0x449eb5); with the
-    # clan name "BB" in yet another (inferred: Blue Byte staff). s3lobby uses it to mark admins.
+    # The room member list draws the player's name and clan in green (0xff00, 0x449da1..0x449dbe);
+    # with the clan name exactly "BB" in another colour instead (0xff3300, compared with the text
+    # at 0x69a568, 0x449de2..0x449eb5; inferred: Blue Byte staff). No other colour exists. s3lobby
+    # uses it for admins (setting mark_admins) and for the members of highlighted clans.
     HIGHLIGHTED = 0x1
 
 

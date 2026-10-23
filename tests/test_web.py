@@ -289,6 +289,17 @@ class DevelopmentLogonTest(WebInterfaceTestCase):
         self.assertEqual(self.log_on_from("127.0.0.1").status_code, HTTP_UNAUTHORIZED)
 
 
+class ClanHighlightPageTest(WebInterfaceTestCase):
+    def test_clan_is_switched_green_and_back(self) -> None:
+        self.log_on()
+        romans = self.database.create_clan("Romans")
+        self.post(f"/clans/{romans.clan_id}/highlight", is_highlighted="on")
+        self.assertTrue(self.database.find_clan("Romans").is_highlighted)
+        self.assertIn('<span class="badge badge--good">green</span>', self.client.get("/clans").get_data(as_text=True))
+        self.post(f"/clans/{romans.clan_id}/highlight")
+        self.assertFalse(self.database.find_clan("Romans").is_highlighted)
+
+
 class AccountPagesTest(WebInterfaceTestCase):
     def setUp(self) -> None:
         super().setUp()

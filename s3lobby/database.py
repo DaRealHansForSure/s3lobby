@@ -200,8 +200,12 @@ class Account:
 
 @dataclass(frozen=True)
 class Clan:
+    """A clan. is_highlighted lists its members with a green row in the game (see
+    PlayerFlag.HIGHLIGHTED), for those who show the clan."""
+
     clan_id: int
     name: str
+    is_highlighted: bool = False
 
 
 @dataclass(frozen=True)
@@ -843,14 +847,19 @@ class LobbyDatabase:
         return Clan(clan_id=result.last_row_id, name=name)
 
     def find_clan(self, name: str) -> Clan | None:
-        row = self._backend.fetch_one("SELECT id, name FROM clans WHERE name = ?", (name,))
+        row = self._backend.fetch_one("SELECT id, name, is_highlighted FROM clans WHERE name = ?", (name,))
         if row is None:
             return None
-        return Clan(clan_id=row["id"], name=row["name"])
+        return clan_from_row(row)
 
     def list_clans(self) -> list[Clan]:
-        rows = self._backend.fetch_all("SELECT id, name FROM clans ORDER BY name")
-        return [Clan(clan_id=row["id"], name=row["name"]) for row in rows]
+        rows = self._backend.fetch_all("SELECT id, name, is_highlighted FROM clans ORDER BY name")
+        return [clan_from_row(row) for row in rows]
+
+    def set_clan_highlighted(self, clan_id: int, is_highlighted: bool) -> None:
+        """List the clan's members with a green row in the game, from their next logon on."""
+        with self._backend.transaction():
+            self._backend.execute("UPDATE clans SET is_highlighted = ? WHERE id = ?", (int(is_highlighted), clan_id))
 
     def delete_clan(self, clan_id: int) -> None:
         with self._backend.transaction():
@@ -868,13 +877,13 @@ class LobbyDatabase:
 
     def find_clan_of_account(self, account_id: int) -> Clan | None:
         row = self._backend.fetch_one(
-            "SELECT clans.id, clans.name FROM clans JOIN clan_members ON clan_members.clan_id = clans.id "
-            "WHERE clan_members.account_id = ?",
+            "SELECT clans.id, clans.name, clans.is_highlighted FROM clans "
+            "JOIN clan_members ON clan_members.clan_id = clans.id WHERE clan_members.account_id = ?",
             (account_id,),
         )
         if row is None:
             return None
-        return Clan(clan_id=row["id"], name=row["name"])
+        return clan_from_row(row)
 
     def list_clan_member_names(self, clan_id: int) -> list[str]:
         rows = self._backend.fetch_all(
@@ -1255,6 +1264,10 @@ def board_message_from_row(row: Row) -> BoardMessage:
         author=row["author"],
         posted_at=from_stored_time(row["posted_at"]),
     )
+
+
+def clan_from_row(row: Row) -> Clan:
+    return Clan(clan_id=row["id"], name=row["name"], is_highlighted=bool(row["is_highlighted"]))
 
 
 def game_record_from_row(row: Row, player_names: list[str]) -> GameRecord:

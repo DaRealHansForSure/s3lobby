@@ -4,10 +4,12 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 {%- endmacro %}
 
-{# A form with a single button, for actions in a table row or a button row. #}
-{% macro action_button(action, label, style="btn--outline") -%}
+{# A form with a single button, for actions in a table row or a button row; fields are sent along
+   as hidden values. #}
+{% macro action_button(action, label, style="btn--outline", fields={}) -%}
 <form class="inline-form" method="post" action="{{ action }}">
   {{ csrf_field() }}
+  {% for name, value in fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
   <button class="btn {{ style }} btn--sm" type="submit">{{ label }}</button>
 </form>
 {%- endmacro %}

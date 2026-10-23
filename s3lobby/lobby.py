@@ -1087,9 +1087,11 @@ def live_player(player: Player, reachability: Reachability) -> LivePlayer:
 def member_entry(group_id: int, player: Player, marks_admins: bool = False) -> EncodableMessage:
     """A group member as other clients need it: with the address the server sees the player at,
     because they send chat straight to that address, and with the clan when the player shows one.
-    With marks_admins an admin comes as 0x26 with the HIGHLIGHTED flag, so the member list colours
-    their row; the clan travels in it as well, with clan id 0 and no name for a player without one."""
-    if marks_admins and player.is_admin:
+    A player shown with a highlighted clan, and with marks_admins an admin, comes as 0x26 with the
+    HIGHLIGHTED flag, so the member list colours their row green (0x449da1); the clan travels in it
+    as well, with clan id 0 and no name for a player without one."""
+    is_highlighted_clan = player.shown_clan is not None and player.shown_clan.is_highlighted
+    if is_highlighted_clan or (marks_admins and player.is_admin):
         clan_id = 0
         clan_name = ""
         if player.shown_clan is not None:
