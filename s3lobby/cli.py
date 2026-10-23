@@ -28,10 +28,12 @@ from collections.abc import Sequence
 from s3lobby import __version__, admin, ladder_admin
 from s3lobby.backends import describe_location
 from s3lobby.constants import (
+    ALL_LANGUAGES,
     BOARD_LANGUAGES,
     DEFAULT_BAN_HOURS,
     DEFAULT_SERVER_PORT,
     DEVELOPMENT_PASSWORD,
+    GAME_LANGUAGES,
     NEWS_AUDIENCES,
     SeasonCounts,
 )
@@ -351,6 +353,12 @@ def add_chat_theme_commands(commands: argparse._SubParsersAction, database_optio
     add = actions.add_parser("add", parents=[database_option], help="add a chat theme")
     add.add_argument("name")
     add.add_argument("--description", default="", help="shown in the Description column")
+    add.add_argument(
+        "--language",
+        default=ALL_LANGUAGES,
+        choices=GAME_LANGUAGES,
+        help="show the theme only to games of this language (default: every game)",
+    )
     add.set_defaults(admin_function=admin.add_chat_theme)
 
     remove = actions.add_parser("remove", parents=[database_option], help="remove a chat theme")

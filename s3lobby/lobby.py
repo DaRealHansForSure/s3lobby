@@ -28,6 +28,7 @@ from datetime import datetime
 from typing import Protocol, TypeVar
 
 from s3lobby.constants import (
+    ALL_LANGUAGES,
     ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
     BOARD_FALLBACK_LANGUAGE,
@@ -39,8 +40,6 @@ from s3lobby.constants import (
     BOARD_THEME_ID_SPAN,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
-    DEFAULT_CHAT_THEME_DESCRIPTION,
-    DEFAULT_CHAT_THEME_NAME,
     EMPTY_CHAT_GROUP_KEEP_SECONDS,
     FIRST_GAME_GROUP_ID,
     FIRST_PRINTABLE_CHARACTER,
@@ -56,6 +55,7 @@ from s3lobby.constants import (
     MAX_BOARD_THEMES_PER_LANGUAGE,
     MAX_CHAT_COMMAND_LENGTH,
     MAX_OPEN_GROUPS_PER_PLAYER,
+    MAX_REMEMBERED_GAME_LANGUAGES,
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
     NEWS_AUDIENCE_GERMAN,
@@ -76,6 +76,8 @@ from s3lobby.constants import (
 )
 from s3lobby.commands import ChatCommands, fit_answer
 from s3lobby.database import (
+    BUILT_IN_CHAT_THEMES,
+    MAX_CHAT_THEME_ID,
     Clan,
     DatabaseError,
     LobbyDatabase,
@@ -189,6 +191,9 @@ class Player:
     visible_groups: set[VisibleGroup] = field(default_factory=set)
     # The chat theme the player was in last; a chat group with a password is listed there.
     last_chat_theme_id: int | None = None
+    # The language the game reported in its patch check (a name from GAME_LANGUAGES); None when the
+    # lobby saw no patch check from this address, and then every chat theme is shown.
+    game_language: str | None = None
 
 
 class Lobby:
@@ -214,6 +219,9 @@ class Lobby:
         # The database id of the theme each board theme group shows (the group id holds its place,
         # see board_theme_group_id).
         self._board_theme_of_group: dict[int, int] = {}
+        # The language each address's game reported in its patch check, oldest first, for the
+        # player who logs on from there (see MAX_REMEMBERED_GAME_LANGUAGES).
+        self._game_language_by_address: dict[Address, str] = {}
         self._next_player_group_id = FIRST_GAME_GROUP_ID
         self._wrong_group_passwords = RateLimiter(WRONG_GROUP_PASSWORDS_PER_SECOND, WRONG_GROUP_PASSWORD_BURST)
         self._group_updates = RateLimiter(GROUP_UPDATES_PER_SECOND, GROUP_UPDATE_BURST)
@@ -410,7 +418,19 @@ class Lobby:
             request.edition,
             request.language_name,
         )
+        self._remember_game_language(client_address, request.language_name)
         self._outbox.send(client_address, Result(ResultCode.NO_PATCH_NEEDED))
+
+    def _remember_game_language(self, client_address: Address, language: str) -> None:
+        """Keep the language a game reported for the logon that follows from the same address; the
+        oldest address is forgotten beyond MAX_REMEMBERED_GAME_LANGUAGES, so forged patch checks
+        cannot grow the memory without bound."""
+        # Taken out first, so the address moves to the end: a dict keeps the order of insertion.
+        self._game_language_by_address.pop(client_address, None)
+        self._game_language_by_address[client_address] = language
+        if len(self._game_language_by_address) > MAX_REMEMBERED_GAME_LANGUAGES:
+            oldest_address = next(iter(self._game_language_by_address))
+            del self._game_language_by_address[oldest_address]
 
     def _answer_lobby_server_list(self, client_address: Address, message: RawMessage) -> None:
         """GetLobbyServerList: answered with a list that holds only this server."""
@@ -482,6 +502,7 @@ class Lobby:
             is_admin=account.is_admin,
             session_id=session_id,
             shown_clan=decision.shown_clan,
+            game_language=self._game_language_by_address.get(client_address),
         )
         self._players_by_address[client_address] = player
         self._players_by_id[player.player_id] = player
@@ -1163,9 +1184,17 @@ class Lobby:
         log.info("%s %d %r closed", group.kind.value, group.group_id, group.announcement.name)
 
     def _show_group(self, player: Player, group: Group, parent_id: int) -> None:
-        """Show a group inside a parent to one player, unless the player already sees it there."""
+        """Show a group inside a parent to one player, unless the player already sees it there or
+        the group is a chat theme for the games of another language."""
         visible = (parent_id, group.group_id)
         if visible in player.visible_groups:
+            return
+        is_for_other_language = (
+            group.language != ALL_LANGUAGES
+            and player.game_language is not None
+            and group.language != player.game_language
+        )
+        if is_for_other_language:
             return
         player.visible_groups.add(visible)
         self._outbox.send(player.address, group.announcement.under_parent(parent_id))
@@ -1210,27 +1239,28 @@ class Lobby:
 
     def _sync_chat_themes(self) -> None:
         """Bring the chat theme groups listed in ChatZone in line with the database: themes added
-        while the server runs appear, removed ones disappear once nobody is in them. With no theme
-        configured a default one is offered, since players open chat groups inside a theme."""
+        while the server runs appear, removed ones disappear once nobody is in them. General is
+        always listed, since the game joins the theme it was in last as soon as the tab opens."""
         chat_zone = self._groups[CHAT_ZONE_GROUP_ID]
         wanted = {}
+        for built_in in BUILT_IN_CHAT_THEMES:
+            wanted[built_in.group_id] = (built_in.name, built_in.description, ALL_LANGUAGES)
         for theme in self._database.list_chat_themes():
-            wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description)
-        # The default theme takes the base id itself: generated database ids start at 1, so a theme
-        # added later never gets the id of a default theme that still has players in it.
-        if not wanted:
-            wanted[CHAT_THEME_GROUP_ID_BASE] = (DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION)
+            if theme.theme_id > MAX_CHAT_THEME_ID:
+                log.warning("chat theme %d %r not listed: its id is beyond the chat theme range", theme.theme_id, theme.name)
+                continue
+            wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description, theme.language)
 
         for group in self._groups_listed_in(CHAT_ZONE_GROUP_ID):
             is_removed = group.group_id not in wanted
             if is_removed and not group.member_ids:
                 self._unlist_group_from(group, CHAT_ZONE_GROUP_ID)
                 self._groups.pop(group.group_id, None)
-        for group_id, (name, description) in wanted.items():
+        for group_id, (name, description, language) in wanted.items():
             if group_id in self._groups:
                 continue
             announcement = room_announcement(group_id, name, description_text=description)
-            theme = Group(announcement=announcement, kind=GroupKind.ROOM)
+            theme = Group(announcement=announcement, kind=GroupKind.ROOM, language=language)
             self._groups[group_id] = theme
             self._list_group_in(theme, chat_zone)
 

@@ -480,7 +480,7 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
     def test_text_the_game_cannot_show_is_refused(self) -> None:
         """A chat theme with a character outside the game's code page is refused, and the page says why."""
         self.post("/admin/chat-themes", name="Party \U0001f389")
-        self.assertEqual(self.database.list_chat_themes(), [])
+        self.assertNotIn("Party \U0001f389", [theme.name for theme in self.database.list_chat_themes()])
         self.assertIn("which the game cannot show", self.client.get("/admin/chat-themes").get_data(as_text=True))
 
     def test_board_theme_and_message(self) -> None:

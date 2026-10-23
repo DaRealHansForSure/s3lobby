@@ -40,9 +40,15 @@ from s3lobby.backends import (
     placeholders,
 )
 from s3lobby.constants import (
+    ALL_LANGUAGES,
     BANNER_URL_PREFIX,
+    BOARD_LANGUAGE_GROUP_ID_BASE,
     BOARD_LANGUAGES,
+    CHAT_THEME_GROUP_ID_BASE,
+    DEFAULT_CHAT_THEME_DESCRIPTION,
+    DEFAULT_CHAT_THEME_NAME,
     FIRST_PRINTABLE_CHARACTER,
+    GAME_LANGUAGES,
     MAX_ANNOUNCEMENT_LENGTH,
     MAX_GROUP_TEXT_LENGTH,
     MAX_TEXT_MESSAGE_BYTES,
@@ -314,6 +320,33 @@ class ChatTheme:
     theme_id: int
     name: str
     description: str
+    # Shown only to games of this language (a name from GAME_LANGUAGES); ALL_LANGUAGES for every game.
+    language: str = ALL_LANGUAGES
+
+
+@dataclass(frozen=True)
+class BuiltInChatTheme:
+    """A ChatZone theme the server always lists, under a fixed group id; admins cannot change or
+    remove it (constants.DEFAULT_CHAT_THEME_NAME says why)."""
+
+    group_id: int
+    name: str
+    description: str
+
+
+BUILT_IN_CHAT_THEMES = (
+    BuiltInChatTheme(CHAT_THEME_GROUP_ID_BASE, DEFAULT_CHAT_THEME_NAME, DEFAULT_CHAT_THEME_DESCRIPTION),
+)
+# Admins' themes take CHAT_THEME_GROUP_ID_BASE plus their database id, so one with an id above this
+# would leave the chat theme id range; it is not listed (a database would need tens of thousands
+# of themes added to get there).
+MAX_CHAT_THEME_ID = BOARD_LANGUAGE_GROUP_ID_BASE - CHAT_THEME_GROUP_ID_BASE - 1
+
+
+def is_built_in_chat_theme_name(name: str) -> bool:
+    """True for the name of a theme the server lists itself: a second "General" would be one too
+    many in the game's list."""
+    return any(theme.name.casefold() == name.strip().casefold() for theme in BUILT_IN_CHAT_THEMES)
 
 
 @dataclass(frozen=True)
@@ -1189,25 +1222,33 @@ class LobbyDatabase:
 
     # ChatZone themes.
 
-    def add_chat_theme(self, name: str, description: str = "") -> ChatTheme:
-        """Add a theme to the ChatZone tab and return it. Raises DatabaseError for a text the game
-        cannot show or a name that is taken already."""
+    def add_chat_theme(self, name: str, description: str = "", language: str = ALL_LANGUAGES) -> ChatTheme:
+        """Add a theme to the ChatZone tab and return it; language limits it to the games of one
+        language. Raises DatabaseError for a text the game cannot show, a name that is taken already,
+        the name of a built-in theme, or an unknown language."""
         check_title("chat theme name", name)
         check_game_text("chat theme description", description, MAX_GROUP_TEXT_LENGTH)
+        if is_built_in_chat_theme_name(name):
+            raise DatabaseError(f"{name!r} is a chat theme the server always lists itself")
+        if language != ALL_LANGUAGES and language not in GAME_LANGUAGES:
+            raise DatabaseError(f"unknown game language {language!r}; known: {', '.join(GAME_LANGUAGES)}")
         try:
             with self._backend.transaction():
                 result = self._backend.execute(
-                    "INSERT INTO chat_themes (name, description, created_at) VALUES (?, ?, ?)",
-                    (name, description, to_stored_time(self._clock())),
+                    "INSERT INTO chat_themes (name, description, language, created_at) VALUES (?, ?, ?, ?)",
+                    (name, description, language, to_stored_time(self._clock())),
                 )
         except ConstraintViolation as error:
             raise DatabaseError(f"a chat theme named {name!r} already exists") from error
-        return ChatTheme(theme_id=result.last_row_id, name=name, description=description)
+        return ChatTheme(theme_id=result.last_row_id, name=name, description=description, language=language)
 
     def list_chat_themes(self) -> list[ChatTheme]:
         """Every ChatZone theme, in the order they were added."""
         rows = self._backend.fetch_all("SELECT * FROM chat_themes ORDER BY id")
-        return [ChatTheme(theme_id=row["id"], name=row["name"], description=row["description"]) for row in rows]
+        return [
+            ChatTheme(theme_id=row["id"], name=row["name"], description=row["description"], language=row["language"])
+            for row in rows
+        ]
 
     def delete_chat_theme(self, theme_id: int) -> None:
         """Remove a theme from the ChatZone tab."""

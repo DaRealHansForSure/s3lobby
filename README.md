@@ -282,7 +282,8 @@ s3lobby clan join Romans Alice
 s3lobby clan highlight Romans    # members who show the clan get a green row in the game
 s3lobby news set --audience german --title "Willkommen" --file news-de.txt
 s3lobby news set --audience other --title "Welcome" --file news-en.txt
-s3lobby chat-theme add "General" --description "Talk about anything"
+s3lobby chat-theme add "Tactics" --description "Talk about strategies"
+s3lobby chat-theme add "Schweiz" --language German   # shown to German games only
 s3lobby board add-theme English "Tournaments"
 s3lobby board post 1 --title "Saturday cup" --text "8 pm, 1 vs 1"
 s3lobby setting list

@@ -521,6 +521,21 @@ name and "Description" columns (0x44711d, 0x447186). A player chooses a theme by
 sees the chat groups listed inside. A player opens a chat group with AddGroupToGroup2 under the
 theme, group id 0xffffffff, flags 0x300073, maximum players 0xffffffff (no limit).
 
+The game remembers the theme it was in last, also across logons while it keeps running, and joins
+it again in the same moment it joins the ChatZone (seen in a run: join 2 and join 0x10000 in one
+block, after a new logon). A theme that is gone by then makes that join fail with Result 0xb ("Der
+Wechsel in die Gruppe hat nicht geklappt"). s3lobby therefore always lists General at 0x10000,
+which admins cannot change or remove. The other themes take 0x10000 plus their database id. A new
+database starts with the rooms the game's manual describes (migration 0014): Meeting Room,
+Beginners and one per game language (Deutsch, English, Français, Italiano, Polski, Español; Korean
+has no letters in Windows-1252); admins may remove them.
+
+A theme may be meant for the games of one language. The game names its language only in the
+patch check (CheckFileVersion, third value), which comes on the connection before the logon from
+the same address and port (seen in a run), so the lobby remembers the language per address and
+gives it to the player who logs on from there. A theme of another language is then not listed to
+that player; a player whose patch check the lobby did not see is shown every theme.
+
 With a password it goes differently (CreateChatGroup 0x4542c0 compares the password with the empty
 text at 0x454315): the client joins **group 5**, a group it builds itself with id 5 and empty
 texts (0x454516, switched to at 0x452120), and opens the chat group under group 5 with flags
