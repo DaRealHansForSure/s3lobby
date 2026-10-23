@@ -24,7 +24,8 @@ player's game, and the game's own DirectPlay connection between them.
 
 ## Requirements
 
-- Python 3.10 or newer, nothing else.
+- Python 3.10 or newer, nothing else for the server.
+- Flask 3 for the optional web interface: `pip install .[web]`.
 - An original copy of The Settlers III on every player's machine. s3lobby contains no game files.
 
 ## Running the server
@@ -109,7 +110,44 @@ In the game, players can type `/who`, `/clan` and `/help` into the chat; admins 
 TEXT`. Answers and announcements show as `[Server]` lines. Match reports the game sends after a
 game are stored in the database.
 
-Every command takes `--database` and works while the server runs.
+Every command takes `--database` and works while the server runs. The web interface below does
+the same from a browser.
+
+## Web interface
+
+A small web application on the same database: a live view of the lobby for everyone, and pages for
+admins to manage accounts and access codes, clans, news, chat themes, the message board, settings
+and announcements, and to look through past games and match reports.
+
+```
+pip install .[web]
+export S3LOBBY_WEB_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+s3lobby web --database s3lobby.sqlite3
+```
+
+Then open http://127.0.0.1:8080. The live lobby shows who is online, the open games and chat
+groups and who is in which room, refreshed every few seconds; the running server writes that state
+to the database once a second. Admins log on with their player name and one of their access codes,
+the same pair as in the game; only accounts with admin rights get in. A new access code is shown
+once, right after it is made.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--database` | `s3lobby.sqlite3` | the server's SQLite file |
+| `--host` | `127.0.0.1` | address to listen on |
+| `--port` | 8080 | TCP port |
+| `--secure-cookies` | off | send the session cookie over HTTPS only |
+| `--behind-proxy` | off | take the client address from the reverse proxy's `X-Forwarded-For` |
+
+`S3LOBBY_WEB_SECRET` signs the session cookie; without it admins are logged out whenever the web
+interface restarts. `s3lobby web` uses Flask's own server, which is fine on a LAN. To reach the
+interface from the internet, put it behind a reverse proxy that adds HTTPS, and use both options
+above, or run it under a WSGI server:
+
+```
+S3LOBBY_DATABASE=/srv/lobby.sqlite3 S3LOBBY_WEB_SECRET=... S3LOBBY_WEB_SECURE_COOKIES=1 \
+S3LOBBY_WEB_BEHIND_PROXY=1 gunicorn "s3lobby.web.app:create_app_from_environment()"
+```
 
 ## Pointing the game at the server
 
@@ -177,6 +215,14 @@ original game clients it talks to were written in 1998. So:
 - Access codes are stored as hashes only. The `--verbose` log removes access codes and chat group
   passwords before it writes a message. The database file is readable by its owner only.
 
+- Texts stored for the game (news, themes, board messages, announcements, settings) are checked
+  when they are stored, from the command line and the web interface alike: only characters the
+  game's code page has, within the lengths the lobby passes on.
+- The web interface: every form carries a per-session token against cross-site requests; pages
+  send a strict Content-Security-Policy and load nothing from elsewhere; names from game clients
+  are escaped. A session ends at the next click when its access code is revoked or its account
+  loses admin rights or is banned. Failed web logons are limited like those from the game.
+
 All limits are constants in `s3lobby/constants.py`, each with the reason for its value.
 
 ## How it works
@@ -196,7 +242,10 @@ The code follows the same layers:
 | `s3lobby/guards.py` | rate limits and a throttled log against flooding senders |
 | `s3lobby/lobby.py` | players, rooms, zones and games, and the answer to every request |
 | `s3lobby/server.py` | the UDP socket and one connection per client |
-| `s3lobby/cli.py` | the command line |
+| `s3lobby/database.py` | the SQLite file: accounts, clans, lobby content, statistics, settings |
+| `s3lobby/live.py` | the running lobby as the server writes it for the web interface |
+| `s3lobby/cli.py`, `s3lobby/admin.py` | the command line |
+| `s3lobby/web/` | the web interface (Flask) |
 
 ## Development
 
@@ -204,6 +253,15 @@ Run the tests from this folder:
 
 ```
 python3 -m unittest
+```
+
+The web interface's tests are skipped where Flask is not installed; run them in a virtual
+environment with the web extra:
+
+```
+python3 -m venv .venv
+.venv/bin/pip install flask
+.venv/bin/python -m unittest
 ```
 
 The session tests start a real server on a free port and play the game's side with fake clients

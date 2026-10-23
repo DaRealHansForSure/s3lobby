@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% set active_nav = "accounts" %}
+{% block title %}Access code for {{ account.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Access code for {{ account.name }}</h1>
+    <p>Give the player this code together with the name. In the game's logon dialog the name goes
+    into the name field and the code into the password field. Case does not matter.</p>
+  </div>
+  <div class="card stack">
+    <div><span class="muted">Player name</span><div class="access-code">{{ account.name }}</div></div>
+    <div><span class="muted">Access code</span><div class="access-code">{{ access_code }}</div></div>
+  </div>
+  <div class="note note--warn" role="note">
+    <strong>Shown only now</strong>
+    The server keeps nothing but a hash of the code. If it gets lost, issue a new one and revoke
+    the old one.
+  </div>
+  <div class="form-actions">
+    <a class="btn btn--primary" href="{{ url_for('accounts.show_account', account_id=account.account_id) }}">Done</a>
+  </div>
+</section>
+{% endblock %}

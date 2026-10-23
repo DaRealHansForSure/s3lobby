@@ -1,0 +1,206 @@
+/* base.css - beni-ui-kit
+   Global reset and layout primitives. This REWRITES margins on body,
+   headings and paragraphs and sets box-sizing on every element, so it
+   will re-baseline the spacing of an existing project. New pages: take
+   it. Existing codebase: leave it out and keep the project's own reset.
+*/
+
+/* ---------------------------------------------------------------
+   2. Base
+--------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Components set display, which would otherwise beat the UA rule for
+   [hidden]. Without this, markup that ships hidden renders anyway. */
+[hidden] { display: none !important; }
+
+:root {
+  /* keep content clear of phone system bars */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html {
+  /* rem units all derive from here, so --zoom scales type, spacing and
+     widths together. Borders stay at 1 device pixel, and the safe-area
+     insets below are in px, so neither gets shrunk with it. */
+  font-size: calc(100% * var(--zoom));
+  scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 5rem);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--size-md);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  margin: 0;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+h1 { font-size: var(--size-3xl); letter-spacing: -0.032em; }
+h2 { font-size: var(--size-xl); }
+h3 { font-size: var(--size-lg); font-weight: 600; letter-spacing: -0.01em; }
+
+p { margin: 0 0 var(--space-4); max-width: var(--measure); }
+p:last-child { margin-bottom: 0; }
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+a:hover { color: var(--accent-hover); }
+
+code, kbd, samp {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+}
+
+img, svg, video { max-width: 100%; height: auto; }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--space-6) 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 0;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.muted { color: var(--text-muted); }
+.lead { font-size: var(--size-lg); color: var(--text-muted); }
+.stack > * + * { margin-top: var(--space-4); }
+.row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+/* overflow-x alone is not enough: when one axis is not `visible` the
+   other computes from `visible` to `auto`, so a horizontal scroller
+   quietly becomes a vertical one too and shows a bar for a stray pixel. */
+.scroll-x { overflow-x: auto; overflow-y: hidden; }
+
+/* ---------------------------------------------------------------
+   3. Layout
+--------------------------------------------------------------- */
+
+.wrap {
+  width: 100%;
+  max-width: 62rem;
+  margin: 0 auto;
+  padding-inline: var(--space-5);
+}
+
+/* Twelve columns. Reach for this before floats, absolute positioning or
+   a stack of nested flex containers. Spans go full width on small
+   screens unless a col-sm span says otherwise. */
+.grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.col-1  { grid-column: span 1; }
+.col-2  { grid-column: span 2; }
+.col-3  { grid-column: span 3; }
+.col-4  { grid-column: span 4; }
+.col-5  { grid-column: span 5; }
+.col-6  { grid-column: span 6; }
+.col-7  { grid-column: span 7; }
+.col-8  { grid-column: span 8; }
+.col-9  { grid-column: span 9; }
+.col-10 { grid-column: span 10; }
+.col-11 { grid-column: span 11; }
+.col-12 { grid-column: span 12; }
+
+/* Equal cards that should reflow on their own, no span bookkeeping. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-4);
+}
+
+.site-header {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 20;
+  background: color-mix(in srgb, var(--canvas) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 3.75rem;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--size-sm);
+}
+.site-nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.site-nav a:hover { color: var(--text); }
+
+section {
+  padding-block: var(--space-7);
+  border-top: 1px solid var(--border);
+}
+section:first-of-type { border-top: 0; }
+
+.section-head { margin-bottom: var(--space-5); }
+.section-head p { margin-top: var(--space-2); margin-bottom: 0; color: var(--text-muted); }
+
+.site-footer {
+  border-top: 1px solid var(--border);
+  padding-block: var(--space-5);
+  font-size: var(--size-sm);
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------
+   14. Breakpoints
+--------------------------------------------------------------- */
+
+/* Phones and small tablets. The whole interface steps down to 80
+   percent so more fits on screen, and grid spans stop applying. */
+@media (max-width: 48rem) {
+  :root { --zoom: 0.8; }
+
+  [class*="col-"] { grid-column: 1 / -1; }
+  .col-sm-6 { grid-column: span 6; }
+  .col-sm-4 { grid-column: span 4; }
+  .col-sm-3 { grid-column: span 3; }
+}
+
+@media (max-width: 34rem) {
+  :root { --size-3xl: 2rem; }
+  .site-nav { display: none; }
+}

@@ -1,0 +1,124 @@
+{# The live part of the lobby page. Rendered on its own for app.js to swap in every few seconds. #}
+{% from "_macros.html" import names with context %}
+<section>
+  <div class="section-head">
+    <h1>{{ page.server_name or "Lobby" }}</h1>
+    {% if page.is_running %}
+      <p><span class="badge badge--good">Running</span> Updated {{ page.written_at | relative_moment }}.</p>
+    {% elif page.written_at %}
+      <p><span class="badge badge--bad">Not responding</span> The server last wrote its lobby
+      {{ page.written_at | relative_moment }}.</p>
+    {% else %}
+      <p><span class="badge">Stopped</span> The lobby server is not running.</p>
+    {% endif %}
+  </div>
+
+  <div class="grid">
+    <div class="card"><h3>Players online</h3><div class="stat-number">{{ page.players | length }}</div></div>
+    <div class="card"><h3>Open games</h3><div class="stat-number">{{ page.games | length }}</div></div>
+    <div class="card"><h3>Chat groups</h3><div class="stat-number">{{ page.chat_groups | length }}</div></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Players</h2></div>
+  {% if page.players %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Name</th><th>Clan</th><th>Tab</th><th>In game or chat</th><th>Online since</th>
+          {% if admin %}<th>Address</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for player in page.players %}
+        <tr>
+          <td>{{ player.name }}{% if player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
+          <td>{{ player.clan or "-" }}</td>
+          <td>{{ names(player.tab_names) }}</td>
+          <td>{{ names(player.group_names) }}</td>
+          <td>{{ player.logged_on_at | relative_moment }}</td>
+          {% if admin %}<td class="num">{{ player.address }}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Nobody is online.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head"><h2>Games</h2></div>
+  {% if page.games %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Game</th><th>Players</th><th class="num">Count</th><th>Zones</th><th>State</th></tr></thead>
+      <tbody>
+        {% for game in page.games %}
+        <tr>
+          <td>{{ game.name }}</td>
+          <td>{{ names(game.member_names) }}</td>
+          <td class="num">{{ game.player_count_text }}</td>
+          <td>{{ names(game.zone_names) }}</td>
+          <td>
+            <div class="badges">
+              {% if game.has_started %}<span class="badge badge--accent">playing</span>{% else %}<span class="badge badge--good">open</span>{% endif %}
+              {% if game.is_full %}<span class="badge badge--warn">full</span>{% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No game is open.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head"><h2>Chat groups</h2></div>
+  {% if page.chat_groups %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Chat group</th><th>Theme</th><th>Members</th><th>Access</th></tr></thead>
+      <tbody>
+        {% for chat_group in page.chat_groups %}
+        <tr>
+          <td>{{ chat_group.name }}</td>
+          <td>{{ names(chat_group.theme_names) }}</td>
+          <td>{{ names(chat_group.member_names) }}</td>
+          <td>{% if chat_group.has_password %}<span class="badge badge--warn">password</span>{% else %}<span class="badge">open</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No chat group is open.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Rooms</h2>
+    <p>Lobby tabs, game zones and themes with someone in them.</p>
+  </div>
+  {% if page.rooms %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Room</th><th>Players</th></tr></thead>
+      <tbody>
+        {% for room in page.rooms %}
+        <tr><td>{{ room.name }}</td><td>{{ names(room.member_names) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">All rooms are empty.</p>
+  {% endif %}
+</section>

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% set active_nav = "announcements" %}
+{% block title %}Announcements{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Announcements</h1>
+    <p>A line for every player in the lobby, shown in the chat as [Server].</p>
+  </div>
+  {% if not is_server_running %}
+  <div class="note note--warn" role="note">
+    The lobby server is not running. An announcement waits until it starts.
+  </div>
+  {% endif %}
+  <form method="post" action="{{ url_for('server_settings.queue_announcement') }}">
+    {{ csrf_field() }}
+    <label class="field">
+      <span class="label">Text</span>
+      <input class="input" type="text" name="text" maxlength="{{ max_announcement_length }}" required>
+    </label>
+    <button class="btn btn--primary" type="submit">Announce</button>
+  </form>
+</section>
+
+<section>
+  <div class="section-head"><h2>Recent</h2></div>
+  {% if announcements %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Text</th><th>Written</th><th>Sent</th></tr></thead>
+      <tbody>
+        {% for announcement in announcements %}
+        <tr>
+          <td>{{ announcement.text }}</td>
+          <td>{{ announcement.created_at | moment }}</td>
+          <td>{% if announcement.sent_at %}{{ announcement.sent_at | moment }}{% else %}<span class="badge badge--warn">waiting</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No announcements yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
