@@ -25,7 +25,8 @@ another project; its history was carried over, so the early commits describe tha
 - `s3lobby/migrations.py` and `s3lobby/schema/<dialect>/NNNN_name.sql`: the schema as numbered
   migration files, recorded with checksums in the table `schema_migrations`. A schema change adds
   the next number to every dialect folder (same number, same meaning); released files are never
-  edited. Old SQLite files that only had PRAGMA user_version are adopted.
+  edited, and neither is a file the owner's own database has applied already (check `s3lobby
+  database status`): its checksum guard would refuse to start the server. Old SQLite files that only had PRAGMA user_version are adopted.
 - `s3lobby/server.py`, `s3lobby/cli.py`, `s3lobby/admin.py`: asyncio UDP server, command line,
   administration subcommands.
 - `s3lobby/addresses.py`: the address each client is shown for another (loopback and LAN players

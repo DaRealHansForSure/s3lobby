@@ -423,6 +423,17 @@ def add_ladder_commands(commands: argparse._SubParsersAction, database_option: a
     results.add_argument("--limit", type=int, help="show at most this many")
     results.set_defaults(admin_function=ladder_admin.show_results)
 
+    statistics = actions.add_parser(
+        "stats", parents=[database_option, output_option, season_option], help="races and maps of a season"
+    )
+    statistics.add_argument(
+        "--of",
+        choices=ladder_admin.STATISTICS_KINDS,
+        default=ladder_admin.RACES_STATISTICS,
+        help="what text and CSV show (JSON holds both; default: %(default)s)",
+    )
+    statistics.set_defaults(admin_function=ladder_admin.show_statistics)
+
     show = actions.add_parser("show", parents=[database_option], help="what the ladder made of one game")
     show.add_argument("game_id", type=int, help="the game's number, as on the Games page")
     show.set_defaults(admin_function=ladder_admin.show_game_result)

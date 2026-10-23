@@ -88,6 +88,8 @@ STORED_LADDER_STATES = frozenset({LadderState.COUNTED, LadderState.DISPUTED, Lad
 # Lengths of the ladder's columns that hold text the server writes (VARCHAR in MySQL).
 MAX_LADDER_REASON_LENGTH = 255
 MAX_LADDER_EVENT_KEY_LENGTH = 191
+# The longest map name a ladder result keeps (VARCHAR(255) in MySQL); the game's are far shorter.
+MAX_MAP_NAME_LENGTH = 255
 
 # The game's own rule for player names (refusal text 0x9009e): letters A to Z in either case, and
 # single spaces between words.
@@ -1575,7 +1577,7 @@ class LobbyDatabase:
             self._backend.execute("DELETE FROM ladder_results WHERE game_id = ?", (evaluation.game_id,))
             result = self._backend.execute(
                 "INSERT INTO ladder_results (game_id, ladder_type, state, reason, winning_team, game_ticks, "
-                "played_at, decided_at, decided_by_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "played_at, decided_at, decided_by_account_id, map_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     evaluation.game_id,
                     evaluation.ladder_type,
@@ -1586,6 +1588,7 @@ class LobbyDatabase:
                     to_stored_time(played_at),
                     to_stored_time(self._clock()),
                     decided_by_account_id,
+                    evaluation.map_name[:MAX_MAP_NAME_LENGTH],
                 ),
             )
             for player in evaluation.players:
@@ -1607,7 +1610,8 @@ class LobbyDatabase:
     LADDER_RESULT_COLUMNS = (
         "SELECT ladder_results.id, ladder_results.game_id, ladder_results.ladder_type, ladder_results.state, "
         "ladder_results.reason, ladder_results.winning_team, ladder_results.game_ticks, ladder_results.played_at, "
-        "ladder_results.decided_at, games.name AS game_name, accounts.name AS decided_by_name "
+        "ladder_results.decided_at, ladder_results.map_name, games.name AS game_name, "
+        "accounts.name AS decided_by_name "
         "FROM ladder_results JOIN games ON games.id = ladder_results.game_id "
         "LEFT JOIN accounts ON accounts.id = ladder_results.decided_by_account_id "
     )
@@ -1671,6 +1675,7 @@ class LobbyDatabase:
                     game_ticks=row["game_ticks"],
                     played_at=from_stored_time(row["played_at"]),
                     players=tuple(players_by_result.get(row["id"], [])),
+                    map_name=row["map_name"],
                 ),
                 game_name=row["game_name"],
                 decided_at=from_stored_time(row["decided_at"]),

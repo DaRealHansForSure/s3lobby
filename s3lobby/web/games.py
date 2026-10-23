@@ -19,11 +19,11 @@ from flask import Blueprint, Response, abort, render_template
 
 from s3lobby.constants import (
     GAME_TICK_MS,
+    RACE_NAMES,
     GameStatusFlag,
     LadderType,
     MatchPlayerFlag,
     MessageType,
-    Race,
 )
 from s3lobby.database import GameRecord, GameReportRecord, LobbyDatabase
 from s3lobby.groups import game_description_of, game_settings_of, ladder_type_of
@@ -42,12 +42,6 @@ blueprint.before_request(redirect_visitors_to_logon)
 ACCOUNT_GAME_COUNT = 50
 RECENT_REPORT_COUNT = 100
 REPORT_CONTENT_TYPE = "application/octet-stream"
-RACE_NAMES = {
-    Race.ROMANS: "Romans",
-    Race.EGYPTIANS: "Egyptians",
-    Race.ASIANS: "Asians",
-    Race.AMAZONS: "Amazons",
-}
 # The host's choice in the game setup, as the game list names it (0x44b843, 0x44b97a).
 # The game type in a table, where the long names would wrap every row.
 SHORT_LADDER_TYPE_NAMES = {LadderType.NONE: "Normal", LadderType.INDIVIDUAL: "Liga", LadderType.CLANS: "Clanliga"}

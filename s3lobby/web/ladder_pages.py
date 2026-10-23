@@ -13,15 +13,26 @@ from datetime import datetime, timedelta
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from werkzeug.wrappers import Response
 
-from s3lobby.constants import LADDER_TOP_COUNT, MAX_GROUP_TEXT_LENGTH, LadderState, LadderType, SeasonCounts
+from s3lobby.constants import (
+    LADDER_TOP_COUNT,
+    MAX_GROUP_TEXT_LENGTH,
+    RACE_NAMES,
+    LadderState,
+    LadderType,
+    SeasonCounts,
+)
 from s3lobby.database import Account, Clan, DatabaseError, LobbyDatabase, Setting
 from s3lobby.ladder import (
     FORM_LEFT,
     FORM_LOST,
     FORM_WON,
     INFINITE_SEASON,
+    MapStatistic,
+    RaceStatistic,
     Rating,
     Season,
+    map_statistics,
+    race_statistics,
     recent_form,
 )
 from s3lobby.ladder_book import (
@@ -37,6 +48,7 @@ from s3lobby.ladder_book import (
 )
 from s3lobby.web.accounts import account_row_colour
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
+from s3lobby.web.lobby_view import map_text
 from s3lobby.web.paging import pagination_from_request
 from s3lobby.web.storage import get_database, sentence_from_error
 from s3lobby.web.texts import form_text
@@ -48,8 +60,9 @@ admin_blueprint.before_request(redirect_visitors_to_logon)
 
 # The tabs of the public page: players in Liga, clans in Clanliga, clans' strength from Liga.
 CLANS_VIEW = "clans"
-VIEWS = (LIGA, CLANLIGA, CLANS_VIEW)
-VIEW_LABELS = {LIGA: "Liga", CLANLIGA: "Clanliga", CLANS_VIEW: "Clan strength"}
+STATISTICS_VIEW = "statistics"
+VIEWS = (LIGA, CLANLIGA, CLANS_VIEW, STATISTICS_VIEW)
+VIEW_LABELS = {LIGA: "Liga", CLANLIGA: "Clanliga", CLANS_VIEW: "Clan strength", STATISTICS_VIEW: "Races and maps"}
 RECENT_RESULT_COUNT = 10
 # The admins' state tabs; "waiting" are games without a result yet.
 WAITING_TAB = "waiting"
@@ -96,6 +109,26 @@ class StandingView:
     colour: str
     form: tuple[FormMark, ...]
     win_rate: int
+
+
+@dataclass(frozen=True)
+class RaceRow:
+    """A race in the statistics: its name, how often it was played and won, the win rate."""
+
+    name: str
+    played: int
+    won: int
+    win_rate: int
+
+
+@dataclass(frozen=True)
+class MapRow:
+    """A map in the statistics: its name as the page shows it, how often it was played, and the
+    average match in whole minutes."""
+
+    name: str
+    played: int
+    average_minutes: int
 
 
 @dataclass(frozen=True)
@@ -147,9 +180,14 @@ def show_ladder() -> str:
 
     standings: list[StandingView] = []
     strength_rows: list[ClanStrengthRow] = []
+    race_rows: list[RaceRow] = []
+    map_rows: list[MapRow] = []
     chart = None
     if view == CLANS_VIEW:
         strength_rows = book.clan_strength_rows()
+    elif view == STATISTICS_VIEW:
+        race_rows = [race_row(statistic) for statistic in race_statistics(evaluations, season)]
+        map_rows = [map_row(statistic) for statistic in map_statistics(evaluations, season)]
     else:
         ladder_type = ladder_type_of_view(view)
         colours = name_colours(database, view)
@@ -176,6 +214,8 @@ def show_ladder() -> str:
         standings=shown,
         ranked_count=len(standings),
         strength_rows=strength_rows,
+        race_rows=race_rows,
+        map_rows=map_rows,
         chart=chart,
         recent=recent,
         counted_count=counted_count,
@@ -396,6 +436,19 @@ def name_colours(database: LobbyDatabase, view: str) -> dict[int, str]:
         account.account_id: account_row_colour(account, clan_of_account.get(account.account_id), marks_admins)
         for account in database.list_accounts()
     }
+
+
+def race_row(statistic: RaceStatistic) -> RaceRow:
+    """A race statistic as the page shows it."""
+    win_rate = round(PERCENT * statistic.won / statistic.played) if statistic.played else 0
+    name = RACE_NAMES.get(statistic.race, f"race {statistic.race}")
+    return RaceRow(name, statistic.played, statistic.won, win_rate)
+
+
+def map_row(statistic: MapStatistic) -> MapRow:
+    """A map statistic as the page shows it; a match without a map name shows as unknown."""
+    name = map_text(statistic.map_name) if statistic.map_name else "(unknown map)"
+    return MapRow(name, statistic.played, round(statistic.average_minutes))
 
 
 def form_marks(form: str) -> tuple[FormMark, ...]:

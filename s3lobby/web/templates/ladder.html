@@ -68,6 +68,48 @@
   <p class="empty-state">No clans yet.</p>
   {% endif %}
 </section>
+{% elif view == "statistics" %}
+<section>
+  <div class="section-head"><h2>Races</h2>
+  <p>How often each race was played in the season's counted Liga matches, and how often it won.</p></div>
+  {% if race_rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Race</th><th class="num">Played</th><th class="num">Won</th><th>Win rate</th></tr></thead>
+      <tbody>
+        {% for row in race_rows %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td class="num">{{ row.played }}</td>
+          <td class="num">{{ row.won }}</td>
+          <td><div class="cell-bar">{{ share_bar(row.win_rate) }}<span class="num">{{ row.win_rate }} %</span></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No counted Liga match yet.</p>
+  {% endif %}
+</section>
+<section>
+  <div class="section-head"><h2>Maps</h2>
+  <p>The maps of the season's counted matches, Liga and Clanliga, and how long a match took there.</p></div>
+  {% if map_rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Map</th><th class="num">Played</th><th class="num">Average match</th></tr></thead>
+      <tbody>
+        {% for row in map_rows %}
+        <tr><td>{{ row.name }}</td><td class="num">{{ row.played }}</td><td class="num">{{ row.average_minutes }} min</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No counted match yet.</p>
+  {% endif %}
+</section>
 {% else %}
 
 {% if podium %}

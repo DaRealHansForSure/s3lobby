@@ -19,9 +19,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from s3lobby.admin import AdminError, require_account
-from s3lobby.constants import LADDER_JSON_FORMAT, LadderState, SeasonCounts
+from s3lobby.constants import LADDER_JSON_FORMAT, RACE_NAMES, LadderState, SeasonCounts
 from s3lobby.database import STORED_LADDER_STATES, LobbyDatabase
-from s3lobby.ladder import Season
+from s3lobby.ladder import Season, map_statistics, race_statistics
 from s3lobby.ladder_book import (
     CLANLIGA,
     LIGA,
@@ -40,6 +40,11 @@ OUTPUT_FORMATS = (TEXT_FORMAT, JSON_FORMAT, CSV_FORMAT)
 # What `ladder standings --ladder` can show: players' Liga, clans' Clanliga, clans' strength from Liga.
 CLANS_VIEW = "clans"
 STANDINGS_VIEWS = (LIGA, CLANLIGA, CLANS_VIEW)
+# What `ladder stats --of` prints as text or CSV; JSON always holds both.
+RACES_STATISTICS = "races"
+MAPS_STATISTICS = "maps"
+STATISTICS_KINDS = (RACES_STATISTICS, MAPS_STATISTICS)
+PERCENT = 100
 # The states `ladder results --state` can filter on, in a fixed order for the help text.
 STORED_STATES = sorted(STORED_LADDER_STATES, key=lambda state: state.value)
 
@@ -67,6 +72,41 @@ def show_results(database: LobbyDatabase, options: argparse.Namespace) -> None:
     rows = [result_dict(row) for row in book.result_rows(season, states, options.limit)]
     columns = ("game_id", "played_at", "ladder", "state", "winners", "losers", "minutes", "reason")
     print_rows(options.format, rows, columns, season, "", "results")
+
+
+def show_statistics(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Print how often each race was played and won in a season's Liga, and how often each map was
+    played and how long its matches took. JSON holds both lists; text and CSV print the one --of
+    names."""
+    book = LadderBook(database)
+    season = find_season(book, options.season)
+    evaluations = [record.evaluation for record in book.results()]
+    races = [
+        {
+            "race": RACE_NAMES.get(statistic.race, str(statistic.race)),
+            "played": statistic.played,
+            "won": statistic.won,
+            "win_rate": round(PERCENT * statistic.won / statistic.played) if statistic.played else 0,
+        }
+        for statistic in race_statistics(evaluations, season)
+    ]
+    maps = [
+        {"map": statistic.map_name, "played": statistic.played, "average_minutes": round(statistic.average_minutes, 1)}
+        for statistic in map_statistics(evaluations, season)
+    ]
+    if options.format == JSON_FORMAT:
+        document = {
+            "format": LADDER_JSON_FORMAT,
+            "season": {"name": season.name, "starts_at": season.starts_at, "ends_at": season.ends_at},
+            "races": races,
+            "maps": maps,
+        }
+        print(json.dumps(document, default=json_value, indent=2, ensure_ascii=False))
+        return
+    if options.of == MAPS_STATISTICS:
+        print_rows(options.format, maps, ("map", "played", "average_minutes"), season, "", "maps")
+        return
+    print_rows(options.format, races, ("race", "played", "won", "win_rate"), season, "", "races")
 
 
 def show_game_result(database: LobbyDatabase, options: argparse.Namespace) -> None:

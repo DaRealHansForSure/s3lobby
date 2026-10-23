@@ -254,6 +254,10 @@ class Race(IntEnum):
     AMAZONS = 3
 
 
+# The races as the game setup names them (see Race).
+RACE_NAMES = {Race.ROMANS: "Romans", Race.EGYPTIANS: "Egyptians", Race.ASIANS: "Asians", Race.AMAZONS: "Amazons"}
+
+
 class LogonFlag(IntFlag):
     """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from s3lobby.constants import (
@@ -30,6 +31,8 @@ from s3lobby.ladder import (
     evaluate_game,
     exceeds_pair_limit,
     expected_score,
+    map_statistics,
+    race_statistics,
     recent_form,
     report_can_count,
     standings,
@@ -218,6 +221,26 @@ class ReportAnswerTest(unittest.TestCase):
         for bad_report in bad_reports:
             with self.subTest(report=bad_report):
                 self.assertFalse(report_can_count(bad_report.status))
+
+class StatisticsTest(unittest.TestCase):
+    """Races and maps of the counted Liga results."""
+
+    def test_races_count_plays_and_wins(self) -> None:
+        """Both slots of a match count a play for their race; the winner's race a win."""
+        result = replace(counted(1, ALICE, BOB, 1), map_name="Elbe")
+        players = (replace(result.players[0], race=3), replace(result.players[1], race=0))
+        statistics = race_statistics([replace(result, players=players)])
+        self.assertEqual([(s.race, s.played, s.won) for s in statistics], [(0, 1, 0), (3, 1, 1)])
+        own = race_statistics([replace(result, players=players)], account_id=ALICE)
+        self.assertEqual([(s.race, s.played, s.won) for s in own], [(3, 1, 1)])
+
+    def test_maps_count_matches_and_their_length(self) -> None:
+        """Each counted match counts once for its map, with the average length on the game's clock."""
+        first = replace(counted(1, ALICE, BOB, 1), map_name="Elbe", game_ticks=ticks(20))
+        second = replace(counted(2, BOB, ALICE, 2), map_name="Elbe", game_ticks=ticks(40))
+        [elbe] = map_statistics([first, second])
+        self.assertEqual((elbe.map_name, elbe.played), ("Elbe", 2))
+        self.assertAlmostEqual(elbe.average_minutes, 30, places=0)
 
 class EvaluateClanligaTest(unittest.TestCase):
     """Clanliga: one clan per team, two clans, members long enough."""

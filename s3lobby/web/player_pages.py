@@ -12,15 +12,17 @@ from dataclasses import dataclass
 from flask import Blueprint, abort, render_template
 
 from s3lobby.constants import LadderType
-from s3lobby.ladder import INFINITE_SEASON, Rating, Season, recent_form
+from s3lobby.ladder import INFINITE_SEASON, Rating, Season, race_statistics, recent_form
 from s3lobby.ladder_book import LIGA, LadderBook, StandingRow
 from s3lobby.web.games import AccountGameRow, games_of_account
 from s3lobby.web.ladder_pages import (
     FormMark,
+    RaceRow,
     RatingChart,
     StandingView,
     form_marks,
     name_colours,
+    race_row,
     rating_chart,
     win_rate,
 )
@@ -53,6 +55,7 @@ class PlayerPage:
     season_places: tuple[SeasonPlace, ...]
     clanliga_record: Rating | None
     games: tuple[AccountGameRow, ...]
+    races: tuple[RaceRow, ...] = ()
 
 
 @blueprint.get("/players/<name>")
@@ -95,5 +98,6 @@ def show_player(name: str) -> str:
         season_places=tuple(season_places),
         clanliga_record=book.ratings().clanliga_players.get(account.account_id),
         games=tuple(games_of_account(account.account_id)),
+        races=tuple(race_row(statistic) for statistic in race_statistics(evaluations, account_id=account.account_id)),
     )
     return render_template("player.html", page=page)
