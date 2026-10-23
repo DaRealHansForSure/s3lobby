@@ -21,6 +21,9 @@ blueprint = Blueprint("lobby_view", __name__)
 
 # A maximum player count of 0 or UNLIMITED_PLAYERS means the group takes any number of players.
 NO_PLAYER_LIMITS = frozenset({0, UNLIMITED_PLAYERS})
+# A game description names a random map with a backslash in front of the random map's name
+# (0x4616da..0x461796).
+RANDOM_MAP_PREFIX = "\\"
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,9 @@ class GameRow:
     zone_names: list[str]
     is_full: bool
     has_started: bool
+    map_text: str
+    team_count: int
+    is_ladder_game: bool
 
 
 @dataclass(frozen=True)
@@ -157,6 +163,9 @@ def describe_game(game: LiveGroup, names_by_id: dict[int, str]) -> GameRow:
         zone_names=listed_in_names(game, names_by_id),
         is_full=game.is_full,
         has_started=not game.listed_in_ids,
+        map_text=map_text(game.map_name),
+        team_count=game.team_count,
+        is_ladder_game=game.is_ladder_game,
     )
 
 
@@ -171,6 +180,13 @@ def describe_chat_group(chat_group: LiveGroup, names_by_id: dict[int, str]) -> C
 
 def listed_in_names(group: LiveGroup, names_by_id: dict[int, str]) -> list[str]:
     return [names_by_id[parent_id] for parent_id in group.listed_in_ids if parent_id in names_by_id]
+
+
+def map_text(map_name: str) -> str:
+    """The map as the page shows it: "Random (random map)" for a random map."""
+    if map_name.startswith(RANDOM_MAP_PREFIX):
+        return f"{map_name[len(RANDOM_MAP_PREFIX):]} (random map)"
+    return map_name
 
 
 def player_count_text(group: LiveGroup) -> str:

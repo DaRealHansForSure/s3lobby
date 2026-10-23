@@ -6,7 +6,7 @@ import unittest
 from dataclasses import dataclass
 
 from s3lobby.commands import MAX_ANSWER_LINE_LENGTH, MAX_ANSWER_LINES, ChatCommands, fit_answer, split_command
-from s3lobby.constants import ANNOUNCEMENT_GROUP_ID, MessageType, ResultCode
+from s3lobby.constants import ANNOUNCEMENT_GROUP_ID, GameStatusFlag, MessageType, ResultCode
 from s3lobby.database import LobbyDatabase, Setting
 from s3lobby.messages import ChatCommand, ChatCommandAnswer, GameStatus, Result
 from tests.support import LobbyTestCase, log_on
@@ -93,6 +93,17 @@ class ServerLinesTest(LobbyTestCase):
         alice, _ = self.player_in_room("Alice", 17, GAME_ZONE)
         alice.send(GameStatus(group_id=0x100000, flags=0, winning_team=0, game_time=40_000, map_name="Elbe"))
         self.assertEqual(Result.decode(alice.receive_next(MessageType.RESULT)).code, ResultCode.GAME_STATUS_STORED)
+        self.assertEqual(self.database.count_game_reports(), 1)
+
+    def test_ladder_report_is_stored_but_not_taken_for_a_ranked_result(self) -> None:
+        """This server keeps no ladder. Confirming a ladder report as stored (0x6c) would let the
+        game tell its players the result counts; 0x6a shows "Game not valid for ladder." instead."""
+        alice, _ = self.player_in_room("Alice", 17, GAME_ZONE)
+        report = GameStatus(
+            group_id=0x100000, flags=GameStatusFlag.LADDER_GAME, winning_team=0, game_time=40_000, map_name="Elbe"
+        )
+        alice.send(report)
+        self.assertEqual(Result.decode(alice.receive_next(MessageType.RESULT)).code, ResultCode.GAME_NOT_VALID_FOR_LADDER)
         self.assertEqual(self.database.count_game_reports(), 1)
 
 

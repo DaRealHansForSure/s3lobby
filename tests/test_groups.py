@@ -9,24 +9,30 @@ from __future__ import annotations
 
 import unittest
 
+from s3lobby.commands import fit_answer
 from s3lobby.constants import (
+    ANNOUNCEMENT_GROUP_ID,
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
     FIRST_GAME_GROUP_ID,
     GAME_BLOCK_SIZE_BY_MESSAGE_TYPE,
     GROUP_COUNTERS_FULL,
     JOINED_GROUP_PARENT_ID,
+    LADDER_NOT_SUPPORTED_TEXT,
     MAX_GROUP_TEXT_LENGTH,
     SERVER_ASSIGNS_GROUP_ID,
     UNLIMITED_PLAYERS,
     GroupFlag,
     GroupUpdateMask,
+    LadderType,
     MessageType,
     ResultCode,
 )
 from s3lobby.messages import (
     AddPlayerToGroup,
+    ChatCommandAnswer,
     GameBlock,
+    GameDescription,
     GroupAnnouncement,
     GroupCounters,
     GroupUpdate,
@@ -69,19 +75,36 @@ def open_chat_group(client: FakeGameClient, parent_id: int, name: str, password:
     )
 
 
-def game_update(group_id: int, update_mask: int, name: str = "", max_players: int = 0) -> GroupUpdate:
+def game_update(
+    group_id: int,
+    update_mask: int,
+    name: str = "",
+    max_players: int = 0,
+    description: GameDescription | None = None,
+) -> GroupUpdate:
+    """An UpdateGroup from a host; with a description, as the game sends it when the setup changes."""
+    flags = GroupFlag.HAS_GAME_BLOCK
+    description_bytes = b""
+    if description is not None:
+        flags |= GroupFlag.HAS_DESCRIPTION
+        description_bytes = description.encode()
     return GroupUpdate(
         message_type=MessageType.UPDATE_GROUP_2,
         group_id=group_id,
         update_mask=update_mask,
-        flags=GroupFlag.HAS_GAME_BLOCK,
+        flags=flags,
         max_players=max_players,
         name=name,
         second_text="",
         third_text="",
         game_block=GameBlock(UNKNOWN_HOST_ADDRESS, bytes(GAME_BLOCK_REMAINDER_SIZE)),
-        description=b"",
+        description=description_bytes,
     )
+
+
+def game_description(is_ladder_game: bool) -> GameDescription:
+    """A two-team game on a random map, as seen in a run."""
+    return GameDescription(team_count=2, computer_opponent_count=0, is_ladder_game=is_ladder_game, map_name="\\Random")
 
 
 class GameTest(LobbyTestCase):
@@ -156,6 +179,57 @@ class GameTest(LobbyTestCase):
 
     def test_game_counts_in_the_statistics_while_it_is_open(self) -> None:
         self.assertEqual(self.database.collect_statistics().games_open, 1)
+
+
+class LadderGameTest(LobbyTestCase):
+    """Blue Byte's server ranked ladder games ("Liga", "Clanliga"); this one keeps no ladder. The
+    game itself says nothing about that before the match, so without the server line its players
+    would play a ladder game believing it counts."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.alice, self.alice_id = self.player_in_room("Alice", 17, GAME_ZONE_ID)
+        self.bob, self.bob_id = self.player_in_room("Bob", 42, GAME_ZONE_ID)
+        self.notice = fit_answer([LADDER_NOT_SUPPORTED_TEXT])
+
+    def receive_notice(self, client: FakeGameClient) -> ChatCommandAnswer:
+        return ChatCommandAnswer.decode(client.receive_next(MessageType.CHAT_COMMAND_ANSWER))
+
+    def test_host_of_a_ladder_game_is_told_once(self) -> None:
+        open_game(self.alice, GAME_ZONE_ID, ladder_type=LadderType.INDIVIDUAL)
+        notice = self.receive_notice(self.alice)
+        self.assertEqual((notice.group_id, notice.lines), (ANNOUNCEMENT_GROUP_ID, self.notice))
+        self.alice.send(game_update(FIRST_GAME_GROUP_ID, GroupUpdateMask.MAX_PLAYERS, max_players=4))
+        self.alice.assert_nothing_arrives(MessageType.CHAT_COMMAND_ANSWER)
+
+    def test_joiner_of_a_ladder_game_is_told(self) -> None:
+        open_game(self.alice, GAME_ZONE_ID, ladder_type=LadderType.CLANS)
+        self.bob.send(AddPlayerToGroup(FIRST_GAME_GROUP_ID, self.bob_id, ("0.0.0.0", 0), ""))
+        self.assertEqual(self.receive_notice(self.bob).lines, self.notice)
+
+    def test_normal_game_brings_no_notice(self) -> None:
+        open_game(self.alice, GAME_ZONE_ID, description=game_description(is_ladder_game=False))
+        self.bob.send(AddPlayerToGroup(FIRST_GAME_GROUP_ID, self.bob_id, ("0.0.0.0", 0), ""))
+        receive_announcement(self.bob)
+        self.alice.assert_nothing_arrives(MessageType.CHAT_COMMAND_ANSWER)
+        self.bob.assert_nothing_arrives(MessageType.CHAT_COMMAND_ANSWER)
+
+    def test_turning_a_game_into_a_ladder_game_tells_its_players(self) -> None:
+        """The host can switch to a ladder game during the setup; the description it then sends
+        is current, while the game block still holds the choice made when opening."""
+        open_game(self.alice, GAME_ZONE_ID, description=game_description(is_ladder_game=False))
+        self.bob.send(AddPlayerToGroup(FIRST_GAME_GROUP_ID, self.bob_id, ("0.0.0.0", 0), ""))
+        receive_announcement(self.bob)
+        self.alice.send(
+            game_update(
+                FIRST_GAME_GROUP_ID,
+                GroupUpdateMask.MAX_PLAYERS | GroupUpdateMask.DESCRIPTION,
+                max_players=2,
+                description=game_description(is_ladder_game=True),
+            )
+        )
+        self.assertEqual(self.receive_notice(self.alice).lines, self.notice)
+        self.assertEqual(self.receive_notice(self.bob).lines, self.notice)
 
 
 class GroupRulesTest(LobbyTestCase):
