@@ -32,6 +32,15 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
+from s3lobby.constants import (
+    BANNER_URL_PREFIX,
+    BOARD_LANGUAGES,
+    MAX_ANNOUNCEMENT_LENGTH,
+    MAX_GROUP_TEXT_LENGTH,
+    MAX_TEXT_MESSAGE_BYTES,
+    NEWS_AUDIENCES,
+    TEXT_ENCODING,
+)
 from s3lobby.live import LiveLobbyState, StoredLiveState
 
 IN_MEMORY_DATABASE = ":memory:"
@@ -207,6 +216,13 @@ SETTING_DEFAULTS = {
 }
 
 TRUE_SETTING_VALUES = frozenset({"1", "true", "yes", "on"})
+FALSE_SETTING_VALUES = frozenset({"0", "false", "no", "off"})
+# The numeric settings travel to the game as u32 fields.
+INTEGER_SETTINGS = frozenset({Setting.MAX_PLAYERS, Setting.BANNER_ID, Setting.BANNER_SUB_ID})
+MAX_INTEGER_SETTING = 0xFFFFFFFF
+
+LINE_BREAK = "\n"
+FIRST_PRINTABLE_CHARACTER = " "
 
 
 @dataclass(frozen=True)
@@ -324,6 +340,52 @@ def is_valid_player_name(name: str) -> bool:
     return PLAYER_NAME_PATTERN.fullmatch(name) is not None
 
 
+def check_game_text(label: str, text: str, max_length: int, allows_line_breaks: bool = False) -> None:
+    """Raise DatabaseError unless the game can show the text: every character must exist in its
+    code page, it must fit max_length characters, and it may hold no control characters (line
+    breaks only where allows_line_breaks). Texts reach the game exactly as stored, so a text that
+    passes here never makes the server fail while encoding it for a client."""
+    try:
+        text.encode(TEXT_ENCODING)
+    except UnicodeEncodeError as error:
+        bad_character = text[error.start]
+        raise DatabaseError(f"{label} contains {bad_character!r}, which the game cannot show") from error
+    if len(text) > max_length:
+        raise DatabaseError(f"{label} is {len(text)} characters long; the most is {max_length}")
+    for character in text:
+        is_allowed_line_break = allows_line_breaks and character == LINE_BREAK
+        if character < FIRST_PRINTABLE_CHARACTER and not is_allowed_line_break:
+            raise DatabaseError(f"{label} contains the control character {character!r}")
+
+
+def check_title(label: str, title: str) -> None:
+    """A title or name: one line, and not empty, as the game shows nothing for an empty one."""
+    if not title.strip():
+        raise DatabaseError(f"{label} must not be empty")
+    check_game_text(label, title, MAX_GROUP_TEXT_LENGTH)
+
+
+def check_setting_value(setting: Setting, value: str) -> None:
+    """Raise DatabaseError for a value the server could not use for this setting."""
+    if setting in INTEGER_SETTINGS:
+        if not value.isdigit() or int(value) > MAX_INTEGER_SETTING:
+            raise DatabaseError(f"{setting.key} must be a whole number from 0 to {MAX_INTEGER_SETTING}")
+        return
+    if setting == Setting.UNIQUE_SERIAL_NUMBERS:
+        if value.strip().lower() not in TRUE_SETTING_VALUES | FALSE_SETTING_VALUES:
+            raise DatabaseError(f"{setting.key} must be true or false")
+        return
+    if setting == Setting.BANNER_URL:
+        if value and not value.startswith(BANNER_URL_PREFIX):
+            raise DatabaseError(f"{setting.key} must start with {BANNER_URL_PREFIX}, or be empty for no banner")
+        check_game_text(setting.key, value, MAX_TEXT_MESSAGE_BYTES)
+        return
+    if setting == Setting.WELCOME_MESSAGE:
+        check_game_text(setting.key, value, MAX_ANNOUNCEMENT_LENGTH)
+        return
+    raise AssertionError(f"no check for setting {setting.key}")
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -438,6 +500,7 @@ class LobbyDatabase:
         return self.get_setting(setting).strip().lower() in TRUE_SETTING_VALUES
 
     def set_setting(self, setting: Setting, value: str) -> None:
+        check_setting_value(setting, value)
         with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -584,6 +647,7 @@ class LobbyDatabase:
     # Clans.
 
     def create_clan(self, name: str) -> Clan:
+        check_title("clan name", name)
         try:
             with self._transaction() as connection:
                 cursor = connection.execute(
@@ -640,6 +704,10 @@ class LobbyDatabase:
 
     def set_news(self, audience: str, title: str, body: str) -> None:
         """audience "german" is shown to German games, "other" to every other language."""
+        if audience not in NEWS_AUDIENCES:
+            raise DatabaseError(f"unknown news audience {audience!r}; known: {', '.join(NEWS_AUDIENCES)}")
+        check_title("news title", title)
+        check_game_text("news text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
         with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO news (audience, title, body, updated_at) VALUES (?, ?, ?, ?) "
@@ -657,6 +725,8 @@ class LobbyDatabase:
     # ChatZone themes.
 
     def add_chat_theme(self, name: str, description: str = "") -> ChatTheme:
+        check_title("chat theme name", name)
+        check_game_text("chat theme description", description, MAX_GROUP_TEXT_LENGTH)
         try:
             with self._transaction() as connection:
                 cursor = connection.execute(
@@ -678,6 +748,10 @@ class LobbyDatabase:
     # MessageZone board.
 
     def add_board_theme(self, language: str, name: str, description: str = "") -> BoardTheme:
+        if language not in BOARD_LANGUAGES:
+            raise DatabaseError(f"unknown board language {language!r}; known: {', '.join(BOARD_LANGUAGES)}")
+        check_title("board theme name", name)
+        check_game_text("board theme description", description, MAX_GROUP_TEXT_LENGTH)
         try:
             with self._transaction() as connection:
                 cursor = connection.execute(
@@ -697,6 +771,9 @@ class LobbyDatabase:
             connection.execute("DELETE FROM board_themes WHERE id = ?", (theme_id,))
 
     def post_board_message(self, theme_id: int, title: str, body: str, author: str = "") -> BoardMessage:
+        check_title("message title", title)
+        check_game_text("message text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
+        check_game_text("author", author, MAX_GROUP_TEXT_LENGTH)
         posted_at = self._clock()
         try:
             with self._transaction() as connection:
@@ -799,6 +876,8 @@ class LobbyDatabase:
     # Announcements from outside the server process.
 
     def queue_announcement(self, text: str) -> None:
+        check_title("announcement", text)
+        check_game_text("announcement", text, MAX_ANNOUNCEMENT_LENGTH)
         with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO pending_announcements (text, created_at) VALUES (?, ?)",

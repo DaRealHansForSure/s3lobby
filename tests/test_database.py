@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from s3lobby.constants import MAX_ANNOUNCEMENT_LENGTH, MAX_GROUP_TEXT_LENGTH
 from s3lobby.database import (
     ACCESS_CODE_ALPHABET,
     ACCESS_CODE_LENGTH,
@@ -159,6 +160,42 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 0)
         self.assertEqual(self.database.get_integer_setting(Setting.BANNER_ID), 7)
         self.assertEqual(self.database.get_setting(Setting.WELCOME_MESSAGE), "")
+
+    def test_texts_the_game_cannot_show_are_refused(self) -> None:
+        """The server encodes stored texts for the game as they are; one it cannot encode would
+        fail every time a client asks for it."""
+        refused_calls = {
+            "character outside the game's code page": lambda: self.database.add_chat_theme("Party \U0001f389"),
+            "control character in a name": lambda: self.database.add_chat_theme("Tab\there"),
+            "line break in a title": lambda: self.database.set_news("german", "Two\nLines", "text"),
+            "empty title": lambda: self.database.set_news("german", "  ", "text"),
+            "name too long": lambda: self.database.create_clan("x" * (MAX_GROUP_TEXT_LENGTH + 1)),
+            "unknown audience": lambda: self.database.set_news("french", "Bonjour", "text"),
+            "unknown board language": lambda: self.database.add_board_theme("Latin", "Forum"),
+            "announcement too long": lambda: self.database.queue_announcement("x" * (MAX_ANNOUNCEMENT_LENGTH + 1)),
+        }
+        for case, refused_call in refused_calls.items():
+            with self.subTest(case=case):
+                with self.assertRaises(DatabaseError):
+                    refused_call()
+        self.database.set_news("german", "Grüße", "Erste Zeile\nZweite Zeile mit ä, ö, ü und €")
+        self.assertEqual(self.database.find_news("german").title, "Grüße")
+
+    def test_setting_values_are_checked(self) -> None:
+        refused_values = {
+            Setting.MAX_PLAYERS: ("-1", "ten", str(2**32)),
+            Setting.UNIQUE_SERIAL_NUMBERS: ("maybe",),
+            Setting.BANNER_URL: ("http://example.org/banner.png",),
+            Setting.WELCOME_MESSAGE: ("x" * (MAX_ANNOUNCEMENT_LENGTH + 1),),
+        }
+        for setting, values in refused_values.items():
+            for value in values:
+                with self.subTest(setting=setting.key, value=value):
+                    with self.assertRaises(DatabaseError):
+                        self.database.set_setting(setting, value)
+        self.database.set_setting(Setting.BANNER_URL, "")
+        self.database.set_setting(Setting.UNIQUE_SERIAL_NUMBERS, "Yes")
+        self.assertTrue(self.database.get_boolean_setting(Setting.UNIQUE_SERIAL_NUMBERS))
 
     def test_settings_fall_back_to_their_defaults(self) -> None:
         self.assertEqual(self.database.get_integer_setting(Setting.MAX_PLAYERS), 0)

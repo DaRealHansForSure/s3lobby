@@ -398,6 +398,9 @@ WARNING_INTERVAL_SECONDS = 10.0
 MAX_GROUP_TEXT_LENGTH = 64
 MAX_GROUP_DESCRIPTION_BYTES = 512
 MAX_CHAT_COMMAND_LENGTH = 256
+# This server's limit for an announcement or the welcome line. ChatCommandAnswer wraps it into
+# lines the chat window shows; 256 characters stay within its line cap.
+MAX_ANNOUNCEMENT_LENGTH = 256
 
 # Groups one player may have open at a time (games and chat groups it created).
 MAX_OPEN_GROUPS_PER_PLAYER = 4
