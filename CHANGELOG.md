@@ -6,6 +6,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-23
+
 ### Fixed
 
 - Chat groups with a password open again: the game opens them under group 5, which the server
@@ -83,8 +85,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Key commits
 
-- [`69a6a99`](https://github.com/DaRealHansForSure/s3lobby/commit/69a6a99) feat(server): add a development mode with a fixed test password
-- [`9fcded5`](https://github.com/DaRealHansForSure/s3lobby/commit/9fcded5) feat(scripts): add a script that stops every server and web interface
+- [`dca8e6a`](https://github.com/DaRealHansForSure/s3lobby/commit/dca8e6a) fix(lobby): name a new chat group as the creator's channel
+- [`f7f5254`](https://github.com/DaRealHansForSure/s3lobby/commit/f7f5254) fix(server): refuse forged datagrams from a logged on player's address
+- [`3a2d88e`](https://github.com/DaRealHansForSure/s3lobby/commit/3a2d88e) feat(web): decode games fully on the games page
 
 ## [0.9.0] - 2026-10-23
 
@@ -307,7 +310,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - [`b76d102`](https://github.com/DaRealHansForSure/s3lobby/commit/b76d102) refactor: rework the lobby server into the s3lobby package
 - [`46582ce`](https://github.com/DaRealHansForSure/s3lobby/commit/46582ce) docs(protocol): move the lobby protocol document into the project
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.6.0...v0.7.0
