@@ -210,7 +210,9 @@ class MatchPlayerFlag(IntFlag):
     # The slot is a computer opponent (slot state 2; the setup names the states at 0x48fd26..0x490309:
     # 0 free, 1 human, 2 computer opponent, 4 closed).
     COMPUTER = 0x1
-    # The slot is in state 3, which the setup never shows (inferred: a human player who left).
+    # The slot is in state 3: a human who left the DirectPlay session after it was closed to new
+    # players (written only at 0x434b19, PARAMS: DestroyPlayer, when "NET: OnDeletePlayer" 0x470980
+    # reports it with the session closed, 0x471571; inferred: closed because the match started).
     SLOT_STATE_3 = 0x2
     # The slot's race was "Random" in the game setup: the setup record's race (+0x64) is 0xff
     # (0x540625..0x54063e), which the setup shows as "Zufall" (0x4909f0). The report's race is the

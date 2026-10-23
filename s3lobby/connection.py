@@ -119,6 +119,9 @@ class ReliableConnection:
         self._last_sent_to_client_ms = now_ms
         self._silence_timeout_ms = DEFAULT_SILENCE_TIMEOUT_MS
         self._closing_since_ms: int | None = None
+        # A close the server starts waits with its CloseConnection until the client holds every
+        # earlier block of the server's (see begin_closing).
+        self._is_close_waiting_for_acknowledgements = False
 
     @property
     def is_confirmed_by_client(self) -> bool:
@@ -187,10 +190,22 @@ class ReliableConnection:
         """Queue a message; it leaves with the next numbered block."""
         self._queued_lobby_messages.append(message.encode())
 
-    def begin_closing(self, now_ms: int) -> None:
-        """Answer the client's CloseConnection with the server's own, then let the connection end."""
-        self._queued_leading_messages.append(CloseConnection().encode())
+    def begin_closing(self, now_ms: int, waits_for_acknowledgements: bool = False) -> None:
+        """Send the server's CloseConnection, then let the connection end.
+
+        Answering the client's CloseConnection, it goes out at once: the client is closing already
+        (state 5) and takes it without further checks. waits_for_acknowledgements holds it back
+        until the client has acknowledged every earlier block of the server's, for a close the
+        server starts while it keeps running (a kick, a ban): an open client checks on
+        CloseConnection that no earlier block of the peer is missing and throws a sync error
+        otherwise (PP.ReceivedCloseConnection 0x606050, CheckInSync 0x606310), which a lost earlier
+        block, the kick's reason line for one, would cause.
+        """
         self._closing_since_ms = now_ms
+        if waits_for_acknowledgements and self._unacknowledged_blocks:
+            self._is_close_waiting_for_acknowledgements = True
+            return
+        self._queued_leading_messages.append(CloseConnection().encode())
 
     def is_finished(self, now_ms: int) -> bool:
         """True once the client is silent for too long, never confirmed the connection, or a closed
@@ -206,7 +221,7 @@ class ReliableConnection:
             return True
         if self._closing_since_ms is None:
             return False
-        has_delivered_everything = not self._unacknowledged_blocks
+        has_delivered_everything = not self._unacknowledged_blocks and not self._is_close_waiting_for_acknowledgements
         has_waited_long_enough = now_ms - self._closing_since_ms > CLOSING_LINGER_MS
         return has_delivered_everything or has_waited_long_enough
 
@@ -214,6 +229,9 @@ class ReliableConnection:
         """Everything that should go out now: a new block, due retries, or acknowledgements and a
         keepalive when nothing else is going out."""
         datagrams = []
+        if self._is_close_waiting_for_acknowledgements and not self._unacknowledged_blocks:
+            self._is_close_waiting_for_acknowledgements = False
+            self._queued_leading_messages.append(CloseConnection().encode())
         has_queued_messages = bool(self._queued_leading_messages or self._queued_lobby_messages)
         if has_queued_messages and self._may_send_new_block:
             datagrams.append(self._send_queued_messages_as_new_block(now_ms))

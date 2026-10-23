@@ -8,6 +8,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
+- A player removed by a kick, a ban or a deleted account gets the server's CloseConnection only
+  after acknowledging the block with the reason: a lost reason line no longer turns the clean close
+  into a sync error in the game.
 - A banner with id 0, which the game ignores, is no longer offered, and a banner address must be
   `ftp://HOST/PATH` without port or user, the only form the game can fetch.
 - A player who opens a chat group or a game is told its id (Result 0xc), as the game expects:
