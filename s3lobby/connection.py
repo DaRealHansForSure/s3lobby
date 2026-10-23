@@ -12,6 +12,11 @@ The rules, read from protocol.cpp in S3.EXE (docs/protocol.md, "Connection layer
   handed to the lobby again.
 - A peer that stays silent for 60 seconds is gone.
 
+The client is not trusted to keep these rules. Block ids far outside the expected window are
+refused, a client that stops acknowledging is dropped, and a connection that never acknowledges the
+server's first block ends early, so nobody can make the server hold unbounded state or keep sending
+to an address the sender forged.
+
 Nothing here touches the network: the server feeds received messages in and sends the datagrams
 this class asks it to send. That keeps the rules testable with plain function calls.
 """
@@ -23,13 +28,16 @@ from dataclasses import dataclass, field
 
 from s3lobby.constants import (
     ACKNOWLEDGEMENT_MESSAGE_TYPES,
+    CLIENT_BLOCK_ID_WINDOW,
     CLOSING_LINGER_MS,
     CONNECTION_LAYER_MESSAGE_TYPES,
     CONNECTION_NONCE_MAX,
     CONNECTION_NONCE_MIN,
     DEFAULT_SILENCE_TIMEOUT_MS,
     KEEPALIVE_INTERVAL_MS,
+    MAX_UNACKNOWLEDGED_SERVER_BLOCKS,
     RETRY_INTERVALS_MS,
+    UNCONFIRMED_CONNECTION_TIMEOUT_MS,
     MessageType,
 )
 from s3lobby.messages import (
@@ -41,7 +49,7 @@ from s3lobby.messages import (
     MinMissingAcknowledge,
     OpenConnection,
 )
-from s3lobby.wire import Address, RawMessage, encode_block
+from s3lobby.wire import Address, ProtocolError, RawMessage, encode_block
 
 # Messages that sit right after MessageId in a numbered block, ahead of the acknowledgements and
 # the lobby messages. Same order as the game's own first answer: [MessageId 1][OpenConnection]...
@@ -88,8 +96,14 @@ class ReliableConnection:
 
         self._next_server_block_id = 1
         self._unacknowledged_blocks: dict[int, UnacknowledgedBlock] = {}
+        # Until the client acknowledges anything, its address may be forged.
+        self._is_confirmed_by_client = False
+        self._opened_at_ms = now_ms
 
-        self._received_client_block_ids: set[int] = set()
+        # Every client block up to this id has arrived; later ones that arrived early are kept in
+        # the set until the gap closes. Together they tell duplicates from new blocks.
+        self._highest_contiguous_client_block_id = 0
+        self._client_block_ids_received_early: set[int] = set()
         self._client_block_ids_to_acknowledge: set[int] = set()
         self._is_acknowledgement_due = False
 
@@ -105,6 +119,11 @@ class ReliableConnection:
     @property
     def is_closing(self) -> bool:
         return self._closing_since_ms is not None
+
+    @property
+    def is_overloaded(self) -> bool:
+        """The client stopped acknowledging; queueing more for it would only use up memory."""
+        return len(self._unacknowledged_blocks) > MAX_UNACKNOWLEDGED_SERVER_BLOCKS
 
     def receive_block(self, messages: list[RawMessage], now_ms: int) -> ReceivedBlock:
         """Apply one decoded datagram from the client.
@@ -134,13 +153,11 @@ class ReliableConnection:
         if is_acknowledgement_only:
             return received
 
+        is_new_block = self._accept_client_block_id(client_block_id)
         self._client_block_ids_to_acknowledge.add(client_block_id)
         self._is_acknowledgement_due = True
-        is_duplicate = client_block_id in self._received_client_block_ids
-        if is_duplicate:
-            return received
-        self._received_client_block_ids.add(client_block_id)
-        received.lobby_messages = lobby_messages
+        if is_new_block:
+            received.lobby_messages = lobby_messages
         return received
 
     def queue_lobby_message(self, message: EncodableMessage) -> None:
@@ -153,10 +170,16 @@ class ReliableConnection:
         self._closing_since_ms = now_ms
 
     def is_finished(self, now_ms: int) -> bool:
-        """True once the client is silent for too long, or a closed connection has nothing left to
-        deliver (or has waited long enough for its last acknowledgement)."""
+        """True once the client is silent for too long, never confirmed the connection, or a closed
+        connection has nothing left to deliver (or has waited long enough for its last
+        acknowledgement)."""
         silence_ms = now_ms - self._last_heard_from_client_ms
         if silence_ms > self._silence_timeout_ms:
+            return True
+        is_unconfirmed_for_too_long = (
+            not self._is_confirmed_by_client and now_ms - self._opened_at_ms > UNCONFIRMED_CONNECTION_TIMEOUT_MS
+        )
+        if is_unconfirmed_for_too_long:
             return True
         if self._closing_since_ms is None:
             return False
@@ -190,11 +213,32 @@ class ReliableConnection:
             self._last_sent_to_client_ms = now_ms
         return datagrams
 
+    def _accept_client_block_id(self, client_block_id: int) -> bool:
+        """Record a client block id; True when the block is new, False for a duplicate.
+
+        Raises ProtocolError for ids outside the window: far ahead of the oldest missing block (the
+        game never runs ahead like that), or so old that the client cannot still be repeating them.
+        """
+        oldest_missing = self._highest_contiguous_client_block_id + 1
+        is_too_far_ahead = client_block_id >= oldest_missing + CLIENT_BLOCK_ID_WINDOW
+        is_too_old = client_block_id < oldest_missing - CLIENT_BLOCK_ID_WINDOW
+        if is_too_far_ahead or is_too_old:
+            raise ProtocolError(f"block id {client_block_id} outside the window around {oldest_missing}")
+        is_duplicate = client_block_id < oldest_missing or client_block_id in self._client_block_ids_received_early
+        if is_duplicate:
+            return False
+        self._client_block_ids_received_early.add(client_block_id)
+        while self._highest_contiguous_client_block_id + 1 in self._client_block_ids_received_early:
+            self._highest_contiguous_client_block_id += 1
+            self._client_block_ids_received_early.remove(self._highest_contiguous_client_block_id)
+        return True
+
     def _apply_connection_layer_message(self, message: RawMessage, received: ReceivedBlock) -> None:
         match message.message_type:
             case MessageType.ACKNOWLEDGE_MESSAGES:
                 for block_id in AcknowledgeMessages.decode(message).block_ids:
-                    self._unacknowledged_blocks.pop(block_id, None)
+                    if self._unacknowledged_blocks.pop(block_id, None) is not None:
+                        self._is_confirmed_by_client = True
             case MessageType.MIN_MISSING_ACKNOWLEDGE:
                 lowest_unconfirmed = MinMissingAcknowledge.decode(message).lowest_unconfirmed_block_id
                 still_unconfirmed = {i for i in self._client_block_ids_to_acknowledge if i >= lowest_unconfirmed}

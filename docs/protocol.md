@@ -204,25 +204,46 @@ Offsets count from the first byte after the header.
 ### Logon
 
 - **0x07 Logon** (constructor 0x5e1d50): u32 14 (*inferred*: protocol version), string name,
-  string password, u32 flags (bit 0 and bit 2 from the dialog, bit 1 set for edition 1), string
-  serial number. The client sends it to every listed server with the first server's name.
+  string password, u32 flags, string serial number. The client sends it to every listed server
+  with the first server's name. Flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4):
+
+  | Bit | Meaning |
+  |---|---|
+  | 0x1 | "create player": the player used the logon dialog's create button (dialog flag +0xf0, set at 0x43a35c after the create dialog 0x43bf90) |
+  | 0x2 | set when the game's edition setting is 1; meaning unknown |
+  | 0x4 | the "Clan" box (registry ClanFlag, label 0x9013d "player is marked as clan member in the chat") |
 - **0x09 Result**: u32 code, u32 value; size exactly 12 (0x5e1e30, 0x5e2080). The handler
   (0x5cd820) switches on the code (table 0x5d0618 / 0x5d05c0):
 
-  | Code | Meaning |
+  | Code | Meaning, with the dialog text the game shows (text id 0x900nn = entry nn of the text archive) |
   |---|---|
   | 0x66 | logon accepted (LogonRetval 0, 0x5cde49), sender becomes the server |
-  | 1, 2, 3, 5, 6, 7, 0x67, 0x68, 0x69, 0x6d | logon refused, each with its own dialog text |
+  | 1, 5 | 0x9006a "An error occurred while connecting to the lobby." |
+  | 2 | 0x9009f "There is already a player with this name. Please choose a different name." |
+  | 3 | 0x90069 "The server refuses your combination of username and password." |
+  | 6 | 0x9009d "Another player with this name or serial number is already logged in ..." |
+  | 7 | 0x90017 "You entered an invalid serial number!" |
+  | 0x67 | 0x9009e "The chosen player name is invalid. Only letters from A to Z ... and spaces" (German text: no two spaces in a row) |
+  | 0x68 | 0x900ee "The maximum number of users for this server has been reached." |
+  | 0x69 | 0x900f3 "On account of unacceptable behavior, you have been barred from the Lobby ..." |
+  | 0x6d | 0x90139 "You're no clan member. ..." |
   | 9 | patch check: no patch |
   | 8 | patch check: failed |
   | 0x64, 0x65 | private chat accepted / refused (client to client, value = player id) |
+
+  The texts live in `GFX/siedler3_09.*.dat`: at offset 0x5c a u16 text count (374) and a u16
+  language count (8), from 0x60 one u32 file offset per text, all texts of language 0 (German)
+  first, then language 1 (English), and so on.
 
 - **0x0e own player**: u32 player id, size exactly 8. Creates the client's own player record and
   asserts it does not exist yet: send it once. Its handler asserts `lpFrom == lpServer`, which only
   holds after Result 0x66, so the server sends `[Result 0x66][own player]` in that order, in one
   block. Joining a group dereferences the own player without a check (0x5ca46b): without 0x0e the
   client crashes there.
-- **0x24 own player with clan**: u32 player id, u32 clan value, string name.
+- **0x24 own player with clan** (handler 0x5d7830): u32 player id, u32 clan id, string clan name.
+  The client accepts either 0x0e or 0x24 after the logon; send exactly one. It keeps the clan for
+  the games it creates or joins and hands it to the other players over DirectPlay (0x470250,
+  "CLAN-Pack"). The client never sends clan data itself, so clans have to come from the server.
 - **0x0a Logout**: empty. The client closes without waiting for an answer.
 
 The client checks nothing in the server's answers except the Result code: name, password and serial
@@ -230,8 +251,8 @@ can be accepted as they come.
 
 ### Groups (rooms and games)
 
-- **0x0f AddGroupToGroup** (constructor 0x5e2d60): u32 parent, u32 group id, u32 flags, u32 unknown,
-  three strings (the first is the name), then optional parts by flag:
+- **0x0f AddGroupToGroup** (constructor 0x5e2d60): u32 parent, u32 group id, u32 flags, u32 maximum
+  player count, three strings (name, description column, password), then optional parts by flag:
   - `0x400`: game block, 0x2c bytes: sockaddr_in of the host, 16 bytes (*inferred*: DirectPlay
     session GUID), 3 x u32.
   - `0x40000`: description, u32 length then that many bytes (the client stores a whole serialized
@@ -242,21 +263,69 @@ can be accepted as they come.
   room makes the group visible inside it. Sent with group id 0 from another client, it is a private
   chat invitation.
 - **0x20 AddGroupToGroup2** (constructor 0x5e3b40): as 0x0f, game block 0x34 bytes (5 x u32).
-  Opening a game sends this with flags 0x840401 (0x5ca7d0), parent = the zone it is opened in, and
-  group id 0xffffffff: the server picks the id. Seen in a run, in the same block the host leaves
-  all other zones and, after the game, its lobby room and zone. The host only counts itself in the
-  game when the server sends the game back with parent 0.
-- **0x19 UpdateGroup**: u32 group id, u32 update mask, u32 flags, u32 unknown, three strings, the
-  0x2c game block and the description, both always present. Mask (0x5dbf80): 1 string 1,
-  2 string 2, 8 flags, 0x10 unknown u32, 0x20 game block, 0x40 description. **0x21** is the same
-  with the 0x34 game block.
+- **0x19 UpdateGroup** (constructor 0x5ea320): u32 group id, u32 update mask, u32 flags, u32 maximum
+  player count, three strings, the 0x2c game block and the description (u32 length, bytes), both
+  always present. Mask (0x5dbf80): 1 name, 2 second text, 4 third text, 8 flags, 0x10 maximum,
+  0x20 game block, 0x40 description. **0x21** is the same with the 0x34 game block.
 - **0x10 RemoveGroupFromGroup**: u32 parent, u32 group id; size exactly 12.
+- **0x1a group counters** (handler 0x5d8580): u32 group id, u32 players, u32 maximum, u32 flags
+  (bit 0: full), for a group shown inside a group the client is in. The game list shows
+  "players/max" and marks full games (0x44b635); the client refuses to join a full game (0x4437c1,
+  text 0x900a6) and a full chat group (0x442cf2).
 
-Seen in a run: after logon the client sends one block that leaves group 1 (it was never in it),
-joins group 3 and joins groups 30 to 38, one per set bit of the registry value `GameZoneSelection`
-(GOG writes 511, nine bits). Switching lobby rooms in the screen leaves the current group and
-joins 1, 2 or 3 (with the zones). A server has to accept a join for any group id; there is no
-request that lists groups first.
+**Games, from opening to the match.** Read from the code (0x4547f6, 0x45506c, 0x45637f, 0x454c20)
+and partly seen in runs:
+
+1. The host sends AddGroupToGroup2 with parent = the zone it is in (or a chat group), group id
+   0xffffffff, flags 0x840401 and a game block of five values (version 160, two check values, the
+   Amazons add-on flag, the league type 0/1/2 shown as "", "Liga", "Clanliga"). The description
+   holds the teams and the map name. Chat groups are opened the same way (CreateGame 0x5ca7d0,
+   called from 0x5dd5b9), without a game block.
+2. The server picks the id, sends the group back to the host with parent 0, and shows it in the
+   zone with its counters.
+3. While setting up, the host sends UpdateGroup (mask 0x50: maximum and description). Receivers
+   take an update only for a group they see in a parent, never for one they are in (0x5d8de6): the
+   server keeps the new state and passes the update to the zone.
+4. "Show game in GameZone": AddGroupToGroup with the game's id, flags 0 and empty texts, then an
+   UpdateGroup clearing 0x1000. The server lists the game in that zone.
+5. A joiner first connects DirectPlay to the host (0x443bc8), then leaves the GameZone groups and
+   sends AddPlayerToGroup for the game (0x460c8b). It gets the game with parent 0 and every member.
+6. At the match start the host sends RemoveGroupFromGroup(zone, game) for every zone the game is
+   listed in, and AdjustConnectionTimeout 600000. The game leaves the zone lists; it goes on for its
+   players.
+
+**Tabs and zones.** The lobby screen has four tabs, each a group the client joins on its own (button
+handler 0x4424a0, labels 0x90097..0x9009a): 1 Home, 2 ChatZone, 3 GameZone, 4 MessageZone. On the
+GameZone tab the client also joins one game zone per set bit of the registry value
+`GameZoneSelection` (bit i joins group 30 + i, 0x457030; GOG writes 511): 30 League 1 vs 1,
+31 Free-for-all, 32 1 vs 1, 33 2 vs 2, 34 3-4 vs 3-4, 35 5+ vs 5+, 36 3 or more teams, 37 Human vs
+Computer, 38 Other games (client texts set at 0x441313). Seen in a run: after logon one block leaves
+group 1, joins group 3 and joins 30 to 38; switching tabs leaves the current tab and joins another.
+There is no request for a list of groups: the client simply joins these ids.
+
+Group names are shown only in chat theme and chat group lists (second text as "Description"), in
+the game list, as "Channel: name" inside a chat group, and in the chat log; the MessageZone looks
+for groups named `MessageThemes<Language>` (0x453831). Receivers never store the third text or the
+maximum player count of an announcement (0x5d2c27..0x5d2c7f); the third text is the password when
+a player creates a chat group (0x4546cb).
+
+**Flags the client tests** on a received group:
+
+| Flag | Meaning |
+|---|---|
+| 0x80 | the group receives the Home statistics 0x1b (0x5d997d) |
+| 0x400 | game block present: a lobby game (0x4552a8) |
+| 0x1000 | joining asks for a password (0x442d1a); also set on a game not yet shown in a zone (0x455319) |
+| 0x40000 | description present |
+| 0x4000000 | the client asks for the group's image list (0x5d3261) |
+
+Games are opened with 0x840401, chat groups with 0x301073 (0x1000 included when a password is set).
+
+**What a client sees must be mirrored by the server.** Three things drop the connection: an
+announcement of a group the client already sees in the same parent (0x5db9ad), a
+RemoveGroupFromGroup for a group it does not see in that parent, or while it is not in the parent
+(0x5d5828, 0x5dbcc3), and a RemovePlayerFromGroup for a group it is not in (0x5d6af0). A server has
+to know, per client, which groups it sees where.
 
 **Leaving needs the server's confirmation.** `LeaveGroup` 0x5ca5e0 only sends RemovePlayerFromGroup;
 the group stays on the client's joined list until the server sends RemovePlayerFromGroup with the
@@ -269,7 +338,11 @@ the AddGroupToGroup (assert `! vJoinedGroups.contains`) and drop the connection.
 - **0x0c AddPlayerToGroup** (constructor 0x5e4e10): u32 group id, u32 player id, sockaddr_in,
   string name, string (never read by the client). Size above 28. The client sends it to join a
   group (0x5ca430); the server sends it for each member.
-- **0x25 / 0x26**: 0x0c plus u32 and string (*inferred*: clan), 0x26 one more u32.
+- **0x25** (handler 0x5d5f60): 0x0c's fields, then u32 clan id and string clan name (readers
+  0x5e6550, 0x5e6740). The room member list shows the clan name in its second column (0x449d34).
+  With clan id 0 and an empty name it behaves exactly like 0x0c (0x5d5ea5).
+- **0x26** (handler 0x5d6520): 0x25 plus u32 player flags. Bit 0 colours the row; together with the
+  clan name "BB" it gets another colour (0x449e09..0x449eb5, *inferred*: Blue Byte staff).
 - **0x0d RemovePlayerFromGroup**: u32 group id, u32 player id; size exactly 12. Sent by the client
   to leave (0x5ca5e0).
 
@@ -282,17 +355,68 @@ must fill in the address it sees datagrams come from.
 - **0x1e ChatMessage2**: u32 group id (0 = private), u32 sender player id, u32 kind (0 normal,
   1 whisper), string text. Client to client.
 - **0x0b**: u32 group id, u32 player id, string text (older form).
-- **0x22 ChatCommand**: u32 group id, u32 0, string command; unknown slash commands go to the
-  server. **0x23** answers with u32 group id, u32 unused, u32 n, n strings, shown as `[Server]`.
+- **0x22 ChatCommand**: u32 group id, u32 0, string command; the client handles /MSG, /WHISPER,
+  /IGNORE, /UNIGNORE and /CHATLOG itself (0x5c67a0) and sends every other slash command to the
+  server (0x5c859c). **0x23** answers with u32 group id, u32 unused, u32 n, n strings; the handler
+  (0x5d2420) only checks it comes from the server and turns each string into a chat line from
+  player 0, which passes the chat filter for any group (0x453f56) and shows as `[Server]: text` in
+  the chat room view (0x44a43c), or as an in-game message during a match (0x541042). The group id
+  only names the group in the client's chat log file, so one 0x23 per client reaches it wherever it
+  is: this is how a server makes announcements. 0x0b and 0x1e cannot be used for that: their
+  handlers require a sender who is a member of a joined group and drop the connection otherwise
+  (0x5d107e, 0x5d1e8e).
+
+### The Home tab
+
+- When a client joins Home (group 1) the server sends the statistics and the list of news text ids.
+  Home is announced with flag 0x80, and with 0x4000000 when there is a banner.
+- **0x1b statistics** (handler 0x5d96b0, table 0x448d20): six u32, no group id, stored on every
+  joined group with flag 0x80: players online, players in the last hour, players in the last day,
+  games open, games in the last hour, games in the last day (cells 0x448dfc..0x44921d). A first
+  value of 0 shows "-".
+- **0x14 text id list** (handler 0x5d7d60): u32 group id, u32 n, n u32; size exactly 12 + 4n; the
+  group must be joined (0x5d81a6). On Home the client picks id 0x91 in a German game and 0x92 in
+  any other, falling back to the list's first entry (0x45351b..0x453606), then sends:
+- **0x16 GetTextMessage**: u32 text id. **0x15** answers u32 text id, string title, u32 n, n
+  strings. The client takes it only for the id it waits for (0x5d8483), only with a non-empty title
+  (0x5cb642; without one the page stays at "Loading message"), and keeps it for the session
+  (0x60bbe0). It shows the title, an empty line, then the lines (0x4497ff). Without a list entry it
+  shows "No message of the day present" (0x4497c3).
+- **0x1d GetImageList**: u32 group id, sent for joined groups with flag 0x4000000 (0x5d3261).
+  **0x1c** answers u32 group id, u32 n, n x (u32 banner id, u32 banner sub id, string url). Only
+  Home uses it, and only the last entry: when the banner id is not 0 and the pair differs from the
+  registry values BannerId and BannerSubId, the client downloads the url by anonymous FTP (it skips
+  the first six characters, "ftp://", and splits host and path at the first slash, 0x449938), saves
+  it as `Banner\Banner.png` and stores the pair (0x448998). Only Blue Byte's old FTP host got a
+  special login (0x465a0f).
+
+### The ChatZone tab
+
+The ChatZone (group 2) lists chat themes: groups whose name and second text fill the theme list's
+name and "Description" columns (0x44711d, 0x447186). A player chooses a theme by joining it, and
+sees the chat groups listed inside. A player opens a chat group with AddGroupToGroup2 under the
+theme, group id 0xffffffff, flags 0x301073 (with 0x1000 when it has a password), maximum players
+0xffffffff (no limit) and the password as third text (0x4546cb). Joining one sends the password as
+the second string of AddPlayerToGroup; a wrong one is answered with Result 0x62 ("Das Passwort
+stimmte nicht", value = group id). Inside a chat group the client shows "Channel: name" (0x446b79).
+Without any theme listed, players cannot open chat groups at all.
+
+### The MessageZone tab
+
+The MessageZone (group 4) is a message board. Inside it the client looks for a group named
+`MessageThemes` followed by its language (German, English, Italian, French, Polish, Spanish,
+Korean), falling back to `MessageThemesEnglish` (0x453831, 0x4539ce), and joins it. The groups
+listed in that language group are the themes; a theme's text id list (0x14) holds its messages
+(0x453bb8), which the client asks for one by one with 0x16 and shows with a header built from its
+own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
+theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
 
 ### Other
 
-- **0x16 GetTextMessage**: u32 text id. **0x15** answers u32 text id, string, u32 n, n strings.
-- **0x1d GetImageList**: u32 group id. **0x1c** answers u32 group id, u32 n, n x (u32, u32, string).
-- **0x14**: u32 group id, u32 n, n x u32; size exactly 12 + 4n.
-- **0x1a**: u32 group id, 3 x u32. **0x1b**: 6 x u32. Meanings unknown.
 - **0x1f GameStatus** (0x540500): u32 group id, 3 x u32 (flags with 1 = league game, winning team,
-  ...), string, u32 n, n x 6 u32 per player. No answer expected.
+  ...), string, u32 n, n x 6 u32 per player. No answer expected; Result 0x6c shows "Game status
+  stored at the Lobby server" in the game, 0x6a "Game status inconsistencies. Game not valid for
+  ladder" (0x540a3e).
 
 ## Session sequence
 

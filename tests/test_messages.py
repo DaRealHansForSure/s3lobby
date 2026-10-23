@@ -15,7 +15,7 @@ from s3lobby.messages import (
     ChatCommandAnswer,
     ChatMessage,
     CheckFileVersion,
-    EmptyImageList,
+    ImageList,
     GameBlock,
     GroupAnnouncement,
     LobbyServerEntry,
@@ -143,7 +143,7 @@ class MessageLayoutTest(unittest.TestCase):
             ChatMessage(MessageType.CHAT_MESSAGE_2, 3, 1, "hello", kind=0),
             ChatMessage(MessageType.CHAT_MESSAGE, 3, 1, "hello"),
             ChatCommandAnswer(3, ("first line", "second line")),
-            EmptyImageList(30),
+            ImageList(30),
             TextMessage(5, "Title", ("line",)),
         ]
         for message in messages:

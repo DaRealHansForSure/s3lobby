@@ -119,13 +119,6 @@ def encode_block(messages: Iterable[RawMessage]) -> bytes:
     return datagram
 
 
-def describe_message(message: RawMessage) -> str:
-    """One message for a debug log: its name and its body in hex, e.g. RESULT[0900000000000000]."""
-    if not message.body:
-        return message.type_name
-    return f"{message.type_name}[{message.body.hex()}]"
-
-
 class FieldWriter:
     """Builds a message body field by field, in the order the game's constructors write them.
 

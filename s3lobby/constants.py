@@ -82,6 +82,10 @@ class MessageType(IntEnum):
     CHAT_COMMAND = 0x22
     CHAT_COMMAND_ANSWER = 0x23
     OWN_PLAYER_WITH_CLAN = 0x24
+    ADD_PLAYER_TO_GROUP_WITH_CLAN = 0x25
+    GROUP_COUNTERS = 0x1A
+    TEXT_ID_LIST = 0x14
+    SERVER_STATISTICS = 0x1B
 
 
 # Messages the reliable layer consumes itself; everything else is handed to the lobby.
@@ -122,9 +126,10 @@ GROUP_UPDATE_MESSAGE_TYPES = frozenset(
 class ResultCode(IntEnum):
     """Codes of the Result message (0x09) that this server sends.
 
-    The client's Result handler 0x5cd820 switches on the code through the table at 0x5d0618. Other
-    codes refuse a logon (1, 2, 3, 5, 6, 7, 0x67, 0x68, 0x69, 0x6d, each with its own dialog text)
-    or answer a private chat invitation between two clients (0x64, 0x65).
+    The client's Result handler 0x5cd820 switches on the code through the table at 0x5d0618. A
+    logon refusal shows a dialog with a fixed text from the game's text archive; the text ids are
+    noted here (id 0x900nn is text nn of GFX/siedler3_09.*.dat). Codes 0x64 and 0x65 answer a
+    private chat invitation and travel between two clients, never from the server.
     """
 
     # Answer to CheckFileVersion: the client is up to date, no patch download (branch 0x5cffe1).
@@ -132,6 +137,41 @@ class ResultCode(IntEnum):
 
     # Answer to Logon: the player is in (branch 0x5cdaaa, LogonRetval 0 at 0x5cde49).
     LOGON_ACCEPTED = 0x66
+
+    # Logon refusals.
+    # 0x90069 "The server refuses your combination of username and password."
+    UNKNOWN_NAME_OR_ACCESS_CODE = 3
+    # 0x9009d "Another player with this name or serial number is already logged in ..."
+    ALREADY_LOGGED_ON = 6
+    # 0x9009e "The chosen player name is invalid. Only letters from A to Z ... and spaces"
+    INVALID_PLAYER_NAME = 0x67
+    # 0x900ee "The maximum number of users for this server has been reached."
+    SERVER_FULL = 0x68
+    # 0x900f3 "On account of unacceptable behavior, you have been barred from the Lobby ..."
+    BANNED = 0x69
+    # 0x90139 "You're no clan member. ..." (the player ticked the clan box without being in one)
+    NOT_A_CLAN_MEMBER = 0x6D
+
+    # Group answers.
+    # Dialog "Der Wechsel in die Gruppe hat nicht geklappt" (joining a group failed).
+    GROUP_CHANGE_FAILED = 0x0B
+    # Dialog "Das Passwort stimmte nicht" (wrong group password); value = the group id.
+    WRONG_GROUP_PASSWORD = 0x62
+
+    # Answer to GameStatus: the game shows 0x90148 "Game status stored at the Lobby server." (0x540a3e).
+    GAME_STATUS_STORED = 0x6C
+
+
+class LogonFlag(IntFlag):
+    """Bits of the Logon message's flags (built in CLobbyClient.Logon 0x5dd0b0..0x5dd0e4)."""
+
+    # The player pressed "create player" in the logon dialog (dialog flag +0xf0, set at 0x43a35c).
+    # This server never creates accounts from the game: they are made on the server side.
+    CREATE_PLAYER = 0x1
+    # Set when the game's edition setting is 1; meaning unknown.
+    EDITION_ONE = 0x2
+    # The "Clan" box in the logon dialog (registry ClanFlag): show the player as a clan member.
+    SHOW_AS_CLAN_MEMBER = 0x4
 
 
 # The first field of every Logon. The game always writes 14 (constructor 0x5e1d50); most likely
@@ -148,13 +188,52 @@ JOINED_GROUP_PARENT_ID = 0
 # names a real group on the server.
 PRIVATE_CHAT_GROUP_ID = 0
 
+# The groups the client joins on its own, with the names its UI uses for them. The four lobby tabs
+# (labels 0x90097..0x9009a, buttons 0x43eb09..0x43ebb1) and the nine game zones on the GameZone tab,
+# one per bit of the registry value GameZoneSelection (0x457030; labels set at 0x441313).
+HOME_GROUP_ID = 1
+CHAT_ZONE_GROUP_ID = 2
+GAME_ZONE_GROUP_ID = 3
+MESSAGE_ZONE_GROUP_ID = 4
+LOBBY_TAB_GROUP_NAMES = {
+    HOME_GROUP_ID: "Home",
+    CHAT_ZONE_GROUP_ID: "ChatZone",
+    GAME_ZONE_GROUP_ID: "GameZone",
+    MESSAGE_ZONE_GROUP_ID: "MessageZone",
+}
+GAME_ZONE_NAMES = {
+    30: "League 1 vs 1",
+    31: "Free-for-all",
+    32: "1 vs 1",
+    33: "2 vs 2",
+    34: "3-4 vs 3-4",
+    35: "5+ vs 5+",
+    36: "3 or more teams",
+    37: "Human vs Computer",
+    38: "Other games",
+}
+
 # A host opens its game with this group id and leaves the choice of the real id to the server
 # (seen in a run: CreateGame 0x5ca7d0 sends 0xffffffff).
 SERVER_ASSIGNS_GROUP_ID = 0xFFFFFFFF
 
-# This server's choice: game ids start here, far above the room and zone ids the client uses on
-# its own (1 to 3 for the lobby rooms, 30 to 38 for the game zones), so the two never collide.
-FIRST_GAME_GROUP_ID = 0x10000
+# This server's choice of id ranges for the groups it makes, far above the ids the client uses on
+# its own (1 to 4 for the tabs, 30 to 38 for the game zones), so nothing ever collides:
+# chat themes and MessageZone themes add their database id to their base, MessageZone language
+# groups their position in BOARD_LANGUAGES, and games and chat groups players open count up from
+# FIRST_GAME_GROUP_ID.
+CHAT_THEME_GROUP_ID_BASE = 0x10000
+BOARD_LANGUAGE_GROUP_ID_BASE = 0x20000
+BOARD_THEME_GROUP_ID_BASE = 0x30000
+FIRST_GAME_GROUP_ID = 0x100000
+
+# Text ids of MessageZone messages: this base plus the message's database id, far from the news ids.
+BOARD_MESSAGE_TEXT_ID_BASE = 0x10000
+
+# Offered on the ChatZone tab when no chat theme is configured: without any theme players could not
+# open chat groups at all.
+DEFAULT_CHAT_THEME_NAME = "General"
+DEFAULT_CHAT_THEME_DESCRIPTION = "Talk about anything"
 
 
 class GroupFlag(IntFlag):
@@ -173,12 +252,70 @@ class GroupFlag(IntFlag):
     # The receiver asks for the group's images with GetImageList.
     REQUESTS_IMAGES = 0x4000000
 
+    # The group receives the Home tab statistics (0x1b) (0x5d997d).
+    RECEIVES_STATISTICS = 0x80
 
-# Size of the game block, socket address included, per announcement type.
+    # Joining asks for a password (0x442d1a); also set on a game not yet listed in a zone (0x455319).
+    HAS_PASSWORD = 0x1000
+
+
+class GroupUpdateMask(IntFlag):
+    """Which fields of an UpdateGroup the receiver takes over (0x5dbf80)."""
+
+    NAME = 0x1
+    SECOND_TEXT = 0x2
+    THIRD_TEXT = 0x4
+    FLAGS = 0x8
+    MAX_PLAYERS = 0x10
+    GAME_BLOCK = 0x20
+    DESCRIPTION = 0x40
+
+
+# A group's maximum player count of this value means no limit; chat groups are opened with it.
+UNLIMITED_PLAYERS = 0xFFFFFFFF
+
+# Bit 0 of the third GroupCounters value marks a full group (0x44b635, 0x442cf2).
+GROUP_COUNTERS_FULL = 0x1
+
+
+# Size of the game block, socket address included, per announcement or update type: the 2 variants
+# carry two more u32 values (5 instead of 3).
 GAME_BLOCK_SIZE_BY_MESSAGE_TYPE = {
     MessageType.ADD_GROUP_TO_GROUP: 0x2C,
     MessageType.ADD_GROUP_TO_GROUP_2: 0x34,
+    MessageType.UPDATE_GROUP: 0x2C,
+    MessageType.UPDATE_GROUP_2: 0x34,
 }
+
+# The languages the MessageZone tab knows. The client looks for a group named "MessageThemes"
+# followed by its own language, and falls back to English (0x453831, 0x4539ce).
+BOARD_LANGUAGES = ("German", "English", "Italian", "French", "Polish", "Spanish", "Korean")
+BOARD_FALLBACK_LANGUAGE = "English"
+BOARD_LANGUAGE_GROUP_PREFIX = "MessageThemes"
+
+# The Home tab shows one of two news texts, picked by the language of the game (0x45351b..0x453606):
+# it looks for text id 0x91 in a German game and 0x92 in any other, in the list of text ids the
+# server sends for the Home group, and falls back to the list's first entry.
+NEWS_AUDIENCE_GERMAN = "german"
+NEWS_AUDIENCE_OTHER = "other"
+NEWS_AUDIENCES = (NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER)
+NEWS_TEXT_ID_BY_AUDIENCE = {NEWS_AUDIENCE_GERMAN: 0x91, NEWS_AUDIENCE_OTHER: 0x92}
+
+# A text message (0x15) counts as delivered only with a non-empty title (0x5cb642); without one the
+# page stays at "Loading message" for good. This title answers ids the server does not know.
+UNKNOWN_TEXT_TITLE = "Not available"
+
+# Keeps a text message within one unfragmented datagram on any network; longer texts are cut.
+MAX_TEXT_MESSAGE_BYTES = 1200
+
+# The banner's url must start like this; the game skips the first six characters and splits the rest
+# into host and path at the first slash (0x449938).
+BANNER_URL_PREFIX = "ftp://"
+
+# Logon attempts: a token bucket per IP and per account name, drawn on by failed attempts only, so
+# a LAN party behind one router can log on together while guessing access codes stays hopeless.
+LOGON_FAILURE_BURST = 10
+LOGON_FAILURES_PER_SECOND = 10 / (15 * 60)
 
 # Timing of the reliable layer, in milliseconds.
 
@@ -197,6 +334,13 @@ KEEPALIVE_INTERVAL_MS = 3_000
 # the server's own CloseConnection before it is forgotten.
 CLOSING_LINGER_MS = 10_000
 
+# How often the server looks for announcements queued in the database by another process.
+ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
+
+# Group id of a server line sent to every player: the line shows in whatever room the player is
+# in; the id only names the group in the client's chat log file (0x5d2420).
+ANNOUNCEMENT_GROUP_ID = 0
+
 # The client sends to one peer at most every 250 ms (constructor argument 0xfa). Checking for due
 # retries at the same pace keeps the server's retries as punctual as the game's.
 HOUSEKEEPING_INTERVAL_SECONDS = 0.25
@@ -204,3 +348,49 @@ HOUSEKEEPING_INTERVAL_SECONDS = 0.25
 # The client picks its connection nonce as rand() % 255 + 1 (0x604404); the server does the same.
 CONNECTION_NONCE_MIN = 1
 CONNECTION_NONCE_MAX = 255
+
+# Limits against hostile or broken senders. All of them are this server's choice: the game stays
+# far below each, and each keeps one sender from using up the server's memory or time, or from
+# using the server to flood a third party whose address it forged.
+
+# Connections in total, and from one IP. Several players behind one router share an IP, so the
+# per IP limit leaves room for a LAN party.
+MAX_CONNECTIONS = 1000
+MAX_CONNECTIONS_PER_IP = 32
+
+# Datagrams per second from one address, as a token bucket: the game sends at most one block per
+# 250 ms plus acknowledgements, so a steady 50 per second with bursts of 200 is never reached.
+DATAGRAMS_PER_SECOND_PER_ADDRESS = 50
+DATAGRAM_BURST_PER_ADDRESS = 200
+
+# Messages in one datagram. The largest block the game sends joins its rooms and nine zones at once,
+# about a dozen messages.
+MAX_MESSAGES_PER_BLOCK = 256
+
+# How far ahead of the oldest missing block a client's block id may be. The game numbers its blocks
+# one by one and waits for acknowledgements, so it is never more than a few ahead; the window keeps
+# the memory for duplicate detection bounded.
+CLIENT_BLOCK_ID_WINDOW = 256
+
+# A client that leaves this many of the server's blocks unacknowledged is not reading them; the
+# connection ends instead of queueing more.
+MAX_UNACKNOWLEDGED_SERVER_BLOCKS = 256
+
+# A connection whose first block from the server is not acknowledged within this time ends. A real
+# game acknowledges within a second; an OpenConnection with a forged sender address never is, and
+# without this limit the server would keep sending retries to the forged address for a minute.
+UNCONFIRMED_CONNECTION_TIMEOUT_MS = 15_000
+
+# A warning about one sender is logged at most this often, so a flood cannot flood the log too.
+WARNING_INTERVAL_SECONDS = 10.0
+
+# Text a client sends for other clients to see (group names, descriptions, the map name inside a
+# game's description) is passed on only within these limits and without control characters. The
+# game's own dialogs stay well below them; the limits keep a crafted client from feeding the other
+# players' 1998 game clients oversized or unexpected input through this server.
+MAX_GROUP_TEXT_LENGTH = 64
+MAX_GROUP_DESCRIPTION_BYTES = 512
+MAX_CHAT_COMMAND_LENGTH = 256
+
+# Groups one player may have open at a time (games and chat groups it created).
+MAX_OPEN_GROUPS_PER_PLAYER = 4
