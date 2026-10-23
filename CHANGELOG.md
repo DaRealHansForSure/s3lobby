@@ -6,6 +6,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-24
+
 ### Added
 
 - Scripts for testing with the real game: `scripts/run-game-wine.sh` starts a copy under Wine in a
@@ -42,18 +44,15 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - Setting `ladder_enabled` (off until a run confirms it): ladder reports that can count are
   answered with "Game status stored at the Lobby server." instead of "not valid for ladder", the
   "not ranked" line goes, and players hear their result after the match.
-
 - A public page per player (`/players/NAME`): their ladder place and record, their rating over
   time, their place in running custom seasons, and the games the lobby saw them play with
   opponents, race, result and time of play. Names in the standings and the live lobby link to it.
-
 - The message board in an order admins choose: themes and messages are dragged into place
   (SortableJS, bundled with the web interface) or moved with Up and Down, new messages come
   first, and the server's ladder theme starts on top. Themes and messages can be hidden from the
   game; the server's own theme and messages can only be hidden, not removed (migration 0011).
   The game sorts a list's groups by their id (0x5db570), so each board theme's group id now holds
   its place on the board.
-
 - Admins act on players from the live lobby: each player has Message (a server line only that
   player sees, if online), Kick and Ban; `s3lobby announce TEXT --to NAME` does the same from the
   command line, and the Announcements page shows whom each line was for and whether it arrived
@@ -67,6 +66,20 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - Long lists in the admin area (accounts, games, ladder games) come in pages of 50; the accounts
   page has a name search.
 - `scripts/start.sh --follow` shows the lobby's log right after starting it.
+
+### Changed
+
+- The web interface is split: the live lobby and the ladder show everyone the same, and every admin
+  page lives under `/admin` with a start page of its own and a grouped navigation.
+- Forms line up on their labels, the settings are grouped into sections, and tables stay on one
+  line (short dates, the game type in one word, winners by name).
+- Putting a member into the clan it is in already keeps the date it joined.
+- A settings form that does not send a field keeps that setting's stored value.
+
+### Removed
+
+- The setting `board_chat_hint` and its server line: the MessageZone screen has no chat field
+  (seen in a run), so there is no chat there to warn about.
 
 ### Fixed
 
@@ -83,19 +96,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - A logon whose password holds one of the five bytes Windows-1252 leaves undefined (such as 0x81)
   is refused like any wrong code; hashing it raised an error before.
 
-### Removed
+### Key commits
 
-- The setting `board_chat_hint` and its server line: the MessageZone screen has no chat field
-  (seen in a run), so there is no chat there to warn about.
-
-### Changed
-
-- The web interface is split: the live lobby and the ladder show everyone the same, and every admin
-  page lives under `/admin` with a start page of its own and a grouped navigation.
-- Forms line up on their labels, the settings are grouped into sections, and tables stay on one
-  line (short dates, the game type in one word, winners by name).
-- Putting a member into the clan it is in already keeps the date it joined.
-- A settings form that does not send a field keeps that setting's stored value.
+- [`8a7b0a8`](https://github.com/DaRealHansForSure/s3lobby/commit/8a7b0a8) feat(ladder): evaluate ladder games once their reports are in
+- [`60db657`](https://github.com/DaRealHansForSure/s3lobby/commit/60db657) feat(web): give admins an area of their own under /admin
+- [`7ef29e7`](https://github.com/DaRealHansForSure/s3lobby/commit/7ef29e7) feat(logon): let the game's create player button make accounts
 
 ## [0.10.0] - 2026-10-23
 
@@ -399,7 +404,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - [`b76d102`](https://github.com/DaRealHansForSure/s3lobby/commit/b76d102) refactor: rework the lobby server into the s3lobby package
 - [`46582ce`](https://github.com/DaRealHansForSure/s3lobby/commit/46582ce) docs(protocol): move the lobby protocol document into the project
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.7.0...v0.8.0
