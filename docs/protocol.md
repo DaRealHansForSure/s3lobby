@@ -320,9 +320,12 @@ can be accepted as they come.
   0x20 game block, 0x40 description. **0x21** is the same with the 0x34 game block.
 - **0x10 RemoveGroupFromGroup**: u32 parent, u32 group id; size exactly 12.
 - **0x1a group counters** (handler 0x5d8580): u32 group id, u32 players, u32 maximum, u32 flags
-  (bit 0: full), for a group shown inside a group the client is in. The game list shows
-  "players/max" and marks full games (0x44b635); the client refuses to join a full game (0x4437c1,
-  text 0x900a6) and a full chat group (0x442cf2).
+  (bit 0: full), for a group shown inside a group the client is in. The handler stores them on the
+  listed group (CGroup.SetCounters 0x5dbf60, +0x78, +0x7c, +0x80) and ignores a group no joined
+  group lists (0x5d89c6). Only bit 0 of the flags is ever read (CGroup.IsFull 0x5db520), by the
+  game list (0x44ba9b), the chat group list (0x44745e) and the join refusals for a full game
+  (0x4437c1, text 0x900a6) and a full chat group (0x442cf2, before the password prompt); the client
+  never compares players with the maximum itself. The game list shows "players/max" (0x44b635).
 
 **Games, from opening to the match.** Read from the code (0x4547f6, 0x45506c, 0x45637f, 0x454c20)
 and partly seen in runs:
@@ -450,12 +453,22 @@ private address is shown to a receiver on the internet at the configured public 
   (0x60bbe0). It shows the title, an empty line, then the lines (0x4497ff). Without a list entry it
   shows "No message of the day present" (0x4497c3).
 - **0x1d GetImageList**: u32 group id, sent for joined groups with flag 0x4000000 (0x5d3261).
-  **0x1c** answers u32 group id, u32 n, n x (u32 banner id, u32 banner sub id, string url). Only
-  Home uses it, and only the last entry: when the banner id is not 0 and the pair differs from the
-  registry values BannerId and BannerSubId, the client downloads the url by anonymous FTP (it skips
-  the first six characters, "ftp://", and splits host and path at the first slash, 0x449938), saves
-  it as `Banner\Banner.png` and stores the pair (0x448998). Only Blue Byte's old FTP host got a
-  special login (0x465a0f).
+  **0x1c** answers u32 group id, u32 n (n <= 0 is an empty list, 0x5ec063), n x (u32 banner id,
+  u32 banner sub id, string url) (reader 0x5ec000). The client takes it only for a group it is in
+  and drops the connection otherwise (assert 'index != -1', 0x5d5258..0x5d5296), so s3lobby
+  answers only for a group the player is in. Only Home uses it (getter 0x5db560, called once at
+  0x4468aa), and only the last entry (0x44c620):
+  - banner id 0: nothing happens (0x449894);
+  - otherwise the pair is compared with the registry values BannerId and BannerSubId (0x5ebfd0),
+    never the url: a new picture needs a new id or sub id;
+  - the new pair is stored before the download ends (0x44998f), so a failed download is not
+    retried in that session (inferred), and saved again on success (0x448998), with the picture as
+    `Banner\Banner.png`;
+  - the url: the first six characters are skipped unchecked, the host runs to the first slash
+    after them, the path from there (0x46501f..0x465110). The client connects anonymously on port
+    21 (only Blue Byte's old host 193.158.243.3 got a special login, 0x4659fd..0x465a0f), with
+    flags 0, so in active mode (PORT). s3lobby therefore requires `ftp://HOST/PATH` without port or
+    user, and offers no banner while its id is 0.
 
 ### The ChatZone tab
 
@@ -492,6 +505,13 @@ listed in that language group are the themes; a theme's text id list (0x14) hold
 own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
 theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
 
+A client bug, not reachable from the server: the screen's group lookup (0x452390) returns the
+GameZone slot instead of the MessageZone's own group for level 0 (0x452455). That slot is always
+empty there (leaving the GameZone clears it, 0x452039), so chat typed on the board screen is
+silently not sent (0x443e4e), and a private chat invitation from there looks the invited player up
+in the client's first joined group instead (0x44532b, 0x44d664). The board itself uses levels 1
+and 2 (0x446cb0, 0x446d0a) and works.
+
 ### Other
 
 - **0x1f GameStatus** (Logic.SendGameStatus 0x540500, constructor 0x5ec280): a report on the
@@ -502,7 +522,9 @@ theme selected" (0x90059), for an empty theme "No messages for this selection" (
   manager's mark +0x675), u32 winning team (0xffffffff while more than one team is left: a team
   counts while it still owns something of the types 0xf, 0x10 or 0x12, 0x5406e7..0x540768;
   *inferred*: buildings), u32
-  game time (the game's tick counter, global 0x7dfd48), string map (the map file of the game
+  game time (the game's tick counter, global 0x7dfd48: one tick per 64 ms, the logic thread's
+  timer at 0x53d761, shown by the game's own clock as (ticks * 64) / 1000 seconds at 0x4b3fa2; it
+  stands still while the game waits for its players), string map (the map file of the game
   settings, +0x2c via 0x436a60), u32 n, then n records of six u32 per slot in the match
   (0x5ec316..0x5ec505):
 
@@ -575,7 +597,6 @@ and compare with the server's `--verbose` log):
   copies under Wine, 2026-10-23): chat between the two players in one chat group, a second player
   joining a game opened in that chat group, the host starting the match, both reporting it (start
   and winner, the same slots), and both coming back to the lobby while the server closes the game.
-- How long one tick of GameStatus's game time is.
 
 Not answerable from the game: what Blue Byte's server named the zone groups 30..38 and the rooms
 1..3. Only a recording of the original server would tell; s3lobby uses the names the client's own

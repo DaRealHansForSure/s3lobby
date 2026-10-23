@@ -415,7 +415,7 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertIn(f"Team 1, slot 0: {PLAYER_NAME} (Egyptians)", page)
         self.assertIn("Team 2, slot 1: Computer (Romans)", page)
         self.assertIn("ladder game, unranked here", page)
-        self.assertIn("40000", page)
+        self.assertIn("42 min 40 s", page)
 
     def test_games_list_shows_type_map_players_and_result(self) -> None:
         """Everything the lobby kept of a game: the host's setup from its announcement, who joined,
@@ -499,7 +499,7 @@ class GameDetailPageTest(WebInterfaceTestCase):
         for expected in (
             f"won by {ADMIN_NAME}",
             "Team 0 won",
-            "at game time 107",
+            "after 6 s of play",
             f'<a href="/accounts/{self.player.account_id}">{PLAYER_NAME}</a>',
             f'<td class="num">{self.player.account_id}</td>',
             "race drawn at random",

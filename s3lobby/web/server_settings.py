@@ -57,14 +57,14 @@ SETTING_FIELDS = (
     SettingField(
         Setting.BANNER_URL,
         "Banner URL",
-        "ftp:// address of the advert banner on the Home tab; the game fetches it by anonymous FTP. "
-        "Empty for no banner.",
+        "ftp://HOST/PATH of the advert banner on the Home tab, no port or user: the game fetches it "
+        "by anonymous active FTP on port 21. Empty for no banner.",
     ),
     SettingField(
         Setting.BANNER_ID,
         "Banner id",
-        "The game downloads the banner again only when this or the sub id changes: raise it after "
-        "replacing the picture.",
+        "Must not be 0, which the game ignores. The game downloads the banner again only when this or "
+        "the sub id changes, never for a new address alone: raise it after replacing the picture.",
     ),
     SettingField(Setting.BANNER_SUB_ID, "Banner sub id", "Second half of the banner's version."),
     SettingField(

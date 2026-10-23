@@ -30,6 +30,7 @@ from typing import Protocol, TypeVar
 from s3lobby.constants import (
     ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
+    NO_BANNER_ID,
     BOARD_FALLBACK_LANGUAGE,
     BOARD_LANGUAGES,
     BOARD_LANGUAGE_GROUP_ID_BASE,
@@ -614,9 +615,15 @@ class Lobby:
         # Only the Home tab shows an image: the banner, when one is configured. The game asks only
         # for groups it joined, so only after its logon; answering anyone else would let a forged
         # sender address turn a small request into a large answer to someone else.
-        if self._find_logged_on_player(client_address) is None:
+        player = self._find_logged_on_player(client_address)
+        if player is None:
             return
         request = GetImageList.decode(message)
+        if request.group_id not in player.group_ids:
+            # The game takes an image list only for a group it is in and drops the connection
+            # otherwise (0x5d5258..0x5d5296); a request that arrives after the player left the
+            # group gets no answer.
+            return
         images = ()
         banner = self._configured_banner()
         if request.group_id == HOME_GROUP_ID and banner is not None:
@@ -785,11 +792,14 @@ class Lobby:
         )
 
     def _configured_banner(self) -> ImageEntry | None:
+        """The banner to offer, or None: without a url, or with banner id 0, which the game
+        ignores (0x449894), Home does not ask for images at all."""
         url = self._database.get_setting(Setting.BANNER_URL)
-        if not url.startswith(BANNER_URL_PREFIX):
+        banner_id = self._database.get_integer_setting(Setting.BANNER_ID)
+        if not url.startswith(BANNER_URL_PREFIX) or banner_id == NO_BANNER_ID:
             return None
         return ImageEntry(
-            banner_id=self._database.get_integer_setting(Setting.BANNER_ID),
+            banner_id=banner_id,
             banner_sub_id=self._database.get_integer_setting(Setting.BANNER_SUB_ID),
             url=url,
         )
