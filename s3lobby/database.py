@@ -612,6 +612,22 @@ def with_reason(text: str, reason: str) -> str:
     return f"{text}. {NO_REASON_TEXT}"
 
 
+def moved_one_place(ids: list[int], item_id: int, is_up: bool) -> list[int]:
+    """The ids with one of them a place up or down; unchanged at either end or when it is missing."""
+    if item_id not in ids:
+        return ids
+    index = ids.index(item_id)
+    if is_up:
+        target = index - 1
+    else:
+        target = index + 1
+    if target < 0 or target >= len(ids):
+        return ids
+    reordered = list(ids)
+    reordered[index], reordered[target] = reordered[target], reordered[index]
+    return reordered
+
+
 def utc_now() -> datetime:
     """The current moment in UTC, the default clock of LobbyDatabase."""
     return datetime.now(timezone.utc)
@@ -1314,6 +1330,16 @@ class LobbyDatabase:
             for position, theme_id in enumerate(theme_ids):
                 self._backend.execute("UPDATE board_themes SET position = ? WHERE id = ?", (position, theme_id))
 
+    def move_board_theme(self, theme_id: int, is_up: bool) -> None:
+        """Move a theme one place up or down among its language's themes, the way the web
+        interface's Up and Down do; at either end it stays. Raises DatabaseError for an unknown theme."""
+        themes = self.list_board_themes()
+        theme = next((item for item in themes if item.theme_id == theme_id), None)
+        if theme is None:
+            raise DatabaseError(f"there is no board theme {theme_id}")
+        ids = [item.theme_id for item in themes if item.language == theme.language]
+        self.set_board_theme_order(moved_one_place(ids, theme_id, is_up))
+
     def set_board_theme_hidden(self, theme_id: int, is_hidden: bool) -> None:
         """Hide a theme from the game, or show it again; its messages stay as they are."""
         with self._backend.transaction():
@@ -1375,6 +1401,15 @@ class LobbyDatabase:
                     "UPDATE board_messages SET position = ? WHERE id = ? AND theme_id = ?",
                     (position, message_id, theme_id),
                 )
+
+    def move_board_message(self, message_id: int, is_up: bool) -> None:
+        """Move a message one place up or down in its theme; at either end it stays. Raises
+        DatabaseError for an unknown message."""
+        message = self.find_board_message(message_id)
+        if message is None:
+            raise DatabaseError(f"there is no board message {message_id}")
+        ids = [item.message_id for item in self.list_board_messages(message.theme_id)]
+        self.set_board_message_order(message.theme_id, moved_one_place(ids, message_id, is_up))
 
     def set_board_message_hidden(self, message_id: int, is_hidden: bool) -> None:
         """Hide a message from the game, or show it again."""

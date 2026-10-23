@@ -19,7 +19,8 @@ s3lobby is built around that weakness:
   and nothing else. An admin may switch the button on (setting `allow_create_player`); then a
   player chooses their own password (at least 8 characters, any case), which they may also use
   elsewhere and which crosses the network in plain text like every password of this game. Each
-  address creates at most a few accounts an hour, and the game never hears that a name is taken:
+  address creates at most three accounts at once, then one an hour, and the game never hears that
+  a name is taken:
   every refusal is the one for a wrong password.
 - **Codes are stored only as salted scrypt hashes** and can be revoked one by one. Give every PC
   its own code (`s3lobby account code NAME --label ...`) and revoke the one that leaked.
@@ -45,6 +46,8 @@ If you build your own lobby, launcher or service on this code or on its protocol
 ## Known limits
 
 - Access codes and chat cross the network in plain text (above).
+- The public player pages (`/players/NAME`) show each player's games: opponents, races, results
+  and when they played. Run the web interface on a LAN only if that should stay among the players.
 - On networks that allow forged sender addresses, someone who knows a logged on player's address
   and port can send datagrams that look like theirs, without seeing the answers. The server
   refuses lobby messages outside the game's numbered blocks (the game sends none, see

@@ -557,7 +557,7 @@ def report_flag_notes(flags: int) -> tuple[str, ...]:
     """The report's flags in words (GameStatusFlag); bits without a name are shown as a number."""
     notes = []
     if flags & GameStatusFlag.LADDER_GAME:
-        notes.append("ladder game, unranked here")
+        notes.append("ladder game")
     if flags & GameStatusFlag.NOT_VALID_FOR_LADDER:
         notes.append("not valid for the ladder")
     unknown_flags = flags & ~(GameStatusFlag.LADDER_GAME | GameStatusFlag.NOT_VALID_FOR_LADDER)
