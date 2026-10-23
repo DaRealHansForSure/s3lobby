@@ -52,7 +52,7 @@ another project; its history was carried over, so the early commits describe tha
 Run from this folder:
 
 - Tests: `python3 -m unittest`
-- Server and web interface together, in the background: `scripts/start.sh [--dev]`; stop both with
+- Server and web interface together, in the background: `scripts/start.sh [--dev] [--follow]` (`--follow` then shows the lobby's log as it grows); stop both with
   `scripts/stop.sh [--force]`. Datagrams go to `lobby.log`, console output to `lobby-console.log`
   and `web-console.log`.
 - Server alone: `python3 -m s3lobby serve --verbose --log-file lobby.log` (with `--log-file` the
