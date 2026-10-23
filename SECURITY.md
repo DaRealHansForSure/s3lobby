@@ -1,11 +1,5 @@
 # Security
 
-## Reporting a problem
-
-Please report security problems privately, through GitHub's "Report a vulnerability" button on
-the repository's Security tab, not in a public issue. Say what an attacker can do, how to
-reproduce it, and which version or commit you tried.
-
 ## The game sends its password in plain text
 
 **Read this before you run a server, and before you build anything on this project.**

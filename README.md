@@ -6,15 +6,13 @@
 
 **Bring the online lobby of the original The Settlers III back to life.**
 
-[![Tests](https://img.shields.io/github/actions/workflow/status/DaRealHansForSure/s3lobby/tests.yml?branch=main&style=flat&label=tests&logo=github)](https://github.com/DaRealHansForSure/s3lobby/actions/workflows/tests.yml)
-[![Release](https://img.shields.io/github/v/tag/DaRealHansForSure/s3lobby?style=flat&label=release&color=1b3a6b)](CHANGELOG.md)
-[![Last commit](https://img.shields.io/github/last-commit/DaRealHansForSure/s3lobby/develop?style=flat&color=1b3a6b)](https://github.com/DaRealHansForSure/s3lobby/commits/develop)
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?style=flat&logo=python&logoColor=white)
-![No dependencies](https://img.shields.io/badge/dependencies-none-17603f?style=flat)
-[![MIT License](https://img.shields.io/badge/license-MIT-17603f?style=flat)](LICENSE)
-![SQLite, MySQL, MariaDB](https://img.shields.io/badge/database-SQLite%20%7C%20MySQL%20%7C%20MariaDB-1b3a6b?style=flat)
-![UDP 3344](https://img.shields.io/badge/protocol-UDP%203344-6d5a10?style=flat)
-![The Settlers III](https://img.shields.io/badge/game-The%20Settlers%20III%20(1998)-dec470?style=flat)
+[![Release 0.10.0](https://img.shields.io/badge/release-0.10.0-1b3a6b?style=flat-square)](CHANGELOG.md)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?style=flat-square&logo=python&logoColor=white)
+![No dependencies](https://img.shields.io/badge/dependencies-none-17603f?style=flat-square)
+[![MIT License](https://img.shields.io/badge/license-MIT-17603f?style=flat-square)](LICENSE)
+![SQLite, MySQL, MariaDB](https://img.shields.io/badge/database-SQLite%20%7C%20MySQL%20%7C%20MariaDB-1b3a6b?style=flat-square)
+![UDP 3344](https://img.shields.io/badge/protocol-UDP%203344-6d5a10?style=flat-square)
+![The Settlers III](https://img.shields.io/badge/game-The%20Settlers%20III%20(1998)-dec470?style=flat-square)
 
 [Quick start](#quick-start) ·
 [Database](#choosing-a-database) ·
@@ -109,13 +107,15 @@ from Windows 10 in the LAN where noted:
   ("Warp"), another player joining it, playing the match, the match reports, coming back to the
   lobby (two copies of the game on one machine)
 - clans shown in the member lists, and a clan's row coloured by the server
+- a chat group with a password: opening it and its creator getting in
+- the chat commands `/who` and `/net`
 - server lines, and the web interface with every page
 - from Windows 10: logon, a chat group, a game opened from it and listed in a zone, a match with
   its reports, coming back, and the MessageZone with a board message read
 
-Implemented from the game's code, not yet tried with the real game: full games, joining a chat
-group with a password, the Home tab's news and statistics, the banner, the chat
-commands, and kicks and bans of players who are online.
+Implemented from the game's code, not yet tried with the real game: full games, another player
+joining a chat group with its password, the Home tab's news and statistics, the banner, the other
+chat commands, and kicks and bans of players who are online.
 
 Not tested yet with players on two machines: the game's own DirectPlay connection between them.
 
@@ -586,24 +586,6 @@ podman run -d --rm --name s3lobby-mysql -p 127.0.0.1:3306:3306 \
     -e MYSQL_USER=s3lobby -e MYSQL_PASSWORD=s3lobby docker.io/library/mysql:8.4
 S3LOBBY_TEST_DATABASE=mysql://s3lobby:s3lobby@127.0.0.1:3306/s3lobby_test .venv/bin/python -m unittest
 ```
-
-### Contributing
-
-Issues and pull requests are welcome. A few rules keep the project honest about a protocol nobody
-documented:
-
-- Every fact about the protocol cites where it comes from: an address in the game's executable, or
-  "seen in a run" with the real game. Guesses are marked as inferred, and `docs/protocol.md` is
-  updated together with the code.
-- Behaviour confirmed with the real game is not changed without new evidence from the game.
-- A new message gets a class with `encode` and `decode` and a round trip test; a new lobby
-  behaviour gets a session test that says what breaks in the game without it.
-- A schema change adds the next migration number to every folder in `s3lobby/schema/`; released
-  migration files are never edited.
-- Every function, method and class has a docstring that says what it is for, and why where that
-  is not obvious: whoever continues this work has to understand it from the code.
-- The server and the command line stay on the standard library.
-- Never commit game files, the game's executable, or recordings that contain them.
 
 ## Legal
 
