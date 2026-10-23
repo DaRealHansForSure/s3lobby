@@ -28,18 +28,18 @@
       <thead>
         <tr>
           <th>Name</th><th>Clan</th><th>Tab</th><th>In game or chat</th><th>Online since</th>
-          {% if admin %}<th>Address</th><th title="Whether other players can write to this player first">Reachable</th>{% endif %}
+          {% if show_admin_columns %}<th>Address</th><th title="Whether other players can write to this player first">Reachable</th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% for player in page.players %}
         <tr>
-          <td>{{ in_game_colour(player.name, player.row_colour) }}{% if admin and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
+          <td>{{ in_game_colour(player.name, player.row_colour) }}{% if show_admin_columns and player.is_admin %} <span class="badge badge--accent">admin</span>{% endif %}</td>
           <td>{{ in_game_colour(player.clan, player.row_colour) if player.clan else "-" }}</td>
           <td>{{ names(player.tab_names) }}</td>
           <td>{{ names(player.group_names) }}</td>
           <td>{{ player.logged_on_at | relative_moment }}</td>
-          {% if admin %}
+          {% if show_admin_columns %}
           <td class="num">{{ player.address }}</td>
           <td>{{ reachability_badge(player.reachability) }}</td>
           {% endif %}

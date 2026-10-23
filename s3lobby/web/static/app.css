@@ -246,3 +246,19 @@ a.tab { text-decoration: none; }
 a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
 .toolbar .form-actions { margin-top: 0; }
 .toolbar .field { margin-bottom: 0; }
+
+/* The admin area's navigation: groups named in small capitals before their pages, and a line
+   that sets the admin row apart from the public pages' one. */
+.app-nav-bar--admin { box-shadow: inset 0 -1px 0 var(--border); }
+.app-nav-group {
+  padding-block: var(--space-2);
+  font-size: var(--size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.app-nav-group:not(:first-child) { margin-left: var(--space-3); }
+/* The admin row has more pages than fit one line on a laptop: it wraps instead of scrolling, so
+   every group stays in sight. */
+.app-nav-bar--admin .app-nav { flex-wrap: wrap; column-gap: var(--space-4); row-gap: 0; }

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{# Every admin page: the admin area's own navigation, grouped by what it is about, and a way back
+   to the public pages. The public pages never show admin content, logged on or not. #}
+
+{% block brand %}<a class="brand" href="{{ url_for('admin_home.show_dashboard') }}">s3lobby <span class="badge badge--accent">Admin</span></a>{% endblock %}
+
+{% block admin_link %}<a class="btn btn--outline btn--sm" href="{{ url_for('lobby_view.live_lobby') }}">Public site</a>{% endblock %}
+
+{% block navigation %}
+{%- set nav_groups = [
+    ("Overview", [
+        ("dashboard", "admin_home.show_dashboard", "Start"),
+        ("admin_lobby", "admin_home.admin_lobby", "Lobby"),
+    ]),
+    ("People", [
+        ("accounts", "accounts.list_accounts", "Accounts"),
+        ("clans", "accounts.list_clans", "Clans"),
+    ]),
+    ("Content", [
+        ("news", "content.show_news", "News"),
+        ("chat_themes", "content.list_chat_themes", "Chat themes"),
+        ("board", "content.show_board", "Board"),
+        ("announcements", "server_settings.show_announcements", "Announcements"),
+    ]),
+    ("Play", [
+        ("games", "games.list_games", "Games"),
+        ("ladder_games", "ladder_admin.list_ladder_games", "Ladder"),
+    ]),
+    ("Server", [
+        ("settings", "server_settings.show_settings", "Settings"),
+    ]),
+] %}
+<div class="app-nav-bar app-nav-bar--admin">
+  <nav class="app-nav" aria-label="Admin sections">
+    {% for group, items in nav_groups %}
+    <span class="app-nav-group">{{ group }}</span>
+    {% for key, endpoint, label in items %}
+    <a href="{{ url_for(endpoint) }}"{% if active_nav == key %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+    {% endfor %}
+  </nav>
+</div>
+{% endblock %}

@@ -141,7 +141,7 @@ def log_on() -> str | Response | tuple[str, int]:
     session.permanent = True
     session[SESSION_TOKEN_KEY] = get_database().start_web_session(account.account_id, access_code_id)
     flash(f"Logged on as {account.name}.", "good")
-    return redirect(next_path or url_for("lobby_view.live_lobby"))
+    return redirect(next_path or url_for("admin_home.show_dashboard"))
 
 
 @blueprint.post("/logout")

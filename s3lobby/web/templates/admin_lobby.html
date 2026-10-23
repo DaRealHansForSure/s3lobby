@@ -1,0 +1,8 @@
+{% extends "admin_base.html" %}
+{% set active_nav = "admin_lobby" %}
+{% block title %}Lobby (admin){% endblock %}
+{% block content %}
+<div id="live-state" data-state-url="{{ url_for('admin_home.admin_lobby_state') }}">
+  {% include "_live_state.html" %}
+</div>
+{% endblock %}

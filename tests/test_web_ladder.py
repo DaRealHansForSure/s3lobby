@@ -60,14 +60,14 @@ class LadderPagesTest(WebInterfaceTestCase):
 
     def test_the_admin_page_needs_a_logon(self) -> None:
         """Visitors are sent to the logon page."""
-        self.assertEqual(self.client.get("/ladder/games").status_code, 302)
+        self.assertEqual(self.client.get("/admin/ladder/games").status_code, 302)
 
     def test_an_admin_decides_a_disputed_game(self) -> None:
         """The player's team wins by the admin's decision; the decision names the admin."""
         self.log_on()
-        page = self.client.get("/ladder/games").get_data(as_text=True)
+        page = self.client.get("/admin/ladder/games").get_data(as_text=True)
         self.assertIn("need a decision", page)
-        self.post(f"/ladder/games/{self.disputed_game}/decide", winner="1")
+        self.post(f"/admin/ladder/games/{self.disputed_game}/decide", winner="1")
         result = self.database.find_ladder_result(self.disputed_game)
         self.assertEqual(result.evaluation.state, LadderState.COUNTED)
         self.assertEqual(result.decided_by_name, self.admin.name)
@@ -75,7 +75,7 @@ class LadderPagesTest(WebInterfaceTestCase):
     def test_an_admin_voids_a_result(self) -> None:
         """Voiding keeps the reason given."""
         self.log_on()
-        self.post(f"/ladder/games/{self.counted_game}/void", reason="played on a broken map")
+        self.post(f"/admin/ladder/games/{self.counted_game}/void", reason="played on a broken map")
         result = self.database.find_ladder_result(self.counted_game)
         expected = (LadderState.VOID, "played on a broken map")
         self.assertEqual((result.evaluation.state, result.evaluation.reason), expected)
@@ -83,34 +83,34 @@ class LadderPagesTest(WebInterfaceTestCase):
     def test_a_decision_without_the_form_token_is_refused(self) -> None:
         """Every POST carries the CSRF token; without it nothing changes."""
         self.log_on()
-        self.client.post(f"/ladder/games/{self.counted_game}/void", data={"reason": "x"})
+        self.client.post(f"/admin/ladder/games/{self.counted_game}/void", data={"reason": "x"})
         self.assertEqual(self.database.find_ladder_result(self.counted_game).evaluation.state, LadderState.COUNTED)
 
     def test_seasons_are_created_edited_ended_and_deleted(self) -> None:
         """The season forms reach the database; the last day typed is included."""
         self.log_on()
-        self.post("/ladder/seasons", name="Autumn Cup", start="2026-10-01", end="2026-10-31", counts="liga")
+        self.post("/admin/ladder/seasons", name="Autumn Cup", start="2026-10-01", end="2026-10-31", counts="liga")
         season = self.database.find_ladder_season("Autumn Cup")
         self.assertEqual(season.ends_at, datetime(2026, 11, 1, tzinfo=timezone.utc))
-        self.post(f"/ladder/seasons/{season.season_id}", name="Herbst Cup", start="2026-10-01", end="", counts="both")
+        self.post(f"/admin/ladder/seasons/{season.season_id}", name="Herbst Cup", start="2026-10-01", end="", counts="both")
         changed = self.database.find_ladder_season("Herbst Cup")
         self.assertEqual((changed.ends_at, changed.counts), (None, SeasonCounts.BOTH))
-        self.post(f"/ladder/seasons/{season.season_id}/end")
+        self.post(f"/admin/ladder/seasons/{season.season_id}/end")
         self.assertIsNotNone(self.database.find_ladder_season("Herbst Cup").ends_at)
-        self.post(f"/ladder/seasons/{season.season_id}/delete")
+        self.post(f"/admin/ladder/seasons/{season.season_id}/delete")
         self.assertEqual(self.database.list_ladder_seasons(), [])
 
     def test_a_game_page_shows_its_ladder_result(self) -> None:
         """The game page says whether and how the game counted."""
         self.log_on()
-        page = self.client.get(f"/games/{self.disputed_game}").get_data(as_text=True)
+        page = self.client.get(f"/admin/games/{self.disputed_game}").get_data(as_text=True)
         self.assertIn("<h2>Ladder</h2>", page)
         self.assertIn("disputed", page)
 
     def test_a_bad_season_form_is_a_message(self) -> None:
         """A malformed date or a duplicate name comes back as a message, not an error page."""
         self.log_on()
-        response = self.post("/ladder/seasons", name="Cup", start="tomorrow", end="", counts="liga")
+        response = self.post("/admin/ladder/seasons", name="Cup", start="tomorrow", end="", counts="liga")
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.database.list_ladder_seasons(), [])
 

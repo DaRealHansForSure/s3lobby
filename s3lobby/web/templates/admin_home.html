@@ -1,0 +1,53 @@
+{% extends "admin_base.html" %}
+{% set active_nav = "dashboard" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Admin</h1>
+    <p>The lobby at a glance, and what waits for an admin. The public pages (the live lobby and the
+    ladder) show everyone the same; everything for admins is here.</p>
+  </div>
+  {% if not dashboard.lobby.is_running %}
+  <div class="note note--bad" role="status">The lobby server is not running{% if dashboard.lobby.written_at %}: it last wrote its lobby {{ dashboard.lobby.written_at | relative_moment }}{% endif %}.</div>
+  {% endif %}
+  {% if dashboard.disputed_count %}
+  <div class="note note--warn" role="status">{{ dashboard.disputed_count }} ladder game(s) need a decision.
+    <a href="{{ url_for('ladder_admin.list_ladder_games', state='disputed') }}">Decide</a></div>
+  {% endif %}
+  <div class="grid">
+    <div class="card"><h3>Players online</h3><div class="stat-number">{{ dashboard.lobby.players | length }}</div>
+      <p><a href="{{ url_for('admin_home.admin_lobby') }}">Lobby with addresses</a></p></div>
+    <div class="card"><h3>Open games</h3><div class="stat-number">{{ dashboard.lobby.games | length }}</div>
+      <p><a href="{{ url_for('games.list_games') }}">All games</a></p></div>
+    <div class="card"><h3>Accounts</h3><div class="stat-number">{{ dashboard.account_count }}</div>
+      <p>{{ dashboard.banned_count }} banned. <a href="{{ url_for('accounts.list_accounts') }}">Accounts</a></p></div>
+    <div class="card"><h3>Ladder</h3><div class="stat-number">{{ dashboard.disputed_count }}</div>
+      <p>disputed, {{ dashboard.waiting_count }} waiting, {{ dashboard.custom_season_count }} custom season(s) running.
+      {% if dashboard.is_ladder_enabled %}The game is told about results.{% else %}Off for the game (<a href="{{ url_for('server_settings.show_settings') }}">ladder_enabled</a>).{% endif %}</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Latest games</h2></div>
+  {% if dashboard.recent_games %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Game</th><th>Host</th><th>Opened</th><th>Players</th></tr></thead>
+      <tbody>
+        {% for game in dashboard.recent_games %}
+        <tr>
+          <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
+          <td>{{ game.host_name or "-" }}</td>
+          <td class="cell-time">{{ game.opened_at | relative_moment }}</td>
+          <td>{{ game.player_names | join(", ") or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No games yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
