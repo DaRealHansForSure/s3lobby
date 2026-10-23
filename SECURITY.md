@@ -52,5 +52,5 @@ If you build your own lobby, launcher or service on this code or on its protocol
   code the forger never sees. Ordinary actions (chat, joining, leaving) are not; closing that
   needs evidence from a recorded game session first, as it touches behaviour the real game
   relies on.
-- A connection to a MySQL server is not encrypted yet; keep the database on the same machine or
-  a trusted network.
+- A connection to a MySQL server on another machine should use `?tls=verify` (or `verify-ca` with
+  your own authority) in its location; without it, nobody checks whom the server talks to.

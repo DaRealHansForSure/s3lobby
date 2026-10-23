@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import ssl
 import sqlite3
 import time
 from abc import ABC, abstractmethod
@@ -26,7 +27,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,13 @@ MYSQL_CHARACTER_SET = "utf8mb4"
 # a lobby without players may not query for that long. A connection idle for longer than this is
 # checked, and opened again if the server dropped it, before the next query.
 MYSQL_IDLE_SECONDS_BEFORE_PING = 60.0
+# Encryption of a MySQL connection, from the location's query: tls=verify or tls=verify-ca, and
+# ca=PATH for the authority's certificate (MysqlLocation explains the modes).
+TLS_OPTION = "tls"
+CA_FILE_OPTION = "ca"
+TLS_VERIFY = "verify"
+TLS_VERIFY_CA = "verify-ca"
+TLS_MODES = frozenset({"", TLS_VERIFY, TLS_VERIFY_CA})
 # Only one process at a time may migrate the schema; the others wait this long for their turn.
 MYSQL_MIGRATION_LOCK_NAME = "s3lobby_schema_migration"
 MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS = 60
@@ -79,15 +87,37 @@ class WriteResult:
 
 @dataclass(frozen=True)
 class MysqlLocation:
+    """Where a MySQL database is. tls is "" for an unencrypted connection, TLS_VERIFY to check the
+    server's certificate and host name against the system's authorities (or ca_file), or
+    TLS_VERIFY_CA to check the certificate against ca_file only, for a server certificate made for
+    no particular host name, such as the one MySQL makes for itself."""
+
     host: str
     port: int
     user: str
     password: str
     database_name: str
+    tls: str = ""
+    ca_file: str = ""
 
     def describe(self) -> str:
         """The location without its password, for logs and error messages."""
-        return f"{MYSQL_LOCATION_PREFIX}{self.user}@{self.host}:{self.port}/{self.database_name}"
+        described = f"{MYSQL_LOCATION_PREFIX}{self.user}@{self.host}:{self.port}/{self.database_name}"
+        if self.tls:
+            return f"{described}?tls={self.tls}"
+        return described
+
+    def tls_context(self) -> ssl.SSLContext | None:
+        """The TLS settings for the connection, or None for an unencrypted one."""
+        if not self.tls:
+            return None
+        context = ssl.create_default_context(cafile=self.ca_file or None)
+        if self.tls == TLS_VERIFY_CA:
+            context.check_hostname = False
+            # Newer Pythons check certificates strictly and refuse the authority MySQL makes for
+            # itself (it lacks an Authority Key Identifier). The chain to ca_file is still checked.
+            context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        return context
 
 
 class DatabaseBackend(ABC):
@@ -175,8 +205,10 @@ def describe_location(location: str) -> str:
 
 
 def parse_mysql_location(location: str) -> MysqlLocation:
-    """Read mysql://user:password@host:port/name. The password may be left out of the location
-    and given in S3LOBBY_DATABASE_PASSWORD instead; special characters in it are percent-encoded."""
+    """Read mysql://user:password@host:port/name?tls=verify&ca=/path/ca.pem. The password may be
+    left out of the location and given in S3LOBBY_DATABASE_PASSWORD instead; special characters in
+    it are percent-encoded. Without tls the connection is not encrypted (MysqlLocation explains the
+    modes)."""
     parts = urlsplit(location)
     try:
         port = parts.port or DEFAULT_MYSQL_PORT
@@ -188,12 +220,21 @@ def parse_mysql_location(location: str) -> MysqlLocation:
     password = parts.password
     if password is None:
         password = os.environ.get(MYSQL_PASSWORD_VARIABLE, "")
+    options = parse_qs(parts.query)
+    tls = options.get(TLS_OPTION, [""])[-1]
+    ca_file = options.get(CA_FILE_OPTION, [""])[-1]
+    if tls not in TLS_MODES:
+        raise BackendError(f"tls must be {TLS_VERIFY} or {TLS_VERIFY_CA}, not {tls!r}")
+    if tls == TLS_VERIFY_CA and not ca_file:
+        raise BackendError(f"tls={TLS_VERIFY_CA} needs the authority's certificate: {CA_FILE_OPTION}=/path/ca.pem")
     return MysqlLocation(
         host=parts.hostname,
         port=port,
         user=unquote(parts.username),
         password=unquote(password),
         database_name=database_name,
+        tls=tls,
+        ca_file=ca_file,
     )
 
 
@@ -320,6 +361,7 @@ class MysqlBackend(DatabaseBackend):
                 # Report the rows an UPDATE matched, as SQLite does, not only those it changed.
                 client_flag=pymysql.constants.CLIENT.FOUND_ROWS,
                 cursorclass=pymysql.cursors.DictCursor,
+                ssl=location.tls_context(),
             )
         except pymysql.err.Error as error:
             raise BackendError(f"cannot connect to {location.describe()}: {error}") from error

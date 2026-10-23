@@ -154,6 +154,11 @@ export S3LOBBY_DATABASE_PASSWORD='...'
 s3lobby serve --database mysql://s3lobby@db.example.org:3306/s3lobby
 ```
 
+For a database on another machine, add `?tls=verify` to the location to encrypt the connection
+and check the server's certificate and host name, or `?tls=verify-ca&ca=/path/ca.pem` to check it
+against your own authority only (for example the `ca.pem` MySQL creates for itself). Without the
+option the driver may still encrypt, but never checks whom it talks to.
+
 The password may also be part of the location (`mysql://user:password@host/name`, special
 characters percent-encoded), but then it shows in process lists and shell history; the
 environment variable keeps it out. Logs and error messages never show it. The database must exist
