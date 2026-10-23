@@ -281,7 +281,7 @@ def add_clan_commands(commands: argparse._SubParsersAction, database_option: arg
     highlight = actions.add_parser(
         "highlight",
         parents=[database_option],
-        help="list the clan's members green in the game's member lists (not yet tried with the game)",
+        help="list the clan's members green in the game's member lists (blue for the clan BB)",
     )
     highlight.add_argument("name")
     highlight.set_defaults(admin_function=admin.highlight_clan)

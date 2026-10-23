@@ -82,15 +82,18 @@ Tested with the GOG "Ultimate Collection" (German, game version 1.60) under Wine
 
 - patch check, lobby server list and logon with accounts made on the server
 - the lobby rooms and the game zones, switching between them
-- opening a game, playing it, and coming back to the lobby
+- the ChatZone: chat themes, opening chat groups, chat between two players in one group
+- opening a game (in a zone or from a chat group), changing its setup, listing it in a zone
+  ("Warp"), another player joining it, playing the match, the match reports, coming back to the
+  lobby (two copies of the game on one machine)
+- clans shown in the member lists, and a clan's row coloured by the server
+- server lines, and the web interface with every page
 
-Implemented from the game's code, not yet tried with the real game: joining another player's game,
-games listed in several zones, full games, game settings updated during setup, chat groups with
-passwords, clans, the Home tab's news and statistics, the banner, the ChatZone, the MessageZone,
-the chat commands, match reports and the web interface.
+Implemented from the game's code, not yet tried with the real game: full games, joining a chat
+group with a password, the Home tab's news and statistics, the banner, the MessageZone, the chat
+commands, and kicks and bans of players who are online.
 
-Not tested yet with two real players on two machines: chat between players, joining another
-player's game, and the game's own DirectPlay connection between them.
+Not tested yet with players on two machines: the game's own DirectPlay connection between them.
 
 ## Quick start
 
@@ -234,7 +237,7 @@ same database:
 ```sh
 s3lobby clan add Romans
 s3lobby clan join Romans Alice
-s3lobby clan highlight Romans    # members who show the clan get a green row in the game; not yet tried with the game
+s3lobby clan highlight Romans    # members who show the clan get a green row in the game
 s3lobby news set --audience german --title "Willkommen" --file news-de.txt
 s3lobby news set --audience other --title "Welcome" --file news-en.txt
 s3lobby chat-theme add "General" --description "Talk about anything"
@@ -259,7 +262,7 @@ A line for every player in the running lobby, and a welcome line after each logo
 ```sh
 s3lobby announce "Server restart at 22:00"
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
-s3lobby setting set mark_admins true    # admins' rows in another colour; not yet tried with the game
+s3lobby setting set mark_admins true    # admins' rows green in the game's member lists
 s3lobby setting set board_chat_hint true  # tell players chat on the message board reaches nobody (a game bug)
 ```
 
