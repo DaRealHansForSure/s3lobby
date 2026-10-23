@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, action_button with context %}
+{% set active_nav = "ladder_games" %}
+{% block title %}Ladder games{% endblock %}
+
+{% macro state_badge(state) -%}
+{% if state == "counted" %}<span class="badge badge--good">counted</span>
+{%- elif state == "disputed" %}<span class="badge badge--warn">disputed</span>
+{%- elif state == "void" %}<span class="badge badge--bad">void</span>
+{%- else %}<span class="badge badge--accent">{{ state }}</span>{% endif %}
+{%- endmacro %}
+
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Ladder games</h1>
+    <p>Every ladder game the server evaluated. A disputed game counts for nobody until an admin
+    decides it; deciding or voiding recomputes every rating at once. The ladder's numbers are on the
+    <a href="{{ url_for('server_settings.show_settings') }}">Settings</a> page; everything here is also
+    <code>s3lobby ladder</code> on the command line.</p>
+  </div>
+  {% if counts["disputed"] %}
+  <div class="note note--warn" role="status">{{ counts["disputed"] }} game(s) need a decision: their players' reports disagree.</div>
+  {% endif %}
+</section>
+
+<nav class="tabs" aria-label="State">
+  {% for key in tabs %}
+  <a class="tab" href="{{ url_for('ladder_admin.list_ladder_games', state=key) }}"{% if key == tab %} aria-current="page"{% endif %}>{{ tab_labels[key] }}<span class="badge">{{ counts[key] }}</span></a>
+  {% endfor %}
+</nav>
+
+<form class="grid-12 toolbar" method="get" action="{{ url_for('ladder_admin.list_ladder_games') }}">
+  <input type="hidden" name="state" value="{{ tab }}">
+  <label class="field col-6">
+    <span class="label">Player or game</span>
+    <input class="input" type="search" name="q" value="{{ search }}">
+  </label>
+  <div class="form-actions col-3"><button class="btn btn--outline" type="submit">Search</button></div>
+</form>
+
+{% if waiting_games %}
+<section>
+  <div class="section-head"><h2>Waiting</h2>
+  <p>Ladder games without a result: still open, or waiting for their end reports until the timeout.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Opened</th><th>Game</th><th>State</th></tr></thead>
+      <tbody>
+        {% for game in waiting_games %}
+        <tr>
+          <td class="cell-time">{{ game.opened_at | moment }}</td>
+          <td><a href="{{ url_for('games.show_game', game_id=game.game_id) }}">{{ game.name }}</a></td>
+          <td>{{ state_badge("waiting") }} {% if game.closed_at %}closed {{ game.closed_at | relative_moment }}{% else %}open{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if tab != "waiting" %}
+<section>
+  <div class="section-head"><h2>Results</h2></div>
+  {% if rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Played</th><th>Game</th><th class="num">Minutes</th><th>Result</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="cell-time">{{ row.played_at | moment }}</td>
+          <td>
+            <a href="{{ url_for('games.show_game', game_id=row.game_id) }}">{{ row.game_name }}</a> <span class="badge">{{ row.ladder | capitalize }}</span>
+            <div class="muted">{% if row.winners %}{{ row.winners | join(", ") }} vs {{ row.losers | join(", ") }}{% else %}-{% endif %}</div>
+          </td>
+          <td class="num">{{ "%d" | format(row.minutes) }}</td>
+          <td>
+            {{ state_badge(row.state.value) }}
+            {% if row.state.value == "counted" and row.winners %}{{ row.winners | join(", ") }} won{% if row.left %}, {{ row.left | join(", ") }} left{% endif %}.{% endif %}
+            {% if row.reason %}<span class="muted">{{ row.reason }}</span>{% endif %}
+            {% if row.decided_by %}<div class="muted">by {{ row.decided_by }}</div>{% endif %}
+          </td>
+          <td class="cell-actions">
+            {% if row.state.value == "disputed" %}
+              {% for team, members in teams_by_game.get(row.game_id, []) %}
+                {{ action_button(url_for('ladder_admin.decide_game', game_id=row.game_id), members ~ " won", "btn--primary", {"winner": team}) }}
+              {% endfor %}
+            {% endif %}
+            {% if row.state.value != "void" %}
+            <details class="row-details">
+              <summary class="btn btn--outline btn--sm">Void</summary>
+              <form method="post" action="{{ url_for('ladder_admin.void_game', game_id=row.game_id) }}">
+                {{ csrf_field() }}
+                <label class="field"><span class="label">Reason</span><input class="input" type="text" name="reason" maxlength="200"></label>
+                <button class="btn btn--danger btn--sm" type="submit">Void this result</button>
+              </form>
+            </details>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No results here.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section>
+  <div class="section-head"><h2>Seasons</h2>
+  <p>The infinite season always runs and holds every counted result. Custom seasons count the
+  results between their dates and start everyone again; several may run at once.</p></div>
+  <div class="grid">
+    <div class="card season-card">
+      <div class="row"><h3>Infinite season</h3><span class="badge badge--accent">always</span></div>
+      <div class="muted">Every counted result, never reset.</div>
+    </div>
+    {% for card in seasons %}
+    <div class="card season-card">
+      <div class="row"><h3>{{ card.season.name }}</h3><span class="badge{% if card.state == 'running' %} badge--good{% endif %}">{{ card.state }}</span></div>
+      <div class="muted">{{ card.start_text }}{% if card.end_text %} to {{ card.end_text }}{% else %}, until an admin ends it{% endif %}; counts {{ card.season.counts.value }}</div>
+      {% if card.progress is not none %}
+      <div class="cell-bar"><svg class="bar bar--wide" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-track" width="100" height="8"></rect><rect class="bar-fill" width="{{ card.progress }}" height="8"></rect></svg><span class="num">{{ card.progress }} %</span></div>
+      {% endif %}
+      <details class="row-details">
+        <summary class="btn btn--outline btn--sm">Edit</summary>
+        <form method="post" action="{{ url_for('ladder_admin.edit_season', season_id=card.season.season_id) }}">
+          {{ csrf_field() }}
+          <label class="field"><span class="label">Name</span><input class="input" type="text" name="name" value="{{ card.season.name }}" maxlength="64" required></label>
+          <label class="field"><span class="label">First day</span><input class="input" type="date" name="start" value="{{ card.start_text }}" required></label>
+          <label class="field"><span class="label">Last day</span><input class="input" type="date" name="end" value="{{ card.end_text }}"><span class="hint">Empty: runs until an admin ends it.</span></label>
+          <label class="field"><span class="label">Counts</span><select class="select" name="counts">{% for choice in counts_choices %}<option{% if choice == card.season.counts.value %} selected{% endif %}>{{ choice }}</option>{% endfor %}</select></label>
+          <button class="btn btn--primary btn--sm" type="submit">Save</button>
+        </form>
+      </details>
+      <div class="row season-actions">
+        {% if card.state == "running" %}{{ action_button(url_for('ladder_admin.end_season', season_id=card.season.season_id), "End now") }}{% endif %}
+        {{ action_button(url_for('ladder_admin.delete_season', season_id=card.season.season_id), "Delete", "btn--danger") }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>New custom season</h2></div>
+  <form class="card" method="post" action="{{ url_for('ladder_admin.create_season') }}">
+    {{ csrf_field() }}
+    <div class="form-grid form-grid--top">
+      <label class="field"><span class="label">Name</span><input class="input" type="text" name="name" maxlength="64" required></label>
+      <label class="field"><span class="label">Counts</span><select class="select" name="counts">{% for choice in counts_choices %}<option{% if choice == "both" %} selected{% endif %}>{{ choice }}</option>{% endfor %}</select></label>
+      <label class="field"><span class="label">First day</span><input class="input" type="date" name="start" required></label>
+      <label class="field"><span class="label">Last day</span><input class="input" type="date" name="end"><span class="hint">Empty: runs until an admin ends it.</span></label>
+    </div>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Create season</button></div>
+  </form>
+</section>
+{% endblock %}

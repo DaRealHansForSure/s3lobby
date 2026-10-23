@@ -24,6 +24,29 @@
   </div>
 </section>
 
+{% if ladder_result %}
+<section>
+  <div class="section-head"><h2>Ladder</h2></div>
+  <div class="scroll-x">
+    <table class="table table--facts">
+      <tbody>
+        <tr><th>Ladder</th><td>{{ ladder_result.ladder | capitalize }}</td></tr>
+        <tr><th>State</th><td>
+          {% if ladder_result.state.value == "counted" %}<span class="badge badge--good">counted</span>
+          {%- elif ladder_result.state.value == "disputed" %}<span class="badge badge--warn">disputed</span>
+          {%- else %}<span class="badge badge--bad">void</span>{% endif %}
+          {% if ladder_result.reason %}{{ ladder_result.reason }}{% endif %}
+          {% if ladder_result.decided_by %}<span class="muted">(by {{ ladder_result.decided_by }})</span>{% endif %}
+        </td></tr>
+        {% if ladder_result.winners %}<tr><th>Winners</th><td>{{ ladder_result.winners | join(", ") }}</td></tr>{% endif %}
+        {% if ladder_result.left %}<tr><th>Left the match</th><td>{{ ladder_result.left | join(", ") }}</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+  <p class="meta"><a href="{{ url_for('ladder_admin.list_ladder_games') }}">Ladder games</a>: decide or void it there.</p>
+</section>
+{% endif %}
+
 <section>
   <div class="section-head"><h2>Match</h2></div>
   <div class="scroll-x">

@@ -12,7 +12,7 @@
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
-{%- set nav_items = [("lobby", "lobby_view.live_lobby", "Lobby")] %}
+{%- set nav_items = [("lobby", "lobby_view.live_lobby", "Lobby"), ("ladder", "ladder_public.show_ladder", "Ladder")] %}
 {%- if admin %}
   {%- set nav_items = nav_items + [
       ("accounts", "accounts.list_accounts", "Accounts"),
@@ -23,6 +23,7 @@
       ("announcements", "server_settings.show_announcements", "Announcements"),
       ("settings", "server_settings.show_settings", "Settings"),
       ("games", "games.list_games", "Games"),
+      ("ladder_games", "ladder_admin.list_ladder_games", "Ladder games"),
   ] %}
 {%- endif %}
 <header class="site-header">

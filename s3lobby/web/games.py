@@ -25,8 +25,9 @@ from s3lobby.constants import (
     MessageType,
     Race,
 )
-from s3lobby.database import GameRecord, GameReportRecord
+from s3lobby.database import GameRecord, GameReportRecord, LobbyDatabase
 from s3lobby.groups import game_description_of, game_settings_of
+from s3lobby.ladder_book import LadderBook, ResultRow
 from s3lobby.messages import GameStatus, GroupAnnouncement, MatchReportPlayer
 from s3lobby.web.auth import redirect_visitors_to_logon
 from s3lobby.web.lobby_view import NO_PLAYER_LIMITS
@@ -249,7 +250,18 @@ def show_game(game_id: int) -> str:
         decided_report=decided_report,
         teams=teams_of(final_report),
         winner_names=winner_names(final_report),
+        ladder_result=ladder_result_of(database, record),
     )
+
+
+def ladder_result_of(database: LobbyDatabase, record: GameRecord) -> ResultRow | None:
+    """What the ladder made of a ladder game, None for a normal game or one without a result yet."""
+    if not record.ladder_type:
+        return None
+    for row in LadderBook(database).result_rows():
+        if row.game_id == record.game_id:
+            return row
+    return None
 
 
 def first_report_with_winner(reports: list[ReportRow]) -> ReportRow | None:
