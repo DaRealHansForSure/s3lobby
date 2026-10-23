@@ -2,9 +2,8 @@
 
 Lobby server for the online lobby of the original The Settlers III (Blue Byte, 1998). It replaces
 Blue Byte's long dead `siedler3svr.bluebyte.de:3344` so unmodified copies of the game can use their
-built-in lobby again. Open source project in a repository of its own. It began in `tools/s3lobby/`
-of another repository; its history was carried over from there, so the early commits
-describe that layout.
+built-in lobby again. Open source project in a repository of its own. It began as a subfolder of
+another project; its history was carried over, so the early commits describe that layout.
 
 ## Layout
 
@@ -118,8 +117,8 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
   its own key through `.git/ssh_config` (core.sshCommand); GitHub refused that key until the
   owner adds it to the account, and the key needs `ssh-add` for its passphrase.
 - Run commands from the repository folder without a `cd` prefix, and stay inside this folder
-  unless the owner says otherwise (the game's installation folder is
-  read only, for looking up addresses).
+  unless the owner says otherwise (the game's own installation folder, which `build/lobby/re.py`
+  reads, is read only and only for looking up addresses).
 
 ## Continuing in a new session
 
