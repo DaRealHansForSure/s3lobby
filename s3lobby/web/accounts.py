@@ -14,16 +14,17 @@ from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
 
-from flask import Blueprint, abort, flash, redirect, render_template, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.commands import kick_reason
-from s3lobby.constants import DEFAULT_BAN_HOURS, MAX_BAN_HOURS, MIN_BAN_HOURS
+from s3lobby.constants import DEFAULT_BAN_HOURS, MAX_BAN_HOURS, MAX_GROUP_TEXT_LENGTH, MIN_BAN_HOURS
 from s3lobby.database import MAX_BAN_REASON_LENGTH, Account, Clan, DatabaseError, Setting, is_whole_number_text, utc_now
 from s3lobby.groups import game_row_colour
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.games import games_of_account
 from s3lobby.web.lobby_view import online_player_names
+from s3lobby.web.paging import pagination_from_request
 from s3lobby.web.storage import apply_change, get_database, sentence_from_error
 from s3lobby.web.texts import form_flag, form_text
 
@@ -50,13 +51,16 @@ class AccountRow:
 
 @blueprint.get("/accounts")
 def list_accounts() -> str:
-    """The accounts page: every account with its clan, whether it is online or banned, and its row colour."""
+    """The accounts page: one page of the accounts (?q= searches their names) with each one's clan,
+    whether it is online or banned, and its row colour."""
     database = get_database()
+    search = request.args.get("q", "").strip()[:MAX_GROUP_TEXT_LENGTH]
+    pagination = pagination_from_request(database.count_accounts(search))
     online_names = online_player_names()
     now = utc_now()
     marks_admins = database.get_boolean_setting(Setting.MARK_ADMINS)
     rows = []
-    for account in database.list_accounts():
+    for account in database.list_accounts_page(search, pagination.size, pagination.offset):
         clan = database.find_clan_of_account(account.account_id)
         rows.append(
             AccountRow(
@@ -67,7 +71,7 @@ def list_accounts() -> str:
                 row_colour=account_row_colour(account, clan, marks_admins),
             )
         )
-    return render_template("accounts.html", rows=rows)
+    return render_template("accounts.html", rows=rows, search=search, pagination=pagination)
 
 
 def account_row_colour(account: Account, clan: Clan | None, marks_admins: bool) -> str:

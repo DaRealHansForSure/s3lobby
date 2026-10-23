@@ -318,3 +318,6 @@ a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--ac
 
 /* A link drawn as a button (Ban, Public site, Message) reads as a button, not as a link. */
 a.btn { text-decoration: none; }
+
+/* Previous and next under a long list. */
+.pager { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }

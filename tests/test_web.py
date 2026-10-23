@@ -515,6 +515,21 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertIn("vendor/Sortable.min.js", page)
         self.assertNotIn(f"/admin/board/messages/{message.message_id}/delete", page)
 
+    def test_long_lists_come_in_pages_and_accounts_can_be_searched(self) -> None:
+        """A lobby with hundreds of accounts or games shows them 50 at a time; a page number past
+        the end shows the last page, and a search keeps its words across pages."""
+        for number in range(60):
+            self.database.create_account(f"Player{chr(ord('A') + number // 26)}{chr(ord('a') + number % 26)}")
+        first = self.client.get("/admin/accounts").get_data(as_text=True)
+        self.assertIn("Page 1 of 2 (62 in all)", first)
+        last = self.client.get("/admin/accounts?page=999").get_data(as_text=True)
+        self.assertIn("Page 2 of 2", last)
+        self.assertEqual(self.client.get("/admin/accounts?page=x").status_code, HTTP_OK)
+        found = self.client.get("/admin/accounts?q=playerb").get_data(as_text=True)
+        self.assertIn("PlayerBa", found)
+        self.assertNotIn("PlayerAa", found)
+        self.assertIn('No account matches "100%"', self.client.get("/admin/accounts?q=100%25").get_data(as_text=True))
+
     def test_one_invalid_setting_saves_none(self) -> None:
         """A settings form with one invalid value saves none of its values; a valid form saves them all, and
         an unticked box saves as off."""

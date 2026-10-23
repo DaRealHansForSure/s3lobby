@@ -31,13 +31,13 @@ from s3lobby.ladder_book import LadderBook, ResultRow
 from s3lobby.messages import GameStatus, GroupAnnouncement, MatchReportPlayer
 from s3lobby.web.auth import redirect_visitors_to_logon
 from s3lobby.web.lobby_view import NO_PLAYER_LIMITS, map_text
+from s3lobby.web.paging import pagination_from_request
 from s3lobby.web.storage import get_database
 from s3lobby.wire import ProtocolError, RawMessage, readable_text
 
 blueprint = Blueprint("games", __name__)
 blueprint.before_request(redirect_visitors_to_logon)
 
-RECENT_GAME_COUNT = 100
 # Games listed on an account's page, newest first.
 ACCOUNT_GAME_COUNT = 50
 RECENT_REPORT_COUNT = 100
@@ -144,17 +144,26 @@ def list_games() -> str:
     """The games page: the recent games and the recent match reports, each decoded as far as it goes."""
     database = get_database()
     account_names = {account.account_id: account.name for account in database.list_accounts()}
-    games = database.list_recent_games(RECENT_GAME_COUNT)
+    pagination = pagination_from_request(database.count_games())
+    games = database.list_recent_games(pagination.size, pagination.offset)
     game_names = {game.game_id: game.name for game in games}
-    # Newest first for the report list; describe_game sorts each game's own reports oldest first.
-    reports = [
+    # Each game on this page is described from its own reports; describe_game sorts them oldest first.
+    own_reports = [
         describe_report(report, account_names, game_names)
-        for report in database.list_recent_game_reports(RECENT_REPORT_COUNT)
+        for report in database.list_reports_of_games([game.game_id for game in games])
     ]
+    # The newest reports of the whole lobby, newest first, on the first page only.
+    recent_reports = []
+    if not pagination.has_previous:
+        recent_reports = [
+            describe_report(report, account_names, game_names)
+            for report in database.list_recent_game_reports(RECENT_REPORT_COUNT)
+        ]
     return render_template(
         "games.html",
-        games=[describe_game(game, reports) for game in games],
-        reports=reports,
+        games=[describe_game(game, own_reports) for game in games],
+        reports=recent_reports,
+        pagination=pagination,
     )
 
 

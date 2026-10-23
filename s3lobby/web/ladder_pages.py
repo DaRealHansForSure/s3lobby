@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from werkzeug.wrappers import Response
 
-from s3lobby.constants import LADDER_TOP_COUNT, LadderState, LadderType, SeasonCounts
+from s3lobby.constants import LADDER_TOP_COUNT, MAX_GROUP_TEXT_LENGTH, LadderState, LadderType, SeasonCounts
 from s3lobby.database import Account, Clan, DatabaseError, LobbyDatabase, Setting
 from s3lobby.ladder import (
     FORM_LEFT,
@@ -37,6 +37,7 @@ from s3lobby.ladder_book import (
 )
 from s3lobby.web.accounts import account_row_colour
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
+from s3lobby.web.paging import pagination_from_request
 from s3lobby.web.storage import get_database, sentence_from_error
 from s3lobby.web.texts import form_text
 
@@ -50,7 +51,6 @@ CLANS_VIEW = "clans"
 VIEWS = (LIGA, CLANLIGA, CLANS_VIEW)
 VIEW_LABELS = {LIGA: "Liga", CLANLIGA: "Clanliga", CLANS_VIEW: "Clan strength"}
 RECENT_RESULT_COUNT = 10
-ADMIN_RESULT_COUNT = 200
 # The admins' state tabs; "waiting" are games without a result yet.
 WAITING_TAB = "waiting"
 ALL_TAB = "all"
@@ -193,7 +193,7 @@ def list_ladder_games() -> str:
     tab = request.args.get("state", ALL_TAB)
     if tab not in STATE_TABS:
         tab = ALL_TAB
-    search = request.args.get("q", "").strip().lower()
+    search = request.args.get("q", "").strip()[:MAX_GROUP_TEXT_LENGTH]
     all_rows = book.result_rows()
     waiting_games = database.list_unresolved_ladder_games()
     counts = {state.value: 0 for state in (LadderState.COUNTED, LadderState.DISPUTED, LadderState.VOID)}
@@ -202,13 +202,18 @@ def list_ladder_games() -> str:
     counts[WAITING_TAB] = len(waiting_games)
     counts[ALL_TAB] = len(all_rows) + len(waiting_games)
 
-    rows = []
+    matching = []
     if tab != WAITING_TAB:
-        rows = [row for row in all_rows if tab == ALL_TAB or row.state.value == tab]
+        matching = [row for row in all_rows if tab == ALL_TAB or row.state.value == tab]
         if search:
-            rows = [row for row in rows if search in searchable_text(row)]
-        rows = rows[:ADMIN_RESULT_COUNT]
-    show_waiting = tab in (WAITING_TAB, ALL_TAB)
+            matching = [row for row in matching if search.lower() in searchable_text(row)]
+    # Every result is loaded for the counts anyway, so the page is a slice of them.
+    pagination = pagination_from_request(len(matching))
+    rows = pagination.slice(matching)
+    show_waiting = tab in (WAITING_TAB, ALL_TAB) and not pagination.has_previous
+    page_params = {"state": tab}
+    if search:
+        page_params["q"] = search
     return render_template(
         "ladder_games.html",
         tab=tab,
@@ -219,6 +224,8 @@ def list_ladder_games() -> str:
         rows=rows,
         waiting_games=waiting_games if show_waiting else [],
         teams_by_game=disputed_teams(database, rows),
+        pagination=pagination,
+        page_params=page_params,
     )
 
 

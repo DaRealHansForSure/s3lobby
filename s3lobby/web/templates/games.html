@@ -1,5 +1,5 @@
 {% extends "admin_base.html" %}
-{% from "_macros.html" import names %}
+{% from "_macros.html" import names, pager %}
 {% set active_nav = "games" %}
 {% block title %}Games{% endblock %}
 
@@ -48,6 +48,7 @@
       </tbody>
     </table>
   </div>
+  {{ pager(pagination, 'games.list_games') }}
   {% else %}
   <p class="empty-state">No games yet.</p>
   {% endif %}
