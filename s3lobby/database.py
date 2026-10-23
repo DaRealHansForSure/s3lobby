@@ -9,6 +9,7 @@
 - lobby sessions and games, for the statistics table on the Home tab
 - the game reports clients send after a match
 - settings, such as the player limit or the welcome message
+- announcements queued for the running server, and the server's live lobby for the web interface
 
 Accounts are only ever created on the server side (the command line today, a web interface later).
 The game's own "create player" button is refused at logon.
@@ -31,12 +32,14 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
+from s3lobby.live import LiveLobbyState, StoredLiveState
+
 IN_MEMORY_DATABASE = ":memory:"
 # The file holds access code hashes and player data: readable and writable by its owner only.
 DATABASE_FILE_MODE = 0o600
 
 # Bump together with a new entry in SCHEMA_UPGRADES whenever the schema changes.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_UPGRADES = {
     1: """
@@ -131,6 +134,14 @@ SCHEMA_UPGRADES = {
             text TEXT NOT NULL,
             created_at TEXT NOT NULL,
             sent_at TEXT
+        );
+    """,
+    # The running server's lobby as JSON (s3lobby/live.py), one row, for the web interface to show.
+    3: """
+        CREATE TABLE live_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            snapshot TEXT NOT NULL,
+            written_at TEXT NOT NULL
         );
     """,
 }
@@ -315,6 +326,10 @@ class LobbyDatabase:
         self._connection = sqlite3.connect(str(path))
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
+        if str(path) != IN_MEMORY_DATABASE:
+            # Write-ahead logging lets the web interface read while the server writes, instead of
+            # one waiting for the other. The setting is stored in the file.
+            self._connection.execute("PRAGMA journal_mode = WAL")
         self._upgrade_schema()
 
     def close(self) -> None:
@@ -666,6 +681,32 @@ class LobbyDatabase:
             for row in rows:
                 connection.execute("UPDATE pending_announcements SET sent_at = ? WHERE id = ?", (sent_at, row["id"]))
         return [row["text"] for row in rows]
+
+    # The running server's lobby, for the web interface.
+
+    def write_live_state(self, state: LiveLobbyState) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO live_state (id, snapshot, written_at) VALUES (1, ?, ?) "
+                "ON CONFLICT (id) DO UPDATE SET snapshot = excluded.snapshot, written_at = excluded.written_at",
+                (state.to_json(), to_stored_time(self._clock())),
+            )
+
+    def read_live_state(self) -> StoredLiveState | None:
+        """The state last written, or None when no server ever wrote one or its text is unreadable."""
+        row = self._connection.execute("SELECT snapshot, written_at FROM live_state WHERE id = 1").fetchone()
+        if row is None:
+            return None
+        try:
+            state = LiveLobbyState.from_json(row["snapshot"])
+        except ValueError:
+            return None
+        return StoredLiveState(state=state, written_at=from_stored_time(row["written_at"]))
+
+    def clear_live_state(self) -> None:
+        """The server stops: nobody is online any more."""
+        with self._transaction() as connection:
+            connection.execute("DELETE FROM live_state")
 
     # Statistics for the Home tab.
 

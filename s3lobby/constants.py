@@ -337,6 +337,13 @@ CLOSING_LINGER_MS = 10_000
 # How often the server looks for announcements queued in the database by another process.
 ANNOUNCEMENT_POLL_INTERVAL_SECONDS = 1.0
 
+# How often the server writes its live lobby (s3lobby/live.py) to the database when it changed, and
+# how often it writes it unchanged, as a sign of life. The web interface takes a state older than
+# LIVE_STATE_STALE_SECONDS as a server that is not running.
+LIVE_STATE_WRITE_INTERVAL_SECONDS = 1.0
+LIVE_STATE_HEARTBEAT_SECONDS = 10.0
+LIVE_STATE_STALE_SECONDS = 30.0
+
 # Group id of a server line sent to every player: the line shows in whatever room the player is
 # in; the id only names the group in the client's chat log file (0x5d2420).
 ANNOUNCEMENT_GROUP_ID = 0
