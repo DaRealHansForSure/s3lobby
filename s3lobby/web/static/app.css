@@ -301,3 +301,17 @@ a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--ac
 .settings-group h2 { font-size: var(--size-lg); margin-bottom: var(--space-4); }
 /* A form grid that may use the whole width of its card, for a section of many short fields. */
 .form-grid--wide { max-width: none; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
+
+/* The message board: themes and messages in the game's order, moved by a handle. */
+.board-theme-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.board-theme-head h3 { margin-bottom: 0; }
+.board-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-left: auto; }
+.cell-handle { width: var(--space-5); }
+/* A grip of dots, drawn by the font: the braille block every system font has. */
+.drag-handle { cursor: grab; color: var(--text-muted); user-select: none; }
+.drag-handle::before { content: "\2807"; }
+.drag-handle:hover { color: var(--text); }
+.is-hidden h3,
+.is-hidden > td { color: var(--text-muted); }
+/* SortableJS marks the place an item is dragged to. */
+.sortable-ghost { opacity: 0.4; }

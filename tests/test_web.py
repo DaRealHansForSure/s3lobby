@@ -472,6 +472,30 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         [message] = self.database.list_board_messages(theme.theme_id)
         self.assertEqual((message.title, message.author), ("Cup", ADMIN_NAME))
 
+    def test_board_order_hiding_and_the_server_s_theme(self) -> None:
+        """Drag order arrives as ids; Up and Down work without script; the server's theme and its
+        messages can be hidden but not removed, and its page offers no Remove for them."""
+        theme = self.database.add_board_theme("English", "News")
+        first = self.database.post_board_message(theme.theme_id, "First", "body")
+        second = self.database.post_board_message(theme.theme_id, "Second", "body")
+        order_path = f"/admin/board/themes/{theme.theme_id}/messages/order"
+        response = self.post(order_path, ids=f"{first.message_id},{second.message_id}")
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual([m.title for m in self.database.list_board_messages(theme.theme_id)], ["First", "Second"])
+        self.post(f"/admin/board/messages/{second.message_id}/move", direction="up")
+        self.assertEqual([m.title for m in self.database.list_board_messages(theme.theme_id)], ["Second", "First"])
+        self.assertEqual(self.post("/admin/board/themes/order", ids="1,x").status_code, HTTP_BAD_REQUEST)
+
+        server_theme = self.database.add_board_theme("English", "Ladder", is_server_written=True)
+        message = self.database.post_board_message(server_theme.theme_id, "Week", "body", is_by_server=True)
+        self.post(f"/admin/board/messages/{message.message_id}/hidden", hidden="true")
+        self.assertTrue(self.database.find_board_message(message.message_id).is_hidden)
+        self.post(f"/admin/board/themes/{server_theme.theme_id}/delete")
+        self.assertIn("Ladder", [item.name for item in self.database.list_board_themes()])
+        page = self.client.get("/admin/board").get_data(as_text=True)
+        self.assertIn("vendor/Sortable.min.js", page)
+        self.assertNotIn(f"/admin/board/messages/{message.message_id}/delete", page)
+
     def test_one_invalid_setting_saves_none(self) -> None:
         """A settings form with one invalid value saves none of its values; a valid form saves them all, and
         an unticked box saves as off."""
