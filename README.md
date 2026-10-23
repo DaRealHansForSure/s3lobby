@@ -252,6 +252,7 @@ A line for every player in the running lobby, and a welcome line after each logo
 s3lobby announce "Server restart at 22:00"
 s3lobby setting set welcome_message "Welcome to our LAN lobby!"
 s3lobby setting set mark_admins true    # admins' rows in another colour; not yet tried with the game
+s3lobby setting set board_chat_hint true  # tell players chat on the message board reaches nobody (a game bug)
 ```
 
 In the game, players can type `/who`, `/clan` and `/help` into the chat. Admins also have

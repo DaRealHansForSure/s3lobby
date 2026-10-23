@@ -19,6 +19,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- Setting `board_chat_hint` (off by default): a player who opens the MessageZone hears once per
+  logon that chat typed there reaches nobody, a bug of the game itself.
 - `scripts/stop.sh` stops every running lobby server and web interface cleanly, `--force`
   kills what still runs after ten seconds.
 - `s3lobby serve --dev`: every account also logs on with the password `1234`, from this machine

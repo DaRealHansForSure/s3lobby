@@ -30,6 +30,7 @@ from typing import Protocol, TypeVar
 from s3lobby.constants import (
     ANNOUNCEMENT_GROUP_ID,
     BANNER_URL_PREFIX,
+    BOARD_CHAT_HINT_TEXT,
     NO_BANNER_ID,
     BOARD_FALLBACK_LANGUAGE,
     BOARD_LANGUAGES,
@@ -167,6 +168,7 @@ class Player:
     logged_on_at: datetime = field(default_factory=utc_now)
     group_ids: set[int] = field(default_factory=set)
     visible_groups: set[VisibleGroup] = field(default_factory=set)
+    has_heard_board_chat_hint: bool = False
 
 
 class Lobby:
@@ -738,8 +740,20 @@ class Lobby:
         self._send_counters_to_viewers(group)
         if group.group_id == HOME_GROUP_ID:
             self._send_home_page(player)
+        if group.group_id == MESSAGE_ZONE_GROUP_ID:
+            self._tell_about_board_chat(player)
         if is_board_theme_group(group.group_id):
             self._send_board_message_ids(player, group.group_id - BOARD_THEME_GROUP_ID_BASE)
+
+    def _tell_about_board_chat(self, player: Player) -> None:
+        """Once per logon, when the setting asks for it: chat typed on the message board reaches
+        nobody (see BOARD_CHAT_HINT_TEXT)."""
+        if player.has_heard_board_chat_hint:
+            return
+        if not self._database.get_boolean_setting(Setting.BOARD_CHAT_HINT):
+            return
+        player.has_heard_board_chat_hint = True
+        self._outbox.send(player.address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([BOARD_CHAT_HINT_TEXT])))
 
     def _tell_about_ladder(self, group: Group, players: Iterable[Player]) -> None:
         """Blue Byte's server ranked ladder games; this one keeps no ladder, so a ladder game
