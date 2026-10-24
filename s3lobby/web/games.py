@@ -127,7 +127,7 @@ class GameRow:
     match_started_at: datetime | None = None
     outcome_text: str = ""
     reports: tuple[ReportRow, ...] = field(default=())
-    # Who won, by name ("Greta won"), for the list; empty while the match is undecided.
+    # Who won, by name ("DirkR won"), for the list; empty while the match is undecided.
     winner_text: str = ""
     # The game type in one word for the list: Normal, Liga or Clanliga.
     type_text: str = ""
