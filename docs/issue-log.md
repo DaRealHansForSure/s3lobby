@@ -160,6 +160,19 @@ A run that restarts the server while a game sits in each tab would show the whol
 
 ## Tools and tests
 
+### 2026-10-24: the Info screenshot shows the owner's home folder
+
+- **Seen:** the README's Info picture showed the demo database as an absolute path, and with it
+  the user name of the machine that took the pictures. Published with 0.12.0.
+- **Cause:** the screenshot script gave the web interface the database's absolute path, and the
+  Info page shows the location as it was given.
+- **Fix:** `47285db`: the script opens the database by its bare file name and refuses to take a
+  picture of a page that shows the home folder. The history of `main`, `develop` and the tags
+  v0.12.0 and v0.12.1 was rewritten so every Info picture in it is the clean one, and
+  force-pushed to both remotes.
+- **Evidence:** every blob of `docs/images/info-*.png` reachable from main, develop and the tags is
+  one of the two new pictures.
+
 ### 2026-10-24: a README picture shows a stopped server
 
 - **Seen:** retaking the screenshots before a merge, the account page lost Jin's "online" badge,
