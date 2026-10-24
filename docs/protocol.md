@@ -651,8 +651,13 @@ answered with 0x26 for an admin). An earlier server line warning about board cha
   host when opening the game or when an UpdateGroup with a new description turns it into a ladder
   game, a joiner when joining. With it on, a ladder report that can count (two teams, no computer
   opponents, not marked invalid by the game) gets 0x6c, and the players hear the result once every
-  report is in (*inferred* that the game shows 0x6c as intended: untried). The description decides, as the host rewrites it on every change of the setup;
-  the game block keeps the choice made when the game was opened.
+  report is in (*inferred* that the game shows 0x6c as intended: untried). Players take part only
+  in the ladders they joined (docs/ladder.md): with the setting on, a report from a game whose
+  players are not all members of a ladder it could count in gets 0x6a as well; a player who joins
+  such a game hears once "You have not joined the Liga (Clanliga) ..." instead of the "not ranked"
+  line, and after the match the players hear "Ladder: GAME does not count (NAME had not joined
+  ...)". The description decides, as the host rewrites it on every change of the setup; the game
+  block keeps the choice made when the game was opened.
 
 ## Session sequence
 

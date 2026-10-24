@@ -168,24 +168,29 @@ Rules that keep clans fair:
 
 ### Seasons
 
-- **The infinite season** always runs: every counted result since the ladder started, never reset.
+- **The infinite season** always runs: every counted result of its Liga and Clanliga members since
+  the ladder started, never reset.
   It is the ladder players see by default, in the game and on the web.
 - **Custom seasons** are created by admins whenever they like: a name, a start, an end (or none
   until an admin ends it), and which ladders count (Liga, Clanliga or both). Examples: a "Winter
   Cup" for December, a weekend tournament, a Clanliga season for the summer. In a custom season
-  everyone starts at the start value and only that season's results count. Several custom seasons
-  may run at the same time; one match then counts in each of them and in the infinite season.
+  everyone starts at the start value and only that season's results count, of the players who
+  joined it. Several custom seasons may run at the same time; one match then counts in each of
+  them, and in the infinite season, that every player in it joined.
 - Admins can rename a custom season, move its dates, end it early or delete it. An ended season
   stays readable with its final standings and champions.
 
 Because ratings are derived, a season is only a filter on the results; nothing is copied or reset
-in the database, and a season created afterwards for past dates shows its standings at once.
+in the database. A season created afterwards for past dates still shows nothing for them: a
+membership starts when the player joins, and a result counts only when every player was a member
+when it was played.
 
 ## 3. What the players see
 
 - **During the match**, unchanged from the game's point of view: the answer to an end report is
-  0x6c ("stored") when the report itself passes the rules above, 0x6a when it cannot count
-  (computer opponents, wrong slot count, flag 2). Whether the result then counts is decided after
+  0x6c ("stored") when the report itself passes the rules above, 0x6a when it cannot count:
+  `ladder_enabled` off, computer opponents, not exactly two teams, flag 2, or players in the game
+  who are not all members of a ladder it could count in. Whether the result then counts is decided after
   the other reports arrived, which the game cannot wait for.
 - **Back in the lobby**, a server line to the players of the match: "Liga: Alice beats Bob, 1016 ->
   1032 (Bob 984 -> 968)", "Clanliga: Romans beat Amazons, 1012 -> 1028", or why it did not count.
@@ -198,9 +203,10 @@ in the database, and a season created afterwards for past dates shows its standi
   "Online now" on the Ladder page), `/results` (the player's own last five results with their
   rating changes), `/vs NAME` (the player's own record against one player), `/pending` (the
   player's ladder games waiting for reports or disputed) and `/ladder rules` (the board's info
-  message as chat lines). `/results` and `/vs` only ever show the asking player's own record
-  (owner's decision).
-- **Home tab:** the news text can end with the infinite season's top five players and clans. The game
+  message as chat lines, always in English). `/results` and `/vs` cover the Liga and only ever
+  show the asking player's own record (owner's decision).
+- **Home tab:** the news text can end with the infinite season's Liga top five, the running custom
+  seasons, the member counts and a `/ladder join` hint. The game
   fetches it once per logon, so it shows the standings as of the logon (protocol.md,
   GetTextMessage).
 - **Web interface:** a public page `/ladder` like the live lobby, with tabs Liga, Clanliga and
@@ -227,17 +233,20 @@ because the game picks the news by its language (0x45351b) and the board by its 
   a custom season starting (name, dates, what counts), a custom season ending (final top five and
   the champion of Liga and Clanliga), and a weekly summary (best climber, most matches, longest
   winning run, the top five). The newest `ladder_board_messages` (default 20) are kept, older ones
-  are deleted. A run on Windows 10 showed the board and its messages working. The theme starts on
+  are deleted, except the info message ("How the ladder works"), which the server keeps on top,
+  rewrites in place when its text changes, and never prunes. A run on Windows 10 showed the board
+  and its messages working. The theme starts on
   top of its language's board (migration 0011); admins may move it, and hide it or its messages,
   but not remove them, since the server would only write them again.
 - **The news (Home tab), for the current state.** The admins' news text stays as they wrote it; with
   `ladder_news_standings` on, the server appends a short block when it hands out the text: the top
-  five of the infinite season and the running custom seasons with their end. The game fetches the
+  five of the infinite season, the running custom seasons with their end, the member counts and
+  how to join. The game fetches the
   news once per logon, so a player sees the state of their logon, which is what news is.
 - **Server lines, for the moment.** The line after a match (above), and with `ladder_logon_line` on,
-  one line at logon: "Liga: 1043, place 6. Autumn Cup until 30 Nov: place 3." Off by default,
+  one line at logon: "Liga: 1043, place 6 of 20. Autumn Cup: place 3 of 8." Off by default,
   because a line at every logon is noise for players who do not play the ladder; it is only sent
-  to players with a ladder result.
+  to players with a place in the infinite season's Liga, which takes a current membership.
 - **Announcements to everyone online** only for the end of a custom season ("Autumn Cup is over:
   Jin wins with 1088"), since that is the one event everyone should hear at once.
 
@@ -247,6 +256,9 @@ out, and the match line and the web page already carry it.
 ## 4. What admins can do
 
 - See every ladder game with its state: counted, disputed, void, with the reason.
+- See and change who is in which ladder: the page Ladder > Members (`/admin/ladder/members`), Join
+  and Take out on each account's page, and `s3lobby ladder join|leave NAME [--ladder LADDER]` and
+  `s3lobby ladder members`.
 - Decide a disputed result (pick the winner) or void a counted one, in the web interface and with
   `s3lobby ladder decide|void GAME_ID`; ratings follow at once because they are derived.
 - Manage custom seasons on the web and with `s3lobby ladder season add NAME --start DATE
@@ -323,15 +335,18 @@ project:
   byline the server puts in front of every board message when it sends it (author and date); the
   server's `text_message` would otherwise drop the last lines to stay within 1200 bytes.
 - **Once per event:** each board message and announcement is stored with its event, so a restart
-  never posts it twice and a crash in the middle never posts half.
+  never posts it twice and a crash in the middle never posts half. The info message is the one
+  exception: it is rewritten in place, found again by its title.
 - **Chat commands** (`/rank`, `/top`, `/clanrank`, `/seasons`, `/season`, `/ladder`, `/opponents`,
   `/results`, `/vs`, `/pending`) get a rate limit per player, their
   arguments are cut to `MAX_GROUP_TEXT_LENGTH`, and the answers go through `fit_answer`. Ratings are
   computed once per change and cached, so a burst of commands costs no recomputation.
 - **Housekeeping** (the report timeout, the weekly summary, season ends) runs guarded like the
   other housekeeping steps, so a database failure in one cannot stop the rest.
-- **Web:** the public `/ladder` page shows only names, clans, ratings and results, all of which the
-  live lobby already shows. The public player pages (`/players/NAME`) also list each player's
+- **Web:** the public `/ladder` page shows names, clans, ratings and results, each ladder's
+  members ("Who takes part") and the Liga members online with their ratings ("Online now"); the
+  live lobby already shows who is online. The public player pages, which also list a player's
+  ladders, (`/players/NAME`) also list each player's
   games with opponents, races, results and times of play. Addresses, access codes and reports'
   raw bytes stay on admin pages.
   Every admin form carries `csrf_field()`, every admin blueprint redirects visitors, and the pages
@@ -343,10 +358,12 @@ The lobby runs with and without the web interface, and the ladder must too. Anyo
 should be able to build their own pages, bots or tools on it. So:
 
 - **The logic is a module of its own,** `s3lobby/ladder.py`, standard library only like the server:
-  evaluating a game into a result, computing ratings from results (`compute_ratings(results,
-  settings)`, a pure function), standings per season, clan strength, and building the generated
-  texts. The server, the command line and the web interface all call it; none of them holds
-  ladder rules of its own.
+  evaluating a game into a result, who was in which ladder when (`LadderRoll`, `counting_ladders`),
+  computing ratings from results (`compute_ratings(results, settings, season, roll)`, a pure
+  function; without a roll every counted result counts), dropping ratings from earlier memberships
+  (`keep_current_memberships`), standings per season and clan strength. The generated texts are
+  in `s3lobby/ladder_texts.py`. The server, the command line and the web interface all call them;
+  none of them holds ladder rules of its own.
 - **Players need no web page:** results, standings and seasons reach them in the game through the
   match line, the chat commands, the board and the news.
 - **Every admin action has a command,** the web pages are only a second way to the same functions:
@@ -359,26 +376,32 @@ should be able to build their own pages, bots or tools on it. So:
   s3lobby ladder standings [--season NAME] [--ladder liga|clanliga|clans]
   s3lobby ladder stats [--season NAME] [--of races|maps]
   s3lobby ladder season list|add|edit|end|delete ...
+  s3lobby ladder join NAME [--ladder liga|clanliga|SEASON]
+  s3lobby ladder leave NAME [--ladder liga|clanliga|SEASON]
+  s3lobby ladder members
   s3lobby setting set ladder_minimum_minutes 15
   ```
 
-- **Machine readable output for other tools:** `ladder standings`, `ladder results` and
-  `ladder stats` take `--format text|json|csv`. The JSON carries a `format` number
+- **Machine readable output for other tools:** `ladder standings`, `ladder results`,
+  `ladder stats` and `ladder members` take `--format text|json|csv`. The JSON carries a `format` number
   (`LADDER_JSON_FORMAT`, now 1) that changes whenever a change would break a reader, and the
   season it covers (`name`, and `starts_at`, `ends_at` as ISO 8601 UTC, both null for the infinite
   season). Then, per command:
   - `standings`: `ladder` (liga, clanliga or clans) and `standings`, a list of `place`, `side_id`
     (account or clan id), `name`, `clan_name`, `rating`, `last_change`, `results`, `won`, `lost`,
-    `left`, `is_provisional`, `last_played_at`.
+    `left`, `is_provisional`, `last_played_at`. With `--ladder clans` the key is `clans` instead,
+    each with `clan_id`, `name`, `strength` and `members`.
   - `results`: `results`, newest first, each with `game_id`, `game_name`, `ladder`, `state`,
     `reason`, `played_at`, `minutes`, `winners`, `losers` and `left` (lists of names) and
     `decided_by`.
   - `stats`: `races` (`race`, `played`, `won`, `win_rate` in percent) and `maps` (`map`, `played`,
     `average_minutes`); a random map's name starts with a backslash, as the game reports it.
-- **The data is plain tables** (`ladder_results`, `ladder_result_players`, `ladder_seasons`, below)
-  in SQLite or MySQL, documented with their columns, so a tool may also read the database directly,
-  as the web interface does with the live lobby. Ratings are not stored; a tool computes them with
-  `compute_ratings` or takes them from the JSON.
+  - `members`: `members`, each with `ladder`, `name` and `joined_at`, and no season block.
+- **The data is plain tables** (`ladder_results`, `ladder_result_players`, `ladder_seasons`,
+  `ladder_memberships`, and `games.is_ladder_skipped`, below) in SQLite or MySQL, documented with
+  their columns, so a tool may also read the database directly, as the web interface does with the
+  live lobby. Ratings are not stored; a tool computes them with `compute_ratings` and a
+  `LadderRoll` of the memberships, then `keep_current_memberships`, or takes them from the JSON.
 
 ## 5. Database (migration 0010 for every dialect, 0013 and 0015)
 
@@ -398,6 +421,8 @@ should be able to build their own pages, bots or tools on it. So:
   its opponents' ratings replay exactly as they were played.
 - `ladder_results.map_name` (migration 0013): the map the reports name, for the statistics per
   map; results stored before keep an empty name.
+- Results stored before migration 0015 count for nobody: they were played before anyone joined a
+  ladder, and a membership starts when the player joins.
 - `ladder_memberships` (migration 0015): account, ladder (`liga`, `clanliga` or `season` with the
   season's id), joined at, left at (null while still in it). A season's memberships go with it.
   `games.is_ladder_skipped` marks a ladder game that counted in no ladder.
@@ -425,7 +450,8 @@ styles, so the real pages can take them over into `app.css` as they are.
 ## Building it in steps
 
 1. **Evaluate silently.** With `ladder_enabled` off the server keeps answering 0x6a and sending the
-   "not ranked" line, but evaluates every ladder game into `ladder_results`. The admin pages show
+   "not ranked" line, but evaluates every ladder game whose players all joined a ladder it counts
+   in into `ladder_results`; the others only get `games.is_ladder_skipped`. The admin pages show
    the outcome, so the rules can be checked against real matches first. A run has to confirm the
    open points below.
 2. **Standings.** Liga and Clanliga ratings, clan strength, the infinite season and custom seasons, the public
@@ -440,7 +466,8 @@ styles, so the real pages can take them over into `app.css` as they are.
 
 All four steps are built (2026-10-23). The weekly summary covers the last full week, Monday to
 Sunday in UTC; an event older than a week (a season created afterwards for past dates, a ladder
-switched on long after a season ended) is noted without a text.
+switched on long after a season ended) is noted without a text. The lobby's texts (step 4,
+including the info message) are written only while `ladder_enabled` is on.
 
 ## To confirm in a run first
 
