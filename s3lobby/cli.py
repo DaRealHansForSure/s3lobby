@@ -200,6 +200,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_announce_command(commands, database_option)
     add_web_command(commands, database_option)
     add_database_commands(commands, database_option)
+    # s3lobby info: the installation at a glance, as the web interface's Info page shows it.
+    info = commands.add_parser(
+        "info", parents=[database_option], help="version, database, server and the lobby's numbers"
+    )
+    info.add_argument(
+        "--format", choices=admin.INFO_FORMATS, default=admin.INFO_TEXT_FORMAT, help="default: %(default)s"
+    )
+    info.set_defaults(admin_function=admin.show_info)
     return parser
 
 

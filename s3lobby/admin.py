@@ -9,7 +9,9 @@ administration command can use the same database at the same time.
 from __future__ import annotations
 
 import argparse
-from datetime import timedelta
+import json
+from dataclasses import asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from s3lobby.commands import kick_reason
@@ -25,7 +27,13 @@ from s3lobby.database import (
     is_built_in_chat_theme_name,
     utc_now,
 )
+from s3lobby.server_info import collect_server_info
 
+
+# s3lobby info --format: text for people, JSON for tools.
+INFO_TEXT_FORMAT = "text"
+INFO_JSON_FORMAT = "json"
+INFO_FORMATS = (INFO_TEXT_FORMAT, INFO_JSON_FORMAT)
 
 # board move-theme and move-message: the directions, and which kind of board item a command acts on.
 MOVE_UP = "up"
@@ -374,6 +382,47 @@ def list_settings(database: LobbyDatabase, options: argparse.Namespace) -> None:
 
 
 # The database itself.
+
+
+def show_info(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Print the installation at a glance, as the web interface's Info page shows it: text for
+    people, JSON (--format json) for tools."""
+    info = collect_server_info(database)
+    if options.format == INFO_JSON_FORMAT:
+        print(json.dumps(asdict(info), default=json_time, indent=2, ensure_ascii=False))
+        return
+    # The software, the database and the server.
+    state = "running" if info.is_running else "not running"
+    lines = [
+        f"s3lobby {info.version}, Python {info.python_version}, {info.system}",
+        f"Database: {info.database} ({info.dialect}), schema version {info.schema_version}, "
+        f"{info.pending_migration_count} migration(s) pending",
+        f"Server: {info.server_name or '-'} {state}",
+    ]
+    # The lobby's numbers.
+    lines += [
+        f"Players: {info.players_online} online, {info.players_last_hour} in the last hour, "
+        f"{info.players_last_day} in the last day",
+        f"Games: {info.games_open} open, {info.games_last_hour} in the last hour, {info.games_last_day} in the "
+        f"last day, {info.game_count} in all, {info.report_count} report(s)",
+        f"Accounts: {info.account_count} ({info.admin_count} admin(s), {info.banned_count} banned), "
+        f"{info.clan_count} clan(s)",
+        f"Content: {info.chat_theme_count} chat theme(s), {info.permanent_group_count} permanent group(s), "
+        f"{info.board_theme_count} board theme(s) with {info.board_message_count} message(s)",
+        f"Ladder: {info.counted_result_count} counted, {info.disputed_result_count} disputed, "
+        f"{info.void_result_count} void",
+    ]
+    lines += [f"  {members.ladder}: {len(members.names)} member(s)" for members in info.ladder_members]
+    # The settings worth knowing at a glance.
+    lines += [f"{key} = {'on' if is_on else 'off'}" for key, is_on in info.settings]
+    print("\n".join(lines))
+
+
+def json_time(value: object) -> str:
+    """What json cannot write itself: times as ISO 8601."""
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    raise TypeError(f"{type(value).__name__} is not JSON")
 
 
 def show_database_status(database: LobbyDatabase, options: argparse.Namespace) -> None:

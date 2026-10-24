@@ -90,6 +90,7 @@ def create_app(
         SESSION_COOKIE_SECURE=secure_cookies,
         S3LOBBY_HTTPS_ONLY=secure_cookies,
         S3LOBBY_DEVELOPMENT_MODE=is_development_mode,
+        S3LOBBY_BEHIND_PROXY=is_behind_proxy,
     )
     if is_development_mode:
         log.warning(

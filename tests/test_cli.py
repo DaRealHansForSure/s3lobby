@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from s3lobby import __version__
 from s3lobby.cli import EXIT_FAILURE, EXIT_SUCCESS, configure_logging, main
 from s3lobby.database import ACCESS_CODE_LENGTH, LobbyDatabase, Setting
 
@@ -157,6 +159,13 @@ class CommandLineTest(unittest.TestCase):
         _, listing, _ = self.run_command("chat-theme", "list")
         self.assertNotIn("Looking for a game", listing)
         self.assertEqual(self.run_command("chat-theme", "add-group", "Nowhere", "Chat")[0], EXIT_FAILURE)
+
+    def test_info_prints_the_installation_as_text_and_json(self) -> None:
+        """s3lobby info shows what the web interface's Info page shows, also as JSON for tools."""
+        _, text, _ = self.run_command("info")
+        self.assertIn("schema version", text)
+        _, output, _ = self.run_command("info", "--format", "json")
+        self.assertEqual(json.loads(output)["version"], __version__)
 
     def test_board_order_and_hiding_work_without_the_web(self) -> None:
         """Every admin action of the web interface exists as a command too: moving and hiding board

@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from s3lobby import __version__
 from s3lobby.constants import (
     DEVELOPMENT_PASSWORD,
     FIRST_GAME_GROUP_ID,
@@ -489,6 +490,13 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.assertIn('badge badge--bad" title="The setting', self.client.get("/admin/chat-themes").get_data(as_text=True))
         self.post(f"/admin/chat-themes/groups/{group.group_row_id}/delete")
         self.assertNotIn(group, self.database.list_permanent_chat_groups())
+
+    def test_the_info_page_shows_version_schema_and_settings(self) -> None:
+        """The admins' Info page: the version, the schema version and the settings worth knowing."""
+        page = self.client.get("/admin/info").get_data(as_text=True)
+        self.assertIn(__version__, page)
+        self.assertIn(f">{self.database.schema_version}<", page)
+        self.assertIn("permanent_chat_groups", page)
 
     def test_text_the_game_cannot_show_is_refused(self) -> None:
         """A chat theme with a character outside the game's code page is refused, and the page says why."""

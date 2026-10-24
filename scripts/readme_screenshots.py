@@ -127,6 +127,7 @@ def readme_shots(accounts: dict[str, int]) -> list[Shot]:
         Shot("game-details", "/admin/games/1", True),
         Shot("account", f"/admin/accounts/{accounts['Jin']}", True),
         Shot("clans", "/admin/clans", True),
+        Shot("info", "/admin/info", True),
     ]
 
 
