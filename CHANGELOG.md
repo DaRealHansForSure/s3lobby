@@ -8,6 +8,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- Permanent chat groups: with the setting `permanent_chat_groups` (off until a run with the game
+  confirms it) every chat theme keeps chat groups open, marked "[Server]", that never close and
+  that players join to chat at once. Each theme starts with one named after it (General too);
+  admins add and remove them on the Chat themes page or with `s3lobby chat-theme add-group` and
+  `remove-group` (migration 0016).
 - `s3lobby board move-theme|move-message ID up|down` and `hide-theme`, `show-theme`,
   `hide-message`, `show-message`: the board's order and visibility from the command line, as on
   the web; `board list` marks hidden and server-written themes.

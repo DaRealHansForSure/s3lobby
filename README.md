@@ -314,7 +314,10 @@ The ChatZone always lists the theme "General", which cannot be changed or remove
 the theme it was in last as soon as the tab opens and fails if it is gone. A new lobby also starts
 with a Meeting Room, a Beginners room and one room per language (Deutsch, English, Français,
 Italiano, Polski, Español), each shown only to games of that language; admins may remove them. The
-game names its language when it connects. On the board, new messages come first, and the
+game names its language when it connects. With the setting `permanent_chat_groups` on, each
+theme also keeps chat groups open, marked "[Server]", so players can chat at once instead of
+opening a group first: one named after the theme to begin with, more on the Chat themes page or
+with `s3lobby chat-theme add-group THEME NAME` (`remove-group ID`, ids from `chat-theme list`). On the board, new messages come first, and the
 server's own Liga theme starts on top; it can be hidden but not removed.
 
 The Home tab shows the news for the game's language (German, or the other text for every other

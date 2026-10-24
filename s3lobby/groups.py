@@ -30,6 +30,9 @@ from s3lobby.constants import (
     JOINED_GROUP_PARENT_ID,
     MAX_GROUP_DESCRIPTION_BYTES,
     MAX_GROUP_TEXT_LENGTH,
+    PERMANENT_CHAT_GROUP_DESCRIPTION,
+    PERMANENT_CHAT_GROUP_FLAGS,
+    PERMANENT_CHAT_GROUP_NAME_PREFIX,
     UNLIMITED_PLAYERS,
     GroupFlag,
     LadderType,
@@ -78,6 +81,9 @@ class Group:
     installation_by_serial: dict[str, int] = field(default_factory=dict)
     # A chat theme for the games of one language is shown only to them; ALL_LANGUAGES for every game.
     language: str = ALL_LANGUAGES
+    # A chat group the server keeps open (setting permanent_chat_groups): it never closes when
+    # empty, and no player can take it out of its theme.
+    is_permanent: bool = False
 
     def installation_of(self, serial_number: str) -> int:
         """The number of the game installation with this serial number within this game."""
@@ -178,6 +184,21 @@ def room_announcement(group_id: int, name: str, flags: int = 0, description_text
         max_players=0,
         name=name,
         second_text=description_text,
+        third_text="",
+    )
+
+
+def permanent_chat_group_announcement(group_id: int, name: str) -> GroupAnnouncement:
+    """A chat group the server keeps open, announced as the game announces a chat group a player
+    opens without a password, its name marked so players see it is the server's."""
+    return GroupAnnouncement(
+        message_type=MessageType.ADD_GROUP_TO_GROUP_2,
+        parent_id=JOINED_GROUP_PARENT_ID,
+        group_id=group_id,
+        flags=PERMANENT_CHAT_GROUP_FLAGS,
+        max_players=UNLIMITED_PLAYERS,
+        name=(PERMANENT_CHAT_GROUP_NAME_PREFIX + name)[:MAX_GROUP_TEXT_LENGTH],
+        second_text=PERMANENT_CHAT_GROUP_DESCRIPTION,
         third_text="",
     )
 

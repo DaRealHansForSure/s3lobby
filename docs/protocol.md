@@ -539,6 +539,15 @@ database starts with the rooms the game's manual describes (migration 0014): Mee
 Beginners and one per game language (Deutsch, English, Français, Italiano, Polski, Español; Korean
 has no letters in Windows-1252); admins may remove them.
 
+With the setting `permanent_chat_groups` on, the server keeps chat groups of its own open in the
+themes: announced like a chat group a player opens without a password (AddGroupToGroup2, flags
+0x300073, no player limit), with the name marked "[Server] " and "Always open" as second text,
+under ids from 0xe0000 (above the board themes, below the players' groups at 0x100000). They never
+close when empty and a RemoveGroupFromGroup for them is ignored. Empty player chat groups stay
+listed for minutes too, so an empty listed chat group is nothing new to the game (seen in runs);
+a group no player opened is *inferred* to work the same and waits for a run, hence the setting
+is off by default.
+
 A theme may be meant for the games of one language. The game names its language only in the
 patch check (CheckFileVersion, third value), which comes on the connection before the logon from
 the same address and port (seen in a run), so the lobby remembers the language per address and

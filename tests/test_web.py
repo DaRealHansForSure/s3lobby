@@ -477,6 +477,15 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         self.post("/admin/news/german", title="Willkommen", body="Erste Zeile\r\nZweite Zeile\r\n")
         self.assertEqual(self.database.find_news("german").body, "Erste Zeile\nZweite Zeile")
 
+    def test_permanent_chat_groups_are_added_and_removed_on_the_chat_themes_page(self) -> None:
+        """The Chat themes page adds a permanent group to General (no theme id) and removes it."""
+        self.post("/admin/chat-themes/groups", theme_id="", name="Looking for a game")
+        [group] = [group for group in self.database.list_permanent_chat_groups() if group.name == "Looking for a game"]
+        self.assertIsNone(group.chat_theme_id)
+        self.assertIn("[Server] Looking for a game", self.client.get("/admin/chat-themes").get_data(as_text=True))
+        self.post(f"/admin/chat-themes/groups/{group.group_row_id}/delete")
+        self.assertNotIn(group, self.database.list_permanent_chat_groups())
+
     def test_text_the_game_cannot_show_is_refused(self) -> None:
         """A chat theme with a character outside the game's code page is refused, and the page says why."""
         self.post("/admin/chat-themes", name="Party \U0001f389")

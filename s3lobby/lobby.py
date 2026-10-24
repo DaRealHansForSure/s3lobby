@@ -56,6 +56,7 @@ from s3lobby.constants import (
     MAX_CHAT_COMMAND_LENGTH,
     MAX_OPEN_GROUPS_PER_PLAYER,
     MAX_REMEMBERED_GAME_LANGUAGES,
+    PERMANENT_CHAT_GROUP_ID_BASE,
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
     NEWS_AUDIENCE_GERMAN,
@@ -96,6 +97,7 @@ from s3lobby.groups import (
     is_ladder_game,
     kind_of_new_group,
     ladder_type_of,
+    permanent_chat_group_announcement,
     room_announcement,
     stored_game_announcement,
     with_real_host_address,
@@ -731,6 +733,11 @@ class Lobby:
         group = self._groups.get(request.group_id)
         if player is None or group is None or player.player_id not in group.member_ids:
             raise ProtocolError(f"unlisting group {request.group_id} by a player not in it")
+        # The game only unlists the host's own game at the start of a match; a group the server
+        # keeps open stays where it is.
+        if group.is_permanent:
+            log.info("player %d %r cannot unlist permanent group %d", player.player_id, player.name, group.group_id)
+            return
         log.info(
             "player %d %r unlists group %d from group %d",
             player.player_id,
@@ -1221,7 +1228,7 @@ class Lobby:
         }
         # A copy, since closing a group takes it out of self._groups.
         for group in list(self._groups.values()):
-            if group.kind != GroupKind.CHAT_GROUP or group.empty_since_seconds is None:
+            if group.kind != GroupKind.CHAT_GROUP or group.empty_since_seconds is None or group.is_permanent:
                 continue
             if group.group_id in parent_ids_of_open_games:
                 # The wait starts over on every pass while the game is open, so it counts from the
@@ -1323,6 +1330,38 @@ class Lobby:
             theme = Group(announcement=announcement, kind=GroupKind.ROOM, language=language)
             self._groups[group_id] = theme
             self._list_group_in(theme, chat_zone)
+        self._sync_permanent_chat_groups()
+
+    def _sync_permanent_chat_groups(self) -> None:
+        """Keep the permanent chat groups open in their themes while the setting
+        permanent_chat_groups is on: new ones appear, removed ones (or all, with the setting off)
+        close once nobody is in them. Players can chat at once instead of opening a group first."""
+        wanted = {}
+        if self._database.get_boolean_setting(Setting.PERMANENT_CHAT_GROUPS):
+            for stored in self._database.list_permanent_chat_groups():
+                theme_group_id = CHAT_THEME_GROUP_ID_BASE
+                if stored.chat_theme_id is not None:
+                    theme_group_id = CHAT_THEME_GROUP_ID_BASE + stored.chat_theme_id
+                theme = self._groups.get(theme_group_id)
+                # A group of a theme that is not listed (removed, or beyond its id range) waits.
+                if theme is None or CHAT_ZONE_GROUP_ID not in theme.listed_in_parent_ids:
+                    continue
+                wanted[PERMANENT_CHAT_GROUP_ID_BASE + stored.group_row_id] = (stored.name, theme)
+        for group in [group for group in self._groups.values() if group.is_permanent]:
+            if group.group_id not in wanted and not group.member_ids:
+                self._close_player_group(group)
+        for group_id, (name, theme) in wanted.items():
+            if group_id in self._groups:
+                continue
+            group = Group(
+                announcement=permanent_chat_group_announcement(group_id, name),
+                kind=GroupKind.CHAT_GROUP,
+                language=theme.language,
+                is_permanent=True,
+            )
+            self._groups[group_id] = group
+            self._list_group_in(group, theme)
+            log.info("permanent chat group %d %r kept open in group %d", group_id, name, theme.group_id)
 
     # The MessageZone tab.
 
@@ -1526,5 +1565,5 @@ def board_theme_group_id(language_index: int, rank: int, theme_id: int) -> int:
 
 
 def is_board_theme_group(group_id: int) -> bool:
-    """True for the id of a board theme, the range below the first game id."""
-    return BOARD_THEME_GROUP_ID_BASE <= group_id < FIRST_GAME_GROUP_ID
+    """True for the id of a board theme, the range below the permanent chat groups."""
+    return BOARD_THEME_GROUP_ID_BASE <= group_id < PERMANENT_CHAT_GROUP_ID_BASE

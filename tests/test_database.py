@@ -15,6 +15,7 @@ from s3lobby.constants import MAX_ANNOUNCEMENT_LENGTH, MAX_GROUP_TEXT_LENGTH
 from s3lobby.database import (
     ACCESS_CODE_ALPHABET,
     ACCESS_CODE_LENGTH,
+    MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH,
     DatabaseError,
     LobbyDatabase,
     Setting,
@@ -56,6 +57,21 @@ class LobbyDatabaseTest(unittest.TestCase):
     def tearDown(self) -> None:
         """Close the database."""
         self.database.close()
+
+    def test_every_new_theme_gets_a_permanent_chat_group(self) -> None:
+        """A theme starts with one permanent group named after it; admins add more, and removing
+        the theme takes its groups along."""
+        tactics = self.database.add_chat_theme("Tactics")
+        self.database.add_permanent_chat_group(tactics.theme_id, "Openings")
+        names = [group.name for group in self.database.list_permanent_chat_groups() if group.chat_theme_id == tactics.theme_id]
+        self.assertEqual(names, ["Tactics", "Openings"])
+        self.database.delete_chat_theme(tactics.theme_id)
+        self.assertNotIn(tactics.theme_id, [group.chat_theme_id for group in self.database.list_permanent_chat_groups()])
+
+    def test_a_permanent_group_name_leaves_room_for_the_server_mark(self) -> None:
+        """The game shows "[Server] " in front, and the whole name must fit the game's limit."""
+        with self.assertRaises(DatabaseError):
+            self.database.add_permanent_chat_group(None, "X" * (MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH + 1))
 
     def test_account_search_takes_wildcards_literally(self) -> None:
         """A search for "a_b" or "%" finds names containing exactly that, not everything."""
