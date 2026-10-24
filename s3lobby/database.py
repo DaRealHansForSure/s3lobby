@@ -639,15 +639,19 @@ def with_reason(text: str, reason: str) -> str:
 
 def moved_one_place(ids: list[int], item_id: int, is_up: bool) -> list[int]:
     """The ids with one of them a place up or down; unchanged at either end or when it is missing."""
+    # An id that is not in the list moves nothing.
     if item_id not in ids:
         return ids
+    # The place it moves to: one up or one down.
     index = ids.index(item_id)
     if is_up:
         target = index - 1
     else:
         target = index + 1
+    # At the top or the bottom already: it stays.
     if target < 0 or target >= len(ids):
         return ids
+    # Swap it with its neighbour in a copy.
     reordered = list(ids)
     reordered[index], reordered[target] = reordered[target], reordered[index]
     return reordered
@@ -763,6 +767,7 @@ class LobbyDatabase:
         this object, or mysql://user@host/name (s3lobby/backends/). The migrations the database is
         missing are applied, and listed in applied_migrations; applies_migrations False opens it
         as it is, which only suits looking at its migration status."""
+        # The connection first; a location that cannot be opened is a DatabaseError like any other.
         self._clock = clock
         self.location = str(location)
         self.applied_migrations: list[Migration] = []
@@ -770,8 +775,10 @@ class LobbyDatabase:
             self._backend = open_backend(self.location)
         except BackendError as error:
             raise DatabaseError(str(error)) from error
+        # Looking at the status only: the database stays as it is.
         if not applies_migrations:
             return
+        # The migrations it is missing, in order.
         try:
             self.applied_migrations = migrate(self._backend, to_stored_time(clock()))
         except (BackendError, MigrationError) as error:
@@ -1289,12 +1296,14 @@ class LobbyDatabase:
         """Add a theme to the ChatZone tab and return it; language limits it to the games of one
         language. Raises DatabaseError for a text the game cannot show, a name that is taken already,
         the name of a built-in theme, or an unknown language."""
+        # Texts the game can show, no second General, and a language the game knows.
         check_title("chat theme name", name)
         check_game_text("chat theme description", description, MAX_GROUP_TEXT_LENGTH)
         if is_built_in_chat_theme_name(name):
             raise DatabaseError(f"{name!r} is a chat theme the server always lists itself")
         if language != ALL_LANGUAGES and language not in GAME_LANGUAGES:
             raise DatabaseError(f"unknown game language {language!r}; known: {', '.join(GAME_LANGUAGES)}")
+        # The theme and its first permanent group together, so a theme never lacks one.
         try:
             with self._backend.transaction():
                 result = self._backend.execute(
@@ -1313,9 +1322,11 @@ class LobbyDatabase:
     def add_permanent_chat_group(self, chat_theme_id: int | None, name: str) -> PermanentChatGroup:
         """Keep one more chat group open in a theme (None: General). Raises DatabaseError for a
         name the game cannot show, or a theme that does not exist."""
+        # A name the game can show after the "[Server] " mark, and not empty.
         check_game_text("chat group name", name, MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH)
         if not name.strip():
             raise DatabaseError("chat group name must not be empty")
+        # The theme's foreign key refuses a theme that does not exist.
         try:
             with self._backend.transaction():
                 result = self._backend.execute(
@@ -1397,10 +1408,12 @@ class LobbyDatabase:
     def move_board_theme(self, theme_id: int, is_up: bool) -> None:
         """Move a theme one place up or down among its language's themes, the way the web
         interface's Up and Down do; at either end it stays. Raises DatabaseError for an unknown theme."""
+        # The theme, and its language's themes in the board's order.
         themes = self.list_board_themes()
         theme = next((item for item in themes if item.theme_id == theme_id), None)
         if theme is None:
             raise DatabaseError(f"there is no board theme {theme_id}")
+        # Swapped with its neighbour, then stored as the new order.
         ids = [item.theme_id for item in themes if item.language == theme.language]
         self.set_board_theme_order(moved_one_place(ids, theme_id, is_up))
 
@@ -1469,6 +1482,7 @@ class LobbyDatabase:
     def move_board_message(self, message_id: int, is_up: bool) -> None:
         """Move a message one place up or down in its theme; at either end it stays. Raises
         DatabaseError for an unknown message."""
+        # The message, and its theme's messages in the board's order, then the new order.
         message = self.find_board_message(message_id)
         if message is None:
             raise DatabaseError(f"there is no board message {message_id}")
@@ -1508,6 +1522,7 @@ class LobbyDatabase:
             (message for message in self.list_board_messages(theme_id) if message.message_id not in always_kept),
             key=lambda message: message.message_id,
         )
+        # All but the newest keep_count go.
         surplus = messages[: max(0, len(messages) - keep_count)]
         with self._backend.transaction():
             for message in surplus:
@@ -1761,6 +1776,8 @@ class LobbyDatabase:
     def join_ladder(self, account_id: int, key: LadderKey) -> bool:
         """Make the player a member of a ladder from now on; False when they are one already."""
         now = self._clock()
+        # Checked and written in one transaction, so a double request cannot make two open
+        # memberships.
         with self._backend.transaction():
             if self._active_ladder_membership_id(account_id, key) is not None:
                 return False
@@ -1773,6 +1790,7 @@ class LobbyDatabase:
     def leave_ladder(self, account_id: int, key: LadderKey) -> bool:
         """End the player's membership of a ladder now; False when they were not a member. Their
         results stay, so their opponents' ratings do not change."""
+        # The open membership gets its end; earlier ones keep theirs.
         with self._backend.transaction():
             membership_id = self._active_ladder_membership_id(account_id, key)
             if membership_id is None:
@@ -1804,6 +1822,7 @@ class LobbyDatabase:
 
     def list_ladder_memberships(self) -> list[LadderMembership]:
         """Every membership, past ones included, oldest first: who was in which ladder when."""
+        # Every membership, past ones too: ratings are replayed against who was in when.
         rows = self._backend.fetch_all(
             "SELECT account_id, ladder, season_id, joined_at, left_at FROM ladder_memberships ORDER BY id"
         )

@@ -555,11 +555,13 @@ def outcome_text(status: GameStatus) -> str:
 
 def report_flag_notes(flags: int) -> tuple[str, ...]:
     """The report's flags in words (GameStatusFlag); bits without a name are shown as a number."""
+    # The two flags the game sets, by name.
     notes = []
     if flags & GameStatusFlag.LADDER_GAME:
         notes.append("ladder game")
     if flags & GameStatusFlag.NOT_VALID_FOR_LADDER:
         notes.append("not valid for the ladder")
+    # Any other bit as a number, so nothing the game sent is hidden.
     unknown_flags = flags & ~(GameStatusFlag.LADDER_GAME | GameStatusFlag.NOT_VALID_FOR_LADDER)
     if unknown_flags:
         notes.append(f"flags {unknown_flags:#x}")

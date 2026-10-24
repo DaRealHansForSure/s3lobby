@@ -149,11 +149,14 @@ class LadderTexts:
     def info(self, language: str) -> BoardText:
         """The board message on top of the ladder's theme: that players take part only in ladders
         they join and how, what counts, and how many joined each ladder."""
+        # The numbers the text names: the start rating, the minimum minutes, and the members per
+        # ladder (Liga, Clanliga, then the open seasons).
         settings = self._book.settings()
         members = ladder_members(self._database)
         liga_count = len(members[0].names)
         clanliga_count = len(members[1].names)
         seasons = members[2:]
+        # German games read the German theme; every other language falls back to the English one.
         if language == GERMAN:
             lines = [
                 "Mit dabei ist nur, wer beitritt. Im Chat:",
@@ -325,12 +328,15 @@ class LadderTexts:
     def news_lines(self, language: str) -> list[str]:
         """The ladder's block under the news: the top five and the running seasons; empty while
         nobody has a place."""
+        # The infinite season's top five; no block at all while nobody has a place.
         rows = self._book.standing_rows(INFINITE_SEASON, LIGA)[:LADDER_TOP_COUNT]
         if not rows:
             return []
+        # The top five in one line, in the audience's language.
         places = ", ".join(f"{row.place}. {row.name} {row.rating}" for row in rows)
         is_german = language == GERMAN
         lines = [("Liga (unendliche Saison): " if is_german else "Ladder (infinite season): ") + places + "."]
+        # Each running custom season with its last day.
         for season in self.running_seasons(self._database.now()):
             last = last_season_day(season)
             if is_german:
@@ -339,6 +345,7 @@ class LadderTexts:
             else:
                 until = f" until {day_text(last, ENGLISH)}" if last else ""
                 lines.append(f"Running: {season.name} ({counts_text(season.counts, ENGLISH)}){until}.")
+        # How many joined, and the commands to join and to ask.
         members = ladder_members(self._database)
         if is_german:
             lines.append(f"Mitglieder: {len(members[0].names)} Liga, {len(members[1].names)} Clanliga.")
@@ -435,22 +442,30 @@ class LadderWriter:
 
     def run(self) -> WrittenTexts:
         """Write what is due; returns the announcements to send."""
+        # The server's themes, created on first use, and the announcements to hand back.
         now = self._database.now()
         themes = self.server_themes()
         announcements = []
+        # A season's start and its end are each written once; an event older than
+        # LADDER_EVENT_MAX_AGE is only noted, so a late switch-on does not flood the board.
         for season in self._database.list_ladder_seasons():
             has_started = season.starts_at is not None and season.starts_at <= now
             has_ended = season.ends_at is not None and season.ends_at <= now
+            # A running season: its start message.
             if has_started and not has_ended and self._is_new_event(f"season-start:{season.season_id}"):
                 if now - season.starts_at <= LADDER_EVENT_MAX_AGE:
                     self._post(themes, {language: self._texts.season_start(season, language) for language in themes})
+            # An ended season: its final standings, and one announcement to everyone online.
             if has_ended and self._is_new_event(f"season-end:{season.season_id}"):
                 if now - season.ends_at <= LADDER_EVENT_MAX_AGE:
                     self._post(themes, {language: self._texts.season_end(season, language) for language in themes})
                     announcements.append(self._texts.season_end_announcement(season))
+        # The summary of the last full week, once.
         last_week = week_start_of(now) - timedelta(days=DAYS_PER_WEEK)
         if self._is_new_event(f"weekly:{last_week:%Y-%m-%d}"):
             self._post(themes, {language: self._texts.weekly_summary(last_week, language) for language in themes})
+        # The info message on top, then the theme cut down to the newest messages, the info message
+        # never among the ones that go.
         info_ids = self._keep_info_on_top(themes)
         keep = self._database.get_integer_setting(Setting.LADDER_BOARD_MESSAGES)
         for theme in themes.values():
@@ -464,9 +479,11 @@ class LadderWriter:
         admin who hid it keeps it hidden."""
         info_ids = {}
         for language, theme in themes.items():
+            # The info message is found again by its title.
             text = self._texts.info(language)
             messages = self._database.list_board_messages(theme.theme_id)
             info = next((message for message in messages if message.title == INFO_TITLES[language]), None)
+            # Posted when missing, rewritten only when its text changed.
             try:
                 if info is None:
                     info = self._database.post_board_message(theme.theme_id, text.title, text.body, is_by_server=True)
@@ -476,7 +493,10 @@ class LadderWriter:
             except DatabaseError as error:
                 log.warning("ladder: info message %r not written: %s", text.title, error)
                 continue
+            # Moved to the top only when another message is above it, so the board order changes as
+            # little as possible.
             info_ids[language] = info.message_id
+            # The board's order with the info message first.
             order = [message.message_id for message in messages]
             if order and order[0] != info.message_id:
                 order.remove(info.message_id)

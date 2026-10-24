@@ -74,10 +74,12 @@ def create_app(
     otherwise any client could claim any address. is_development_mode also lets admins log on with
     DEVELOPMENT_PASSWORD from this machine and its LAN, as `s3lobby serve --dev` does for the game.
     """
+    # Without a secret key every restart makes a new one, which logs every admin out.
     app = Flask(__name__)
     if not secret_key:
         log.warning("no %s set: admins are logged out whenever the web interface restarts", SECRET_KEY_VARIABLE)
         secret_key = secrets.token_hex(SECRET_KEY_BYTES)
+    # The database, the session cookie's rules and the modes, for every request to read.
     app.config.update(
         S3LOBBY_DATABASE=str(database_location),
         SECRET_KEY=secret_key,
@@ -99,6 +101,7 @@ def create_app(
         # The __Host- prefix makes browsers refuse the cookie unless it is secure, host-only and
         # for path /, so a sibling subdomain cannot plant or overwrite it.
         app.config["SESSION_COOKIE_NAME"] = SECURE_SESSION_COOKIE_NAME
+    # How the templates show times.
     app.jinja_env.filters["moment"] = format_moment
     app.jinja_env.filters["relative_moment"] = format_relative_moment
     app.jinja_env.filters["short_moment"] = format_short_moment
@@ -107,6 +110,8 @@ def create_app(
     # redirects with https.
     if is_behind_proxy:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUSTED_PROXY_COUNT, x_proto=TRUSTED_PROXY_COUNT)
+    # The checks every request passes (logon limit, CSRF token, security headers) and what every
+    # template knows.
     install_logon_failure_limiter(app)
 
     app.before_request(check_csrf_token)

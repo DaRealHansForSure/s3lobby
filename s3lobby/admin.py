@@ -219,10 +219,12 @@ def remove_chat_theme(database: LobbyDatabase, options: argparse.Namespace) -> N
 def list_chat_themes(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Print every chat theme with its description and, for a theme of one language, that
     language; the built-in ones first. Under each, its permanent chat groups with their ids."""
+    # General first, with its permanent groups indented under it.
     groups = database.list_permanent_chat_groups()
     for built_in in BUILT_IN_CHAT_THEMES:
         print(f"{built_in.name}  {built_in.description}  (built in)")
         print_permanent_groups(groups, None)
+    # Then the admins' themes, each with its language if it has one, and its groups.
     for theme in database.list_chat_themes():
         language_note = f"  ({theme.language} games only)" if theme.language else ""
         print(f"{theme.name}  {theme.description}{language_note}".rstrip())
@@ -279,6 +281,7 @@ def remove_board_theme(database: LobbyDatabase, options: argparse.Namespace) -> 
 def list_board(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Print every board theme with the messages posted to it, in the board's order, hidden ones
     marked."""
+    # One line per theme with its marks, its messages indented under it in the board's order.
     for theme in database.list_board_themes():
         theme_marks = hidden_mark(theme.is_hidden)
         if theme.is_server_written:
@@ -287,6 +290,7 @@ def list_board(database: LobbyDatabase, options: argparse.Namespace) -> None:
         if theme.description:
             line += f"  {theme.description}"
         print(line + theme_marks)
+        # Each message with its id, for move-message, hide-message and remove-message.
         for message in database.list_board_messages(theme.theme_id):
             print(
                 f"    message {message.message_id}: {message.title} ({message.author}, "
@@ -303,6 +307,7 @@ def hidden_mark(is_hidden: bool) -> str:
 
 def move_board_item(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Move a board theme or message one place up or down, as Up and Down on the web do."""
+    # The same move as Up and Down on the web, for a theme or a message.
     is_up = options.direction == MOVE_UP
     if options.board_item_kind == BOARD_THEME_KIND:
         database.move_board_theme(options.item_id, is_up)
@@ -314,6 +319,7 @@ def move_board_item(database: LobbyDatabase, options: argparse.Namespace) -> Non
 def set_board_item_hidden(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Hide a board theme or message from the game, or show it again. The server's own theme and
     messages can be hidden like any other, though not removed."""
+    # The same switch as Hide and Show on the web, for a theme or a message.
     if options.board_item_kind == BOARD_THEME_KIND:
         database.set_board_theme_hidden(options.item_id, options.is_hidden)
     else:
