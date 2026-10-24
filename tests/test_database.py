@@ -68,6 +68,17 @@ class LobbyDatabaseTest(unittest.TestCase):
         self.database.delete_chat_theme(tactics.theme_id)
         self.assertNotIn(tactics.theme_id, [group.chat_theme_id for group in self.database.list_permanent_chat_groups()])
 
+    def test_a_permanent_group_name_is_unique(self) -> None:
+        """Group names stay unique: a second "General" in any case is refused, and a theme whose
+        name a group has already gets no group of the same name."""
+        with self.assertRaises(DatabaseError):
+            self.database.add_permanent_chat_group(None, "general")
+        self.database.add_permanent_chat_group(None, "Tactics")
+        tactics = self.database.add_chat_theme("Tactics")
+        names = [group.name.casefold() for group in self.database.list_permanent_chat_groups()]
+        self.assertEqual(names.count("tactics"), 1)
+        self.assertNotIn(tactics.theme_id, [group.chat_theme_id for group in self.database.list_permanent_chat_groups()])
+
     def test_a_permanent_group_name_leaves_room_for_the_server_mark(self) -> None:
         """The game shows "[Server] " in front, and the whole name must fit the game's limit."""
         with self.assertRaises(DatabaseError):

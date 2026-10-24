@@ -58,6 +58,7 @@ from s3lobby.constants import (
     MAX_OPEN_GROUPS_PER_PLAYER,
     MAX_REMEMBERED_GAME_LANGUAGES,
     PERMANENT_CHAT_GROUP_ID_BASE,
+    PERMANENT_CHAT_GROUP_NAME_PREFIX,
     MAX_TEXT_MESSAGE_BYTES,
     MESSAGE_ZONE_GROUP_ID,
     NEWS_AUDIENCE_GERMAN,
@@ -615,6 +616,13 @@ class Lobby:
             # A private chat invitation goes from client to client; one sent here is a mistake.
             return
         check_client_group_texts(request)
+        # Chat group names are unique among the open chat groups, the permanent ones included, so
+        # a theme never lists two groups a player cannot tell apart. The game has no answer for
+        # this case of its own; it shows that joining failed.
+        is_chat_group = kind_of_new_group(request) == GroupKind.CHAT_GROUP
+        if is_chat_group and self._is_chat_group_name_taken(request.name):
+            self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "chat group name taken")
+            return
         # Only groups this player opened that are still open count, so one client cannot fill the
         # zones with groups while a host who closed its games may open new ones.
         open_group_count = sum(1 for group in self._groups.values() if group.creator_player_id == player.player_id)
@@ -677,6 +685,24 @@ class Lobby:
         if parent.group_id == PASSWORD_CHAT_GROUP_PARENT_ID and group.kind == GroupKind.CHAT_GROUP:
             self._list_in_creators_chat_theme(group, player)
         self._tell_about_ladder(group, [player])
+
+    def _is_chat_group_name_taken(self, name: str) -> bool:
+        """True when an open chat group has this name, compared without regard to case or the
+        spaces around it; a permanent group counts with and without its "[Server] " mark. A name
+        with that mark itself is taken too: it belongs to the server's groups, and a player's group
+        must not pass for one."""
+        wanted = name.strip().casefold()
+        if wanted.startswith(PERMANENT_CHAT_GROUP_NAME_PREFIX.strip().casefold()):
+            return True
+        for group in self._groups.values():
+            if group.kind != GroupKind.CHAT_GROUP:
+                continue
+            # The name as players see it, and for a permanent group also the name an admin gave it.
+            shown = group.announcement.name.strip().casefold()
+            given = shown.removeprefix(PERMANENT_CHAT_GROUP_NAME_PREFIX.casefold()).strip()
+            if wanted in (shown, given):
+                return True
+        return False
 
     def _list_in_creators_chat_theme(self, group: Group, creator: Player) -> None:
         """List a chat group with a password, opened under the hidden group 5, in the chat theme

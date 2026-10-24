@@ -33,6 +33,10 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Changed
 
+- Chat group names are unique: a player cannot open a chat group whose name an open one already
+  has (in any case, a permanent group counting with and without its "[Server]" mark) or one that
+  carries the mark itself; the game shows that joining failed. Admins cannot add two permanent
+  groups of one name.
 - **Players take part only in the ladders they join.** `/ladder join` in the game (or
   `/ladder join clanliga`, `/ladder join SEASON`), `/ladder leave` and `/ladder`; admins use the new
   Ladder > Members page or `s3lobby ladder join|leave|members`. A ladder game whose players did not
