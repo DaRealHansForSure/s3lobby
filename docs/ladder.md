@@ -190,9 +190,16 @@ in the database, and a season created afterwards for past dates shows its standi
 - **Back in the lobby**, a server line to the players of the match: "Liga: Alice beats Bob, 1016 ->
   1032 (Bob 984 -> 968)", "Clanliga: Romans beat Amazons, 1012 -> 1028", or why it did not count.
 - **Chat commands:** `/rank [NAME]` (infinite season and every running custom season: rating,
-  place, won, lost, lost by leaving, provisional or not), `/top [SEASON]` (the first five, of the
-  infinite season unless one is named), `/clanrank [CLAN]` (Clanliga rating and strength from
-  Liga), `/seasons` (the running custom seasons and when they end).
+  place, won, lost, lost by leaving, provisional or not), `/top [SEASON] [clanliga]` (the first
+  five, of the infinite season unless one is named, players or with `clanliga` clans),
+  `/clanrank [CLAN]` (Clanliga rating and strength from Liga), `/seasons` (the running custom
+  seasons and when they end), `/season NAME` (one season's dates, members, top three and the
+  player's place), `/opponents` (the Liga members online, closest to the player's rating first;
+  "Online now" on the Ladder page), `/results` (the player's own last five results with their
+  rating changes), `/vs NAME` (the player's own record against one player), `/pending` (the
+  player's ladder games waiting for reports or disputed) and `/ladder rules` (the board's info
+  message as chat lines). `/results` and `/vs` only ever show the asking player's own record
+  (owner's decision).
 - **Home tab:** the news text can end with the infinite season's top five players and clans. The game
   fetches it once per logon, so it shows the standings as of the logon (protocol.md,
   GetTextMessage).
@@ -317,7 +324,8 @@ project:
   server's `text_message` would otherwise drop the last lines to stay within 1200 bytes.
 - **Once per event:** each board message and announcement is stored with its event, so a restart
   never posts it twice and a crash in the middle never posts half.
-- **Chat commands** (`/rank`, `/top`, `/clanrank`, `/seasons`, `/ladder`) get a rate limit per player, their
+- **Chat commands** (`/rank`, `/top`, `/clanrank`, `/seasons`, `/season`, `/ladder`, `/opponents`,
+  `/results`, `/vs`, `/pending`) get a rate limit per player, their
   arguments are cut to `MAX_GROUP_TEXT_LENGTH`, and the answers go through `fit_answer`. Ratings are
   computed once per change and cached, so a burst of commands costs no recomputation.
 - **Housekeeping** (the report timeout, the weekly summary, season ends) runs guarded like the

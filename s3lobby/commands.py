@@ -13,6 +13,11 @@ Commands:
     /top [SEASON]       the best five of the infinite season, or of a custom season
     /clanrank [CLAN]    a clan's Clanliga rating and its strength from Liga (yours without a name)
     /seasons            the custom seasons running now
+    /season NAME        one custom season: dates, members, its top three and your place
+    /opponents          Liga members online now, closest to your rating first
+    /results            your last Liga results and how they moved your rating
+    /vs NAME            your Liga record against one player
+    /pending            your ladder games still waiting for reports or an admin's decision
     /ladder [join|leave [LADDER]]   the ladders you are in; join or leave Liga (the default),
                         Clanliga or a custom season by name. Only members' games count.
     /announce TEXT      (admins) a line for every player in the lobby
@@ -65,8 +70,10 @@ from s3lobby.ladder_book import (
     StandingRow,
     join_ladder,
     ladder_labels,
+    ladder_members,
     leave_ladder,
 )
+from s3lobby.ladder_texts import ENGLISH, LadderTexts
 from s3lobby.reachability import Reachability
 from s3lobby.wire import Address
 
@@ -74,6 +81,17 @@ COMMAND_PREFIX = "/"
 # The words after /ladder that join or leave a ladder.
 LADDER_JOIN = "join"
 LADDER_LEAVE = "leave"
+LADDER_RULES = "rules"
+# The commands that read or change the ladder; they share one limit per player.
+LADDER_COMMAND_NAMES = frozenset(
+    {"rank", "top", "clanrank", "seasons", "season", "ladder", "opponents", "results", "vs", "pending"}
+)
+# How many lines or names the ladder's answers give: a season's top, opponents online, own results,
+# pending games. Each answer stays within a few chat lines.
+SEASON_TOP_COUNT = 3
+OPPONENT_COUNT = 8
+OWN_RESULT_COUNT = 5
+PENDING_GAME_COUNT = 5
 # Answers stay short: the chat shows each line on its own, and a long answer would push the
 # conversation off the screen.
 MAX_ANSWER_LINE_LENGTH = 100
@@ -145,7 +163,7 @@ class ChatCommands:
                 lines = self._clan(sender)
             case "net":
                 lines = describe_network(sender.address, self._reachability_of(sender.address))
-            case "rank" | "top" | "clanrank" | "seasons" | "ladder":
+            case _ if command_name in LADDER_COMMAND_NAMES:
                 lines = self._answer_ladder_question(sender, command_name, argument)
             case "announce":
                 lines = self._announce_for(sender, argument)
@@ -166,7 +184,8 @@ class ChatCommands:
             "/clan: your clan and its members online",
             "/net: your address as the server sees it, and what to forward on your router",
             "/rank [NAME], /top [SEASON], /clanrank [CLAN], /seasons: the ladder",
-            "/ladder, /ladder join [LADDER], /ladder leave [LADDER]: your ladders (Liga, Clanliga, a season)",
+            "/ladder, /ladder join [LADDER], /ladder leave [LADDER], /ladder rules: your ladders",
+            "/opponents, /results, /vs NAME, /pending, /season NAME: find games, your record",
         ]
         if self._is_admin_now(sender):
             lines.append("/announce TEXT: a line for every player in the lobby")
@@ -238,6 +257,16 @@ class ChatCommands:
                 return self._rank(sender, name)
             case "top":
                 return self._top(name)
+            case "season":
+                return self._season(sender, name)
+            case "opponents":
+                return self._opponents(sender)
+            case "results":
+                return self._results(sender)
+            case "vs":
+                return self._versus(sender, name)
+            case "pending":
+                return self._pending(sender)
             case "clanrank":
                 return self._clan_rank(sender, name)
             case "ladder":
@@ -250,6 +279,8 @@ class ChatCommands:
         has no other place to do it."""
         action, ladder_name = split_command(COMMAND_PREFIX + argument.strip())
         ladder_name = ladder_name[:MAX_GROUP_TEXT_LENGTH].strip()
+        if action == LADDER_RULES:
+            return [line for line in LadderTexts(self._database, self._ladder).info(ENGLISH).lines if line]
         try:
             if action == LADDER_JOIN:
                 return [join_ladder(self._ladder, self._database, sender.player_id, ladder_name)]
@@ -258,7 +289,10 @@ class ChatCommands:
         except LadderMembershipError as error:
             return [f"Ladder: {error}."]
         if action:
-            return [f"Type {COMMAND_PREFIX}ladder join or {COMMAND_PREFIX}ladder leave, with liga, clanliga or a season."]
+            return [
+                f"Type {COMMAND_PREFIX}ladder join or {COMMAND_PREFIX}ladder leave, with liga, clanliga or a "
+                f"season, or {COMMAND_PREFIX}ladder rules."
+            ]
         labels = ladder_labels(self._database, sender.player_id)
         if not labels:
             return [f"You are in no ladder: your ladder games do not count. Type {COMMAND_PREFIX}ladder join."]
@@ -291,17 +325,105 @@ class ChatCommands:
             lines.append(f"Clanliga: won {clanliga_record.won}, lost {clanliga_record.lost} for the clan.")
         return lines
 
-    def _top(self, season_name: str) -> list[str]:
-        """/top [SEASON]: the best of the infinite season's Liga, or of a custom season."""
+    def _top(self, argument: str) -> list[str]:
+        """/top [SEASON] [clanliga]: the best of the infinite season's Liga, or of a custom season;
+        with "clanliga" at the end, the best clans instead."""
+        ladder = LIGA
+        season_name = argument
+        words = argument.split()
+        if words and words[-1].lower() == CLANLIGA:
+            ladder = CLANLIGA
+            season_name = " ".join(words[:-1])
         try:
             season = self._ladder.find_season(season_name)
         except LookupError:
             return [f"There is no season named {season_name}. {COMMAND_PREFIX}seasons lists the running ones."]
-        rows = self._ladder.standing_rows(season, LIGA)[:LADDER_TOP_COUNT]
-        label = "Liga" if season.season_id is None else season.name
+        rows = self._ladder.standing_rows(season, ladder)[:LADDER_TOP_COUNT]
+        label = "Liga"
+        if season.season_id is not None:
+            label = season.name
+        if ladder == CLANLIGA:
+            label = f"{label} Clanliga" if season.season_id is not None else "Clanliga"
         if not rows:
             return [f"{label}: nobody has a place yet."]
         return [f"{label}: " + ", ".join(f"{row.place} {row.name} {row.rating}" for row in rows) + "."]
+
+    def _season(self, sender: CommandSender, name: str) -> list[str]:
+        """/season NAME: a custom season's dates, what it counts, its members, its top three and
+        the player's place."""
+        if not name:
+            return [f"Name a season: {COMMAND_PREFIX}season NAME. {COMMAND_PREFIX}seasons lists the running ones."]
+        try:
+            season = self._ladder.find_season(name)
+        except LookupError:
+            return [f"There is no season named {name}. {COMMAND_PREFIX}seasons lists the running ones."]
+        if season.season_id is None:
+            return [f"That is the infinite season: {COMMAND_PREFIX}top and {COMMAND_PREFIX}rank."]
+        members = next((item for item in ladder_members(self._database) if item.ladder == season.name), None)
+        member_count = len(members.names) if members is not None else 0
+        lines = [f"{season.name}: {season_end_text(season)}, counts {season.counts.value}, {member_count} member(s)."]
+        rows = self._ladder.standing_rows(season, LIGA)
+        if rows:
+            lines.append("Top: " + ", ".join(f"{row.place} {row.name} {row.rating}" for row in rows[:SEASON_TOP_COUNT]) + ".")
+        row = row_of(rows, sender.player_id)
+        if row is not None:
+            lines.append(f"You: place {row.place} of {len(rows)}, {row.rating}.")
+        elif season.name not in ladder_labels(self._database, sender.player_id):
+            lines.append(f"You have not joined it: {COMMAND_PREFIX}ladder join {season.name}.")
+        return lines
+
+    def _opponents(self, sender: CommandSender) -> list[str]:
+        """/opponents: the Liga members online now, closest to the player's rating first, so a
+        player finds someone for a ladder game."""
+        online_ids = self._online_account_ids()
+        opponents = self._ladder.opponents(sender.player_id, online_ids)[:OPPONENT_COUNT]
+        if not opponents:
+            return ["No other Liga member is online right now."]
+        listed = ", ".join(f"{member.name} {member.rating}" for member in opponents)
+        lines = [f"Liga members online: {listed}."]
+        if "Liga" not in ladder_labels(self._database, sender.player_id):
+            lines.append(f"You have not joined the Liga yet: {COMMAND_PREFIX}ladder join.")
+        return lines
+
+    def _results(self, sender: CommandSender) -> list[str]:
+        """/results: the player's own last Liga results and how each moved their rating."""
+        results = self._ladder.own_results(sender.player_id, OWN_RESULT_COUNT)
+        if not results:
+            return ["You have no counted Liga result yet."]
+        parts = []
+        for result in results:
+            outcome = "won vs" if result.has_won else "lost vs"
+            parts.append(f"{outcome} {result.opponent} {result.change:+d} ({result.played_at:%d %b})")
+        return ["Your last results: " + ", ".join(parts) + "."]
+
+    def _versus(self, sender: CommandSender, name: str) -> list[str]:
+        """/vs NAME: the player's own counted Liga record against one opponent."""
+        if not name:
+            return [f"Name your opponent: {COMMAND_PREFIX}vs NAME."]
+        opponent = self._database.find_account(name)
+        if opponent is None:
+            return [f"There is no account named {name}."]
+        record = self._ladder.head_to_head(sender.player_id, opponent.account_id)
+        if record.last_played_at is None:
+            return [f"You have no counted Liga result against {opponent.name} yet."]
+        last = "won" if record.has_won_last else "lost"
+        return [
+            f"You against {opponent.name}: won {record.won}, lost {record.lost}. "
+            f"Last match {record.last_played_at:%d %b %Y}: {last}."
+        ]
+
+    def _pending(self, sender: CommandSender) -> list[str]:
+        """/pending: the player's ladder games without a final result yet, so nobody waits for a
+        result line that cannot come yet."""
+        games = self._ladder.pending_games(sender.player_id)
+        if not games:
+            return ["None of your ladder games is waiting for a result."]
+        return [f"{game.game_name}: {game.state}." for game in games[:PENDING_GAME_COUNT]]
+
+    def _online_account_ids(self) -> list[int]:
+        """The account ids of the players online, from their names."""
+        online = {name.casefold() for name in self._online_player_names()}
+        return [account.account_id for account in self._database.list_accounts() if account.name.casefold() in online]
 
     def _clan_rank(self, sender: CommandSender, name: str) -> list[str]:
         """/clanrank [CLAN]: a clan's Clanliga rating and place, and its strength from Liga."""

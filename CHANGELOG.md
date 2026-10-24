@@ -8,6 +8,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- More ladder chat commands: `/opponents` (Liga members online, closest to your rating first, also
+  "Online now" on the Ladder page), `/results` (your last results with rating changes), `/vs NAME`
+  (your record against one player), `/pending` (your games still waiting for a result),
+  `/season NAME` (a season's members, top three and your place), `/top clanliga` and
+  `/ladder rules`.
 - Who is in which ladder, everywhere: the Ladder page counts and names each ladder's members, the
   player pages and the admin account pages list a player's ladders (with Join and Take out for
   admins), and the ladder's MessageZone theme starts with a message on how to join, what counts

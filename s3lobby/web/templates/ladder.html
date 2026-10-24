@@ -204,6 +204,16 @@
   <p class="empty-state">No counted matches yet.</p>
   {% endif %}
 </section>
+<section id="online">
+  <div class="section-head"><h2>Online now</h2><p>Liga members in the lobby right now, best rating
+  first: the players to ask for a ladder game. In the game: <code>/opponents</code>.</p></div>
+  {% if online_members %}
+  <p>{% for member in online_members %}<a href="{{ url_for('players.show_player', name=member.name) }}">{{ member.name }}</a> <span class="num muted">{{ member.rating }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  {% else %}
+  <p class="empty-state">No Liga member is online right now.</p>
+  {% endif %}
+</section>
+
 <section id="members">
   <div class="section-head"><h2>Who takes part</h2><p>The members of each ladder that can be joined
   now. Players join with <code>/ladder join</code>, <code>/ladder join clanliga</code> or

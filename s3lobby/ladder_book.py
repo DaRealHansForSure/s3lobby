@@ -137,6 +137,45 @@ class EvaluatedGames:
 
 
 @dataclass(frozen=True)
+class OnlineMember:
+    """A Liga member who is online now, with their rating (the start rating before a result)."""
+
+    account_id: int
+    name: str
+    rating: int
+
+
+@dataclass(frozen=True)
+class OwnResult:
+    """One of a player's counted Liga results, seen from their side."""
+
+    played_at: datetime
+    opponent: str
+    has_won: bool
+    # How far the result moved the player's rating, in whole points.
+    change: int
+
+
+@dataclass(frozen=True)
+class HeadToHead:
+    """A player's counted Liga record against one opponent."""
+
+    won: int
+    lost: int
+    last_played_at: datetime | None
+    has_won_last: bool
+
+
+@dataclass(frozen=True)
+class PendingGame:
+    """A ladder game of the player that has no final result yet: waiting for reports, or disputed."""
+
+    game_id: int
+    game_name: str
+    state: str
+
+
+@dataclass(frozen=True)
 class MembershipRow:
     """One current membership with names, for the admins' list: who, which ladder, since when."""
 
@@ -211,6 +250,99 @@ class LadderBook:
                 f" ({evaluation.reason})" if evaluation.reason else "",
             )
         return EvaluatedGames(stored, skipped)
+
+    def online_members(self, online_account_ids: Iterable[int]) -> list[OnlineMember]:
+        """The Liga members among the players online, best rating first."""
+        now = self._clock()
+        members = self.roll().current_members(LIGA_KEY, now)
+        start_rating = self.settings().start_rating
+        liga = self.ratings().liga
+        names = {account.account_id: account.name for account in self._database.list_accounts()}
+        online = []
+        for account_id in set(online_account_ids):
+            if account_id not in members or account_id not in names:
+                continue
+            rating = liga.get(account_id)
+            value = round(rating.rating) if rating is not None else start_rating
+            online.append(OnlineMember(account_id, names[account_id], value))
+        online.sort(key=lambda member: (-member.rating, member.name.casefold()))
+        return online
+
+    def opponents(self, account_id: int, online_account_ids: Iterable[int]) -> list[OnlineMember]:
+        """The Liga members online besides the player, closest to the player's rating first: whom
+        to ask for a ladder game."""
+        members = self.online_members(online_account_ids)
+        mine = next((member.rating for member in members if member.account_id == account_id), None)
+        if mine is None:
+            mine = self.settings().start_rating
+        others = [member for member in members if member.account_id != account_id]
+        others.sort(key=lambda member: (abs(member.rating - mine), member.name.casefold()))
+        return others
+
+    def own_results(self, account_id: int, count: int) -> list[OwnResult]:
+        """The player's last counted Liga results in their current membership, newest first, with
+        how each moved their rating."""
+        rating = self.ratings().liga.get(account_id)
+        if rating is None:
+            return []
+        names = {account.account_id: account.name for account in self._database.list_accounts()}
+        mine = [
+            result
+            for result in self.evaluations_in_ladder()
+            if result.state == LadderState.COUNTED
+            and result.ladder_type == LadderType.INDIVIDUAL
+            and result.played_at is not None
+            and (rating.period_start is None or result.played_at >= rating.period_start)
+            and any(player.account_id == account_id for player in result.players)
+        ]
+        mine.sort(key=lambda result: (result.played_at, result.game_id))
+        # The rating's history holds the value after each of these results, in the same order.
+        previous = float(self.settings().start_rating)
+        rows = []
+        for result, (_, after) in zip(mine, rating.history):
+            me = next(player for player in result.players if player.account_id == account_id)
+            opponent = next((player for player in result.players if player.account_id != account_id), None)
+            opponent_name = names.get(opponent.account_id, DELETED_ACCOUNT_NAME) if opponent else ""
+            rows.append(OwnResult(result.played_at, opponent_name, me.has_won, round(after - previous)))
+            previous = after
+        rows.reverse()
+        return rows[:count]
+
+    def head_to_head(self, account_id: int, opponent_id: int) -> HeadToHead:
+        """The player's counted Liga record against one opponent, over every membership."""
+        won = 0
+        lost = 0
+        last: Evaluation | None = None
+        for result in self.evaluations_in_ladder():
+            if result.state != LadderState.COUNTED or result.ladder_type != LadderType.INDIVIDUAL:
+                continue
+            sides = {player.account_id: player for player in result.players}
+            if account_id not in sides or opponent_id not in sides:
+                continue
+            if sides[account_id].has_won:
+                won += 1
+            else:
+                lost += 1
+            if last is None or (result.played_at, result.game_id) > (last.played_at, last.game_id):
+                last = result
+        if last is None:
+            return HeadToHead(won, lost, None, False)
+        has_won_last = any(player.account_id == account_id and player.has_won for player in last.players)
+        return HeadToHead(won, lost, last.played_at, has_won_last)
+
+    def pending_games(self, account_id: int) -> list[PendingGame]:
+        """The player's ladder games without a final result: still waiting for reports, or
+        disputed until an admin decides."""
+        pending = []
+        for game in self._database.list_unresolved_ladder_games():
+            players = self._database.list_game_players(game.game_id)
+            if any(player.account_id == account_id for player in players):
+                pending.append(PendingGame(game.game_id, game.name, "waiting for reports"))
+        for record in self.results():
+            is_mine = any(player.account_id == account_id for player in record.evaluation.players)
+            if is_mine and record.evaluation.state == LadderState.DISPUTED:
+                pending.append(PendingGame(record.evaluation.game_id, record.game_name, "disputed, an admin decides"))
+        return pending
 
     def names_not_joined(
         self, account_ids: Iterable[int], key: LadderKey, moment: datetime, roll: LadderRoll

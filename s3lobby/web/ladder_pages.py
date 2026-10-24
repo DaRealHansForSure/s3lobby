@@ -53,7 +53,7 @@ from s3lobby.ladder_book import (
 )
 from s3lobby.web.accounts import account_row_colour
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
-from s3lobby.web.lobby_view import map_text
+from s3lobby.web.lobby_view import map_text, online_player_names
 from s3lobby.web.paging import pagination_from_request
 from s3lobby.web.storage import get_database, sentence_from_error
 from s3lobby.web.texts import form_text
@@ -228,6 +228,7 @@ def show_ladder() -> str:
         recent=recent,
         members=ladder_members(database),
         member_name_limit=MEMBER_NAME_LIMIT,
+        online_members=book.online_members(online_account_ids(database)),
         counted_count=counted_count,
         running_count=running_count,
         start_rating=settings_start(database),
@@ -438,6 +439,12 @@ def remove_member(account_id: int) -> Response:
 
 
 # Helpers.
+
+
+def online_account_ids(database: LobbyDatabase) -> list[int]:
+    """The account ids of the players the running server has online now, from the live lobby."""
+    online = {name.casefold() for name in online_player_names()}
+    return [account.account_id for account in database.list_accounts() if account.name.casefold() in online]
 
 
 @dataclass(frozen=True)
