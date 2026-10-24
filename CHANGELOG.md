@@ -8,6 +8,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- The log names every migration a database receives ("applied migration 0016
+  permanent_chat_groups"), and the server's start line gives the schema version.
 - More ladder chat commands: `/opponents` (Liga members online, closest to your rating first, also
   "Online now" on the Ladder page), `/results` (your last results with rating changes), `/vs NAME`
   (your record against one player), `/pending` (your games still waiting for a result),

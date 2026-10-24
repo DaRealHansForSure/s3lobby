@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import re
 import secrets
 from collections.abc import Callable, Iterable
@@ -61,6 +62,8 @@ from s3lobby.constants import (
 from s3lobby.ladder import Evaluation, LadderKey, LadderMembership, LadderSettings, ResultPlayer, Season
 from s3lobby.live import LiveLobbyState, StoredLiveState
 from s3lobby.migrations import Migration, MigrationError, MigrationStatus, current_version, migrate, read_status
+
+log = logging.getLogger(__name__)
 
 # Every table of the schema, each after the tables its foreign keys point to: the order to copy
 # them in, and the reverse order to empty them in.
@@ -775,6 +778,14 @@ class LobbyDatabase:
             # The caller never gets this object, so nobody else could close the connection.
             self._backend.close()
             raise DatabaseError(str(error)) from error
+        # An admin reading the start of the log sees the schema change that came with an update.
+        for migration in self.applied_migrations:
+            log.info(
+                "database %s: applied migration %04d %s",
+                describe_location(self.location),
+                migration.version,
+                migration.name,
+            )
 
     def close(self) -> None:
         """Close the connection to the database; the object cannot be used afterwards."""
