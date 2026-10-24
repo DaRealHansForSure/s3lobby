@@ -524,6 +524,29 @@ def key_label(key: LadderKey, season_names: dict[int, str]) -> str:
     return season_names.get(key.season_id, f"season {key.season_id}")
 
 
+@dataclass(frozen=True)
+class LadderMembers:
+    """One ladder's current members by name, for the pages that show who takes part."""
+
+    ladder: str
+    names: tuple[str, ...]
+
+
+def ladder_members(database: LobbyDatabase) -> list[LadderMembers]:
+    """Every ladder that can be joined now, with its members: Liga, Clanliga, then the custom
+    seasons that have not ended, newest first. Names sorted without regard to case."""
+    now = database.now()
+    rows = membership_rows(database)
+    labels = ["Liga", "Clanliga"]
+    for season in database.list_ladder_seasons():
+        if season.ends_at is None or season.ends_at > now:
+            labels.append(season.name)
+    return [
+        LadderMembers(label, tuple(sorted((row.name for row in rows if row.ladder == label), key=str.casefold)))
+        for label in labels
+    ]
+
+
 def membership_rows(database: LobbyDatabase) -> list[MembershipRow]:
     """Every current membership with names, by ladder and then by player name."""
     now = database.now()

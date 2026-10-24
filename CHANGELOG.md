@@ -8,6 +8,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- Who is in which ladder, everywhere: the Ladder page counts and names each ladder's members, the
+  player pages and the admin account pages list a player's ladders (with Join and Take out for
+  admins), and the ladder's MessageZone theme starts with a message on how to join, what counts
+  and how many joined, which the server keeps up to date and on top. The news block names the
+  member counts too.
 - `s3lobby board move-theme|move-message ID up|down` and `hide-theme`, `show-theme`,
   `hide-message`, `show-message`: the board's order and visibility from the command line, as on
   the web; `board list` marks hidden and server-written themes.

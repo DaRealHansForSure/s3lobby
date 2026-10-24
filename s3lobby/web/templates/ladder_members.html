@@ -12,6 +12,11 @@
     game; here, and with <code>s3lobby ladder join</code>, admins do it for them. A player who leaves
     keeps their results for their opponents and starts at the start rating when joining again.</p>
   </div>
+  <div class="grid">
+    {% for ladder in members %}
+    <div class="card"><h3>{{ ladder.ladder }}</h3><div class="stat-number">{{ ladder.names | length }}</div></div>
+    {% endfor %}
+  </div>
   {% if rows %}
   <div class="scroll-x">
     <table class="table">

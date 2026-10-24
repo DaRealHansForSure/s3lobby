@@ -4,8 +4,9 @@ into the lobby").
 The game has no screen for a ladder, so the server writes it into the places the game has:
 
 - the MessageZone board, under a theme only the server writes ("Liga" for German games, "Ladder"
-  for every other language, which falls back to English): one message when a custom season starts,
-  one when it ends, and a weekly summary. Board texts are plain text; line breaks are the only
+  for every other language, which falls back to English): a message on top that explains the
+  ladder (how to join, what counts, how many joined), kept up to date, and one message when a
+  custom season starts, one when it ends, and a weekly summary. Board texts are plain text; line breaks are the only
   formatting the board knows (0x420a40, 0x420cb0).
 - a block under the Home tab's news with the top five and the running seasons;
 - an announcement to everyone online when a custom season ends;
@@ -34,7 +35,7 @@ from s3lobby.constants import (
 )
 from s3lobby.database import DELETED_ACCOUNT_NAME, BoardTheme, DatabaseError, LobbyDatabase, Setting
 from s3lobby.ladder import INFINITE_SEASON, Evaluation, Rating, Season
-from s3lobby.ladder_book import CLANLIGA, LIGA, LadderBook, StandingRow, last_season_day
+from s3lobby.ladder_book import CLANLIGA, LIGA, LadderBook, StandingRow, ladder_members, last_season_day
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,9 @@ BOARD_THEME_DESCRIPTIONS = {
     GERMAN: "Saisons und Wochenberichte, vom Server geschrieben",
     ENGLISH: "Seasons and weekly summaries, written by the server",
 }
+# The board message that explains the ladder; found again by its title, rewritten when its text
+# changes, kept on top and never pruned.
+INFO_TITLES = {GERMAN: "So funktioniert die Liga", ENGLISH: "How the ladder works"}
 GERMAN_MONTHS = ("Jan", "Feb", "März", "Apr", "Mai", "Juni", "Juli", "Aug", "Sep", "Okt", "Nov", "Dez")
 # Room the lobby needs in front of a board message for its byline ("Server name, 2026-10-23" and an
 # empty line, see Lobby._text_message_for): a server name is a group text of at most 64 characters.
@@ -141,6 +145,44 @@ class LadderTexts:
         """Texts from this database's results."""
         self._database = database
         self._book = book
+
+    def info(self, language: str) -> BoardText:
+        """The board message on top of the ladder's theme: that players take part only in ladders
+        they join and how, what counts, and how many joined each ladder."""
+        settings = self._book.settings()
+        members = ladder_members(self._database)
+        liga_count = len(members[0].names)
+        clanliga_count = len(members[1].names)
+        seasons = members[2:]
+        if language == GERMAN:
+            lines = [
+                "Mit dabei ist nur, wer beitritt. Im Chat:",
+                "/ladder join (Liga), /ladder join clanliga, /ladder join SAISON",
+                "/ladder zeigt deine Ligen, /ladder leave tritt aus.",
+                f"Wer wieder beitritt, beginnt neu bei {settings.start_rating}.",
+                "",
+                "Ein Ligaspiel zählt, wenn alle Spieler beigetreten sind, alle Berichte",
+                f"denselben Sieger nennen und es mindestens {settings.minimum_minutes} Minuten dauerte.",
+                "",
+                f"Mitglieder: {liga_count} in der Liga, {clanliga_count} in der Clanliga.",
+            ]
+            lines += [f"{season.ladder}: {len(season.names)} Mitglieder." for season in seasons]
+            lines += ["", "Ranglisten im Spiel: /rank, /top, /clanrank, /seasons"]
+        else:
+            lines = [
+                "Only players who join take part. In the chat:",
+                "/ladder join (Liga), /ladder join clanliga, /ladder join SEASON",
+                "/ladder shows your ladders, /ladder leave leaves one.",
+                f"Joining again starts you anew at {settings.start_rating}.",
+                "",
+                "A ladder game counts when every player in it has joined, every report",
+                f"names the same winner, and it lasted at least {settings.minimum_minutes} minutes.",
+                "",
+                f"Members: {liga_count} in the Liga, {clanliga_count} in the Clanliga.",
+            ]
+            lines += [f"{season.ladder}: {len(season.names)} members." for season in seasons]
+            lines += ["", "Standings in the game: /rank, /top, /clanrank, /seasons"]
+        return fit_board_text(INFO_TITLES[language], lines)
 
     def season_start(self, season: Season, language: str) -> BoardText:
         """The board message when a custom season starts."""
@@ -297,7 +339,13 @@ class LadderTexts:
             else:
                 until = f" until {day_text(last, ENGLISH)}" if last else ""
                 lines.append(f"Running: {season.name} ({counts_text(season.counts, ENGLISH)}){until}.")
-        lines.append("Im Spiel: /top und /rank." if is_german else "In the game: /top and /rank.")
+        members = ladder_members(self._database)
+        if is_german:
+            lines.append(f"Mitglieder: {len(members[0].names)} Liga, {len(members[1].names)} Clanliga.")
+            lines.append("Im Spiel: /ladder join, /top und /rank.")
+        else:
+            lines.append(f"Members: {len(members[0].names)} Liga, {len(members[1].names)} Clanliga.")
+            lines.append("In the game: /ladder join, /top and /rank.")
         return lines
 
     def logon_line(self, account_id: int) -> str | None:
@@ -403,10 +451,37 @@ class LadderWriter:
         last_week = week_start_of(now) - timedelta(days=DAYS_PER_WEEK)
         if self._is_new_event(f"weekly:{last_week:%Y-%m-%d}"):
             self._post(themes, {language: self._texts.weekly_summary(last_week, language) for language in themes})
+        info_ids = self._keep_info_on_top(themes)
         keep = self._database.get_integer_setting(Setting.LADDER_BOARD_MESSAGES)
         for theme in themes.values():
-            self._database.delete_board_messages_but_newest(theme.theme_id, keep)
+            self._database.delete_board_messages_but_newest(theme.theme_id, keep, kept_ids=info_ids.values())
         return WrittenTexts(tuple(announcements))
+
+    def _keep_info_on_top(self, themes: dict[str, BoardTheme]) -> dict[str, int]:
+        """Post or rewrite the info message of each language and keep it first in its theme;
+        returns its message id per language. It is rewritten only when its text changed (the
+        number of members, the settings), and moved to the top only when it is not there, so an
+        admin who hid it keeps it hidden."""
+        info_ids = {}
+        for language, theme in themes.items():
+            text = self._texts.info(language)
+            messages = self._database.list_board_messages(theme.theme_id)
+            info = next((message for message in messages if message.title == INFO_TITLES[language]), None)
+            try:
+                if info is None:
+                    info = self._database.post_board_message(theme.theme_id, text.title, text.body, is_by_server=True)
+                    messages = self._database.list_board_messages(theme.theme_id)
+                elif info.body != text.body:
+                    self._database.update_board_message(info.message_id, text.title, text.body)
+            except DatabaseError as error:
+                log.warning("ladder: info message %r not written: %s", text.title, error)
+                continue
+            info_ids[language] = info.message_id
+            order = [message.message_id for message in messages]
+            if order and order[0] != info.message_id:
+                order.remove(info.message_id)
+                self._database.set_board_message_order(theme.theme_id, [info.message_id, *order])
+        return info_ids
 
     def server_themes(self) -> dict[str, BoardTheme]:
         """The server's own board theme per language, created on first use."""

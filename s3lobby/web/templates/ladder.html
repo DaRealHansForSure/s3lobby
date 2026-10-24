@@ -8,11 +8,14 @@
   <div class="section-head">
     <h1>Ladder</h1>
     <p>Liga is 1 on 1 between two players, Clanliga team against team between two clans. Ratings
-    are Elo; everyone starts at {{ start_rating }}. A match counts when every player's game reports
-    the same winner and it lasted long enough.</p>
+    are Elo; everyone starts at {{ start_rating }}. Players take part only in the ladders they join
+    (<code>/ladder join</code> in the game). A match counts when every player in it has joined,
+    every player's game reports the same winner, and it lasted long enough.</p>
   </div>
   <div class="grid">
     <div class="card"><h3>Ranked {% if view == "clanliga" %}clans{% else %}players{% endif %}</h3><div class="stat-number">{{ ranked_count }}</div></div>
+    <div class="card"><h3>Members</h3><div class="stat-number">{{ members[0].names | length }}</div>
+      <p class="meta">in the Liga, {{ members[1].names | length }} in the Clanliga</p></div>
     <div class="card"><h3>Counted matches</h3><div class="stat-number">{{ counted_count }}</div></div>
     <div class="card"><h3>Running custom seasons</h3><div class="stat-number">{{ running_count }}</div></div>
   </div>
@@ -200,5 +203,21 @@
   {% else %}
   <p class="empty-state">No counted matches yet.</p>
   {% endif %}
+</section>
+<section id="members">
+  <div class="section-head"><h2>Who takes part</h2><p>The members of each ladder that can be joined
+  now. Players join with <code>/ladder join</code>, <code>/ladder join clanliga</code> or
+  <code>/ladder join SEASON</code> in the game.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Ladder</th><th class="num">Members</th><th>Who</th></tr></thead>
+      <tbody>
+        {% for ladder in members %}
+        <tr><td>{{ ladder.ladder }}</td><td class="num">{{ ladder.names | length }}</td>
+          <td>{% for name in ladder.names[:member_name_limit] %}<a href="{{ url_for('players.show_player', name=name) }}">{{ name }}</a>{% if not loop.last %}, {% endif %}{% else %}<span class="muted">nobody yet</span>{% endfor %}{% if ladder.names | length > member_name_limit %} <span class="muted">and {{ ladder.names | length - member_name_limit }} more</span>{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}

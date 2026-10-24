@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from s3lobby.constants import LadderState, LadderType, SeasonCounts
 from s3lobby.ladder import Evaluation, ResultPlayer
-from s3lobby.ladder_book import membership_rows
+from s3lobby.ladder_book import ladder_labels, membership_rows
 from tests.support import join_ladder_since
 from tests.test_web import IS_FLASK_INSTALLED, PLAYER_NAME, WebInterfaceTestCase
 
@@ -151,6 +151,20 @@ class LadderPagesTest(WebInterfaceTestCase):
         self.assertNotIn(PLAYER_NAME, [row.name for row in membership_rows(self.database)])
         self.post("/admin/ladder/members", name=PLAYER_NAME, ladder="Clanliga")
         self.assertIn((PLAYER_NAME, "Clanliga"), [(row.name, row.ladder) for row in membership_rows(self.database)])
+
+
+    def test_the_pages_show_who_is_in_which_ladder(self) -> None:
+        """The public ladder page counts and names the members; the admin account page lists a
+        player's ladders and joins or takes them out, as /ladder does in the game."""
+        page = self.client.get("/ladder").get_data(as_text=True)
+        self.assertIn("Who takes part", page)
+        self.assertIn(f">{PLAYER_NAME}</a>", page)
+        self.log_on()
+        account_path = f"/admin/accounts/{self.player.account_id}"
+        self.assertIn("Clanliga</option>", self.client.get(account_path).get_data(as_text=True))
+        self.post(f"{account_path}/ladders/join", ladder="Clanliga")
+        self.post(f"{account_path}/ladders/leave", ladder="Liga")
+        self.assertEqual(ladder_labels(self.database, self.player.account_id), ["Clanliga"])
 
 
 if __name__ == "__main__":

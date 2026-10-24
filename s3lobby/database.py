@@ -24,7 +24,7 @@ import hashlib
 import hmac
 import re
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -1426,11 +1426,25 @@ class LobbyDatabase:
             return None
         return board_message_from_row(row)
 
-    def delete_board_messages_but_newest(self, theme_id: int, keep_count: int) -> int:
-        """Delete a theme's messages but its newest keep_count; returns how many went. The server
-        keeps its own themes short this way."""
+    def update_board_message(self, message_id: int, title: str, body: str) -> None:
+        """Rewrite a message the server keeps up to date (the ladder's info); its place and whether
+        it is hidden stay. Raises DatabaseError for a text the game cannot show."""
+        check_title("message title", title)
+        check_game_text("message text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE board_messages SET title = ?, body = ? WHERE id = ?", (title, body, message_id)
+            )
+
+    def delete_board_messages_but_newest(self, theme_id: int, keep_count: int, kept_ids: Iterable[int] = ()) -> int:
+        """Delete a theme's messages but its newest keep_count and those in kept_ids; returns how
+        many went. The server keeps its own themes short this way."""
+        always_kept = set(kept_ids)
         # Newest by when they were posted (the id), whatever order admins gave them on the board.
-        messages = sorted(self.list_board_messages(theme_id), key=lambda message: message.message_id)
+        messages = sorted(
+            (message for message in self.list_board_messages(theme_id) if message.message_id not in always_kept),
+            key=lambda message: message.message_id,
+        )
         surplus = messages[: max(0, len(messages) - keep_count)]
         with self._backend.transaction():
             for message in surplus:

@@ -379,7 +379,9 @@ s3lobby setting set ladder_enabled true      # tell the game results are stored 
 ```
 
 In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat, and `/ladder join`
-(or `/ladder join clanliga`, `/ladder join SEASON`) makes the player a member. While the ladder is
+(or `/ladder join clanliga`, `/ladder join SEASON`) makes the player a member. The ladder's
+MessageZone theme starts with a message on how to join and how many have joined, kept up to date;
+the Ladder page lists who takes part, and each player's page and admin account page their ladders. While the ladder is
 on, the server also writes it where the game has room for text: a MessageZone theme of its own
 ("Liga" in German, "Ladder" otherwise) with season starts, season ends and a weekly summary, the
 top five under the Home tab's news, an announcement when a custom season ends, and lines at logon
