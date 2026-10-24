@@ -71,8 +71,12 @@ SCRIPT_TIME_BUDGET_MS = 2000
 BOTTOM_MARGIN = 48
 HEIGHT_LIMITS = {"games": 1300}
 # The demo: its players (the first is the admin who logs on), the random seed that picks who
-# played whom, and how many days of ladder games it holds.
-PLAYER_NAMES = ("Greta", "Thalia", "Jin", "Marcus", "Lena", "Pavel", "Ivo", "Sanna")
+# played whom, and how many days of ladder games it holds. The players carry the names of the
+# people who made The Settlers III (Blue Byte, 1998), a small thank-you; only the last one, banned
+# in the demo, is made up.
+PLAYER_NAMES = (
+    "VolkerW", "DirkR", "ThomasH", "TorstenH", "ThorstenW", "WolfgangW", "HaikoR", "Sanna",
+)
 DEMO_SEED = 3
 DEMO_DAYS = 18
 DEMO_START_DAYS_AGO = 20
@@ -117,7 +121,7 @@ def readme_shots(accounts: dict[str, int]) -> list[Shot]:
     return [
         Shot("live-lobby", "/", False),
         Shot("ladder", "/ladder", False),
-        Shot("player", "/players/Thalia", False),
+        Shot("player", "/players/DirkR", False),
         Shot("admin-start", "/admin/", True),
         Shot("admin-lobby", "/admin/lobby", True),
         Shot("ladder-members", "/admin/ladder/members", True),
@@ -125,7 +129,7 @@ def readme_shots(accounts: dict[str, int]) -> list[Shot]:
         Shot("chat-themes", "/admin/chat-themes", True),
         Shot("games", "/admin/games", True),
         Shot("game-details", "/admin/games/1", True),
-        Shot("account", f"/admin/accounts/{accounts['Jin']}", True),
+        Shot("account", f"/admin/accounts/{accounts['ThomasH']}", True),
         Shot("clans", "/admin/clans", True),
         Shot("info", "/admin/info", True),
     ]
@@ -177,8 +181,8 @@ def add_players_and_content(database: LobbyDatabase, now: datetime) -> dict[str,
     romans = database.create_clan("Romans").clan_id
     blue_byte = database.create_clan("BB").clan_id
     database.set_clan_highlighted(blue_byte, True)
-    database.set_clan_of_account(accounts["Marcus"], romans)
-    database.set_clan_of_account(accounts["Jin"], blue_byte)
+    database.set_clan_of_account(accounts["TorstenH"], romans)
+    database.set_clan_of_account(accounts["ThomasH"], blue_byte)
     database.ban_account(accounts["Sanna"], now + timedelta(days=1), "spamming the chat")
     # What players read: news, a theme of the admins' own with the permanent groups on, the board.
     database.set_setting(Setting.PERMANENT_CHAT_GROUPS, "true")
@@ -186,14 +190,16 @@ def add_players_and_content(database: LobbyDatabase, now: datetime) -> dict[str,
     database.set_news("other", "Welcome", "Welcome to the LAN lobby!\nFriday from 20:00: open evening.")
     database.add_chat_theme("Tactics", "Builds and openings")
     board = database.add_board_theme("English", "Tournaments", "Cups and dates")
-    database.post_board_message(board.theme_id, "Autumn Cup", "Saturday from 14:00, sign up with Greta.", author="Greta")
+    database.post_board_message(
+        board.theme_id, "Autumn Cup", "Saturday from 14:00, sign up with VolkerW.", author="VolkerW"
+    )
     server_theme = database.add_board_theme(
         "English", "Ladder", "Seasons and weekly summaries, written by the server", is_server_written=True
     )
     database.post_board_message(
         server_theme.theme_id,
         "Week of 5 Oct 2026 to 11 Oct 2026",
-        "Standings (infinite season)\n1. Thalia 1097\n2. Marcus 1076",
+        "Standings (infinite season)\n1. DirkR 1097\n2. TorstenH 1076",
         is_by_server=True,
     )
     database.queue_announcement("Server restart at 22:00")
@@ -272,25 +278,34 @@ def demo_live_state(accounts: dict[str, int], now: datetime) -> LiveLobbyState:
     meeting_room = CHAT_THEME_GROUP_ID_BASE + 1
     online_since = now.isoformat()
     players = (
-        LivePlayer(accounts["Greta"], "Greta", "", True, "192.168.1.20:3343", online_since, (game_group_id,), "open", "green"),
-        LivePlayer(accounts["Thalia"], "Thalia", "", False, "192.168.1.21:3343", online_since, (game_group_id,), "open", ""),
         LivePlayer(
-            accounts["Marcus"], "Marcus", "Romans", False, "198.51.100.4:3343", online_since,
+            accounts["VolkerW"], "VolkerW", "", True, "192.168.1.20:3343", online_since,
+            (game_group_id,), "open", "green",
+        ),
+        LivePlayer(accounts["DirkR"], "DirkR", "", False, "192.168.1.21:3343", online_since, (game_group_id,), "open", ""),
+        LivePlayer(
+            accounts["TorstenH"], "TorstenH", "Romans", False, "198.51.100.4:3343", online_since,
             (GAME_ZONE_GROUP_ID, LEAGUE_ZONE_ID), "open", "",
         ),
-        LivePlayer(accounts["Jin"], "Jin", "BB", False, "203.0.113.9:3343", online_since, (chat_group_id,), "blocked", "blue"),
-        LivePlayer(accounts["Lena"], "Lena", "", False, "192.168.1.23:3343", online_since, (chat_group_id,), "open", ""),
+        LivePlayer(
+            accounts["ThomasH"], "ThomasH", "BB", False, "203.0.113.9:3343", online_since,
+            (chat_group_id,), "blocked", "blue",
+        ),
+        LivePlayer(accounts["ThorstenW"], "ThorstenW", "", False, "192.168.1.23:3343", online_since, (chat_group_id,), "open", ""),
     )
     groups = (
         LiveGroup(
-            game_group_id, GroupKind.GAME.value, "Greta's game", 4, False, False, ("Greta", "Thalia"),
+            game_group_id, GroupKind.GAME.value, "VolkerW's game", 4, False, False, ("VolkerW", "DirkR"),
             (LEAGUE_ZONE_ID,), MAP_NAME, 2, True,
         ),
-        LiveGroup(chat_group_id, GroupKind.CHAT_GROUP.value, "Tactics talk", 0, False, False, ("Jin", "Lena"), (meeting_room,)),
-        LiveGroup(meeting_room, GroupKind.ROOM.value, "Meeting Room", 0, False, False, (), (CHAT_ZONE_GROUP_ID,)),
-        LiveGroup(GAME_ZONE_GROUP_ID, GroupKind.ROOM.value, "GameZone", 0, False, False, ("Marcus",)),
         LiveGroup(
-            LEAGUE_ZONE_ID, GroupKind.ROOM.value, "League 1 vs 1", 0, False, False, ("Marcus",), (GAME_ZONE_GROUP_ID,)
+            chat_group_id, GroupKind.CHAT_GROUP.value, "Tactics talk", 0, False, False,
+            ("ThomasH", "ThorstenW"), (meeting_room,),
+        ),
+        LiveGroup(meeting_room, GroupKind.ROOM.value, "Meeting Room", 0, False, False, (), (CHAT_ZONE_GROUP_ID,)),
+        LiveGroup(GAME_ZONE_GROUP_ID, GroupKind.ROOM.value, "GameZone", 0, False, False, ("TorstenH",)),
+        LiveGroup(
+            LEAGUE_ZONE_ID, GroupKind.ROOM.value, "League 1 vs 1", 0, False, False, ("TorstenH",), (GAME_ZONE_GROUP_ID,)
         ),
     )
     return LiveLobbyState(server_name="LAN Lobby", players=players, groups=groups)

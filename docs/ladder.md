@@ -248,7 +248,7 @@ because the game picks the news by its language (0x45351b) and the board by its 
   because a line at every logon is noise for players who do not play the ladder; it is only sent
   to players with a place in the infinite season's Liga, which takes a current membership.
 - **Announcements to everyone online** only for the end of a custom season ("Autumn Cup is over:
-  Jin wins with 1088"), since that is the one event everyone should hear at once.
+  ThomasH wins with 1088"), since that is the one event everyone should hear at once.
 
 Per match, nothing is written to the board or the news: a busy evening would push everything else
 out, and the match line and the web page already carry it.

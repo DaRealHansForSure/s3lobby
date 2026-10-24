@@ -56,6 +56,7 @@ files: point the game at your server and log on.
 - [How it works](#how-it-works)
 - [Roadmap](#roadmap)
 - [Development](#development)
+- [Credits](#credits)
 - [Legal](#legal)
 
 ## Features
@@ -814,6 +815,17 @@ podman run -d --rm --name s3lobby-mysql -p 127.0.0.1:3306:3306 \
     -e MYSQL_USER=s3lobby -e MYSQL_PASSWORD=s3lobby docker.io/library/mysql:8.4
 S3LOBBY_TEST_DATABASE=mysql://s3lobby:s3lobby@127.0.0.1:3306/s3lobby_test .venv/bin/python -m unittest
 ```
+
+## Credits
+
+The Settlers III was made by Blue Byte in 1998; without their game there would be nothing to
+bring back. Among many others: Volker Wertich (design and programming, and the creator of The
+Settlers), Thomas Hertzler (producer), Dirk Ringe (programming), Torsten Hess (graphics), Thorsten
+Wallner (characters and animation), Wolfgang Walk (story) and Haiko Ruttmann (music). The players
+in the screenshots carry their names, as first name and initial (VolkerW, ThomasH, ...).
+
+A personal thank-you goes to **Volker Wertich**, who gave the author advice and inspiration some
+twenty years ago.
 
 ## Legal
 
