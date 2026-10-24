@@ -48,6 +48,7 @@ from s3lobby.constants import (
     DEFAULT_CHAT_THEME_DESCRIPTION,
     DEFAULT_CHAT_THEME_NAME,
     FIRST_PRINTABLE_CHARACTER,
+    PERMANENT_CHAT_GROUP_NAME_PREFIX,
     GAME_LANGUAGES,
     MAX_ANNOUNCEMENT_LENGTH,
     MAX_GROUP_TEXT_LENGTH,
@@ -70,6 +71,7 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "clan_members",
     "news",
     "chat_themes",
+    "permanent_chat_groups",
     "board_themes",
     "board_messages",
     "lobby_sessions",
@@ -89,8 +91,9 @@ TABLES_IN_DEPENDENCY_ORDER = (
 )
 
 # Tables a migration fills with starting rows in every new database (0014: the default chat
-# themes). A copy replaces them in its target instead of refusing it as not empty.
-TABLES_SEEDED_BY_MIGRATIONS = ("chat_themes",)
+# themes, 0016: their permanent chat groups). A copy replaces them in its target instead of
+# refusing it as not empty.
+TABLES_SEEDED_BY_MIGRATIONS = ("permanent_chat_groups", "chat_themes")
 
 # Shown for a game's player whose account was deleted since.
 DELETED_ACCOUNT_NAME = "(deleted account)"
@@ -147,6 +150,9 @@ class Setting(Enum):
     # The original refused a second logon with the same serial number as an illegal copy. Off by
     # default: on a LAN, one household's copies often share a serial.
     UNIQUE_SERIAL_NUMBERS = "unique_serial_numbers"
+    # Keep the permanent chat groups open in the chat themes (table permanent_chat_groups). Off
+    # until a run with the real game has shown a chat group no player opened.
+    PERMANENT_CHAT_GROUPS = "permanent_chat_groups"
     # The game's "Create Player" button makes an account with the name and password typed in the
     # game. Off by default: accounts are made by admins, who hand out access codes.
     ALLOW_CREATE_PLAYER = "allow_create_player"
@@ -201,6 +207,7 @@ class Setting(Enum):
 SETTING_DEFAULTS = {
     Setting.MAX_PLAYERS: "0",
     Setting.UNIQUE_SERIAL_NUMBERS: "false",
+    Setting.PERMANENT_CHAT_GROUPS: "false",
     Setting.ALLOW_CREATE_PLAYER: "false",
     Setting.WELCOME_MESSAGE: "",
     Setting.BANNER_URL: "",
@@ -235,6 +242,10 @@ CHOSEN_IN_GAME_LABEL = "chosen in the game"
 REASON_LABEL = "Reason"
 NO_REASON_TEXT = "No reason given."
 
+# A permanent chat group's name as admins give it; the game shows it after the "[Server] " mark,
+# and the whole name must stay within MAX_GROUP_TEXT_LENGTH.
+MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH = MAX_GROUP_TEXT_LENGTH - len(PERMANENT_CHAT_GROUP_NAME_PREFIX)
+
 # What a player is told when their account is deleted while they are online.
 ACCOUNT_REMOVED_KICK_REASON = "Your account was removed."
 
@@ -249,6 +260,7 @@ BOOLEAN_SETTINGS = frozenset(
     {
         Setting.UNIQUE_SERIAL_NUMBERS,
         Setting.ALLOW_CREATE_PLAYER,
+        Setting.PERMANENT_CHAT_GROUPS,
         Setting.MARK_ADMINS,
         Setting.CHECK_REACHABILITY,
         Setting.LADDER_ENABLED,
@@ -327,6 +339,15 @@ class ChatTheme:
     description: str
     # Shown only to games of this language (a name from GAME_LANGUAGES); ALL_LANGUAGES for every game.
     language: str = ALL_LANGUAGES
+
+
+@dataclass(frozen=True)
+class PermanentChatGroup:
+    """A chat group the server keeps open in a chat theme. chat_theme_id None is General."""
+
+    group_row_id: int
+    chat_theme_id: int | None
+    name: str
 
 
 @dataclass(frozen=True)
@@ -1269,9 +1290,40 @@ class LobbyDatabase:
                     "INSERT INTO chat_themes (name, description, language, created_at) VALUES (?, ?, ?, ?)",
                     (name, description, language, to_stored_time(self._clock())),
                 )
+                # Every theme starts with one permanent chat group named after it.
+                self._backend.execute(
+                    "INSERT INTO permanent_chat_groups (chat_theme_id, name, created_at) VALUES (?, ?, ?)",
+                    (result.last_row_id, name[:MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH], to_stored_time(self._clock())),
+                )
         except ConstraintViolation as error:
             raise DatabaseError(f"a chat theme named {name!r} already exists") from error
         return ChatTheme(theme_id=result.last_row_id, name=name, description=description, language=language)
+
+    def add_permanent_chat_group(self, chat_theme_id: int | None, name: str) -> PermanentChatGroup:
+        """Keep one more chat group open in a theme (None: General). Raises DatabaseError for a
+        name the game cannot show, or a theme that does not exist."""
+        check_game_text("chat group name", name, MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH)
+        if not name.strip():
+            raise DatabaseError("chat group name must not be empty")
+        try:
+            with self._backend.transaction():
+                result = self._backend.execute(
+                    "INSERT INTO permanent_chat_groups (chat_theme_id, name, created_at) VALUES (?, ?, ?)",
+                    (chat_theme_id, name, to_stored_time(self._clock())),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"there is no chat theme {chat_theme_id}") from error
+        return PermanentChatGroup(result.last_row_id, chat_theme_id, name)
+
+    def list_permanent_chat_groups(self) -> list[PermanentChatGroup]:
+        """Every permanent chat group, in the order they were added."""
+        rows = self._backend.fetch_all("SELECT id, chat_theme_id, name FROM permanent_chat_groups ORDER BY id")
+        return [PermanentChatGroup(row["id"], row["chat_theme_id"], row["name"]) for row in rows]
+
+    def delete_permanent_chat_group(self, group_row_id: int) -> None:
+        """Stop keeping a chat group open; the running server closes it once nobody is in it."""
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM permanent_chat_groups WHERE id = ?", (group_row_id,))
 
     def list_chat_themes(self) -> list[ChatTheme]:
         """Every ChatZone theme, in the order they were added."""

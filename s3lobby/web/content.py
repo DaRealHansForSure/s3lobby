@@ -14,7 +14,16 @@ from flask import Blueprint, abort, flash, redirect, render_template, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.constants import BOARD_LANGUAGES, GAME_LANGUAGES, NEWS_AUDIENCE_GERMAN, NEWS_AUDIENCE_OTHER, NEWS_AUDIENCES
-from s3lobby.database import BUILT_IN_CHAT_THEMES, BoardMessage, BoardTheme, News, is_whole_number_text
+from s3lobby.database import (
+    BUILT_IN_CHAT_THEMES,
+    MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH,
+    BoardMessage,
+    BoardTheme,
+    News,
+    PermanentChatGroup,
+    Setting,
+    is_whole_number_text,
+)
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.storage import apply_change, get_database
 from s3lobby.web.texts import form_multiline_text, form_text
@@ -89,12 +98,48 @@ def set_news(audience: str) -> Response:
 @blueprint.get("/chat-themes")
 def list_chat_themes() -> str:
     """The ChatZone themes page: the built-in themes, which cannot be changed, and the admins' own."""
+    database = get_database()
+    groups_by_theme: dict[int | None, list[PermanentChatGroup]] = {}
+    for group in database.list_permanent_chat_groups():
+        groups_by_theme.setdefault(group.chat_theme_id, []).append(group)
     return render_template(
         "chat_themes.html",
         built_in_themes=BUILT_IN_CHAT_THEMES,
-        themes=get_database().list_chat_themes(),
+        themes=database.list_chat_themes(),
         languages=GAME_LANGUAGES,
+        groups_by_theme=groups_by_theme,
+        are_groups_on=database.get_boolean_setting(Setting.PERMANENT_CHAT_GROUPS),
+        max_group_name_length=MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH,
     )
+
+
+@blueprint.post("/chat-themes/groups")
+def add_permanent_chat_group() -> Response:
+    """Keep one more chat group open in the theme the form names (empty: General)."""
+    theme_text = form_text("theme_id")
+    name = form_text("name")
+    chat_theme_id = None
+    if theme_text:
+        # Checked before int(), which would raise on a forged value; whether the theme exists is the
+        # database's check.
+        if not is_whole_number_text(theme_text):
+            abort(HTTPStatus.BAD_REQUEST)
+        chat_theme_id = int(theme_text)
+    apply_change(
+        lambda: get_database().add_permanent_chat_group(chat_theme_id, name),
+        f"Chat group {name} added; it opens at the next visit to the ChatZone.",
+    )
+    return redirect(url_for("content.list_chat_themes"))
+
+
+@blueprint.post("/chat-themes/groups/<int:group_row_id>/delete")
+def delete_permanent_chat_group(group_row_id: int) -> Response:
+    """Stop keeping a chat group open; the server closes it once nobody is in it."""
+    apply_change(
+        lambda: get_database().delete_permanent_chat_group(group_row_id),
+        "Chat group removed; it closes once nobody is in it.",
+    )
+    return redirect(url_for("content.list_chat_themes"))
 
 
 @blueprint.post("/chat-themes")

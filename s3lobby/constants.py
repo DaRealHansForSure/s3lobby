@@ -330,6 +330,9 @@ SERVER_ASSIGNS_GROUP_ID = 0xFFFFFFFF
 CHAT_THEME_GROUP_ID_BASE = 0x10000
 BOARD_LANGUAGE_GROUP_ID_BASE = 0x20000
 BOARD_THEME_GROUP_ID_BASE = 0x30000
+# Chat groups the server keeps open in the chat themes (setting permanent_chat_groups): this base
+# plus their database id, above the board themes' highest id (0xdf000) and below the players' groups.
+PERMANENT_CHAT_GROUP_ID_BASE = 0xE0000
 FIRST_GAME_GROUP_ID = 0x100000
 # The game lists a parent's groups by ascending group id, whatever order they arrive in (CGroup's
 # operator< compares the ids, 0x5db570, and the visible groups are a sorted array, 0x44d730). So a
@@ -351,6 +354,13 @@ BOARD_MESSAGE_TEXT_ID_BASE = 0x10000
 # always had, the base itself; database themes take the base plus their id, which starts at 1.
 DEFAULT_CHAT_THEME_NAME = "General"
 DEFAULT_CHAT_THEME_DESCRIPTION = "Talk about anything"
+# A permanent chat group is announced like the chat group a player opens without a password
+# (AddGroupToGroup2, flags 0x300073, no player limit; docs/protocol.md, The ChatZone tab). Its name
+# starts with this mark so players see the server keeps it open; the second text fills the
+# "Description" column.
+PERMANENT_CHAT_GROUP_FLAGS = 0x300073
+PERMANENT_CHAT_GROUP_NAME_PREFIX = "[Server] "
+PERMANENT_CHAT_GROUP_DESCRIPTION = "Always open"
 # A chat theme may be shown only to games of one language (a name from GAME_LANGUAGES); this
 # value shows it to every game. A game's language is known from its patch check, which comes on
 # the connection before the logon, from the same address (seen in a run); the lobby remembers it

@@ -14,7 +14,17 @@ from pathlib import Path
 
 from s3lobby.commands import kick_reason
 from s3lobby.constants import NEWS_AUDIENCES
-from s3lobby.database import BUILT_IN_CHAT_THEMES, Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
+from s3lobby.database import (
+    BUILT_IN_CHAT_THEMES,
+    Account,
+    Clan,
+    DatabaseError,
+    LobbyDatabase,
+    PermanentChatGroup,
+    Setting,
+    is_built_in_chat_theme_name,
+    utc_now,
+)
 
 
 # board move-theme and move-message: the directions, and which kind of board item a command acts on.
@@ -208,12 +218,47 @@ def remove_chat_theme(database: LobbyDatabase, options: argparse.Namespace) -> N
 
 def list_chat_themes(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Print every chat theme with its description and, for a theme of one language, that
-    language; the built-in ones first."""
+    language; the built-in ones first. Under each, its permanent chat groups with their ids."""
+    groups = database.list_permanent_chat_groups()
     for built_in in BUILT_IN_CHAT_THEMES:
         print(f"{built_in.name}  {built_in.description}  (built in)")
+        print_permanent_groups(groups, None)
     for theme in database.list_chat_themes():
         language_note = f"  ({theme.language} games only)" if theme.language else ""
         print(f"{theme.name}  {theme.description}{language_note}".rstrip())
+        print_permanent_groups(groups, theme.theme_id)
+
+
+def print_permanent_groups(groups: list[PermanentChatGroup], chat_theme_id: int | None) -> None:
+    """Print the permanent chat groups of one theme, indented under it."""
+    for group in groups:
+        if group.chat_theme_id == chat_theme_id:
+            print(f"    group {group.group_row_id}: {group.name}")
+
+
+def add_permanent_chat_group(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Keep one more chat group open in a theme, named by the theme's name ("General" for the
+    built-in one)."""
+    chat_theme_id = require_chat_theme_id(database, options.theme)
+    group = database.add_permanent_chat_group(chat_theme_id, options.name)
+    print(f"Permanent chat group {group.group_row_id} {group.name!r} added.")
+
+
+def remove_permanent_chat_group(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Stop keeping a chat group open, by its id from chat-theme list."""
+    database.delete_permanent_chat_group(options.group_id)
+    print(f"Permanent chat group {options.group_id} removed; it closes once nobody is in it.")
+
+
+def require_chat_theme_id(database: LobbyDatabase, name: str) -> int | None:
+    """The database id of the theme with this name, None for the built-in General; raises
+    AdminError for an unknown theme."""
+    if is_built_in_chat_theme_name(name):
+        return None
+    for theme in database.list_chat_themes():
+        if theme.name.casefold() == name.strip().casefold():
+            return theme.theme_id
+    raise AdminError(f"there is no chat theme named {name!r}")
 
 
 # MessageZone board.

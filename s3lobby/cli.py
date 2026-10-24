@@ -368,6 +368,19 @@ def add_chat_theme_commands(commands: argparse._SubParsersAction, database_optio
     listing = actions.add_parser("list", parents=[database_option], help="list chat themes")
     listing.set_defaults(admin_function=admin.list_chat_themes)
 
+    # Chat groups the server keeps open in a theme (setting permanent_chat_groups).
+    add_group = actions.add_parser(
+        "add-group", parents=[database_option], help="keep one more chat group open in a theme"
+    )
+    add_group.add_argument("theme", help='the theme\'s name, "General" for the built-in one')
+    add_group.add_argument("name")
+    add_group.set_defaults(admin_function=admin.add_permanent_chat_group)
+    remove_group = actions.add_parser(
+        "remove-group", parents=[database_option], help="stop keeping a chat group open"
+    )
+    remove_group.add_argument("group_id", type=int, help="the group's id from chat-theme list")
+    remove_group.set_defaults(admin_function=admin.remove_permanent_chat_group)
+
 
 def add_board_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the board subcommands for the themes and messages on the MessageZone tab."""

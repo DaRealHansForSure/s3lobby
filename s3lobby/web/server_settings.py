@@ -89,6 +89,14 @@ SETTING_FIELDS = (
         group="Logons",
     ),
     SettingField(
+        Setting.PERMANENT_CHAT_GROUPS,
+        "Keep permanent chat groups open",
+        "Each chat theme gets the chat groups listed on the Chat themes page, marked [Server], always "
+        "open and ready to chat in without opening one first. Not yet tried with the real game.",
+        is_checkbox=True,
+        group="Chat and Home tab",
+    ),
+    SettingField(
         Setting.WELCOME_MESSAGE,
         "Welcome line",
         "Shown in the chat as a [Server] line right after each logon. Empty for none.",
