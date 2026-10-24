@@ -13,10 +13,17 @@ another project; its history was carried over, so the early commits describe tha
 - `s3lobby/messages.py`: one frozen dataclass per message with `encode()` and `decode()`.
 - `s3lobby/connection.py`: the reliable layer for one client. No network access, testable with a
   fake clock.
-- `s3lobby/lobby.py`: players, rooms, zones, games; one handler per lobby message type.
+- `s3lobby/lobby.py`: players, rooms, zones, games; one handler per lobby message type; keeps the
+  chat themes and the permanent chat groups (`_sync_permanent_chat_groups`) in line with the
+  database and runs the ladder's evaluation and texts in its housekeeping.
+- `s3lobby/groups.py` (one group and its announcements), `s3lobby/logon.py` (who may log on,
+  Create Player), `s3lobby/commands.py` (the chat commands, the ladder's included),
+  `s3lobby/guards.py` (rate limits and a throttled log).
 - `s3lobby/database.py`: LobbyDatabase, everything the lobby stores: accounts with access codes,
-  clans, news, chat themes, board, sessions, games, game reports, settings. Its SQL is written once
-  with `?` placeholders in the part of SQL that SQLite and MySQL share.
+  clans, news, chat themes and their permanent chat groups, board, sessions, games, game reports,
+  announcements, settings, and the ladder's results, seasons, events and memberships. Its SQL is
+  written once with `?` placeholders in the part of SQL that SQLite and MySQL share. Opening a
+  database logs every migration it receives.
 - `s3lobby/backends/`: where the data lives, chosen by the database location (a path, or
   `mysql://user@host/name?tls=verify`). `base.py`: the `DatabaseBackend` interface, `DatabaseError`
   and its subclasses; `location.py`: parsing and describing locations; `sqlite.py`: `SqliteBackend`
@@ -39,10 +46,13 @@ another project; its history was carried over, so the early commits describe tha
   when it changed, the web interface reads it. The two processes share nothing but the database.
 - `s3lobby/ladder.py`, `s3lobby/ladder_book.py`, `s3lobby/ladder_admin.py`: the ladder
   (docs/ladder.md), with `ladder_texts.py` for the texts it writes into the board, the news and the
-  chat (once per event, through `record_ladder_event`). `ladder.py` holds the rules as pure functions (when a game counts, Elo, seasons,
-  standings, clan strength); `ladder_book.py` (LadderBook) feeds them from the database, stores
-  results, and builds the views with names every front end shows; `ladder_admin.py` is `s3lobby
-  ladder`. Ratings are never stored, always replayed from the results.
+  chat (once per event, through `record_ladder_event`; the board's info message is rewritten in
+  place). `ladder.py` holds the rules as pure functions (when a game counts, memberships with
+  `LadderRoll`, `counting_ladders` and `keep_current_memberships`, Elo, seasons, standings, clan
+  strength); `ladder_book.py` (LadderBook) feeds them from the database, stores results, joins
+  and leaves ladders (`join_ladder`, `leave_ladder`, `ladder_members`), and builds the views with
+  names every front end shows; `ladder_admin.py` is `s3lobby ladder`. Players take part only in
+  the ladders they join. Ratings are never stored, always replayed from the results.
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,
   `templates/`, `static/`). Public: the live lobby, `/ladder`, `/players/NAME` and `/logon`;
   everything else under `/admin` (`ADMIN_PATH_PREFIX`) with the dropdown menus of
@@ -123,7 +133,8 @@ SQLite needs nothing extra.
   - Text from clients is relayed byte for byte, but passes `wire.readable_text` before it is
     stored or shown: undefined Windows-1252 bytes arrive as surrogates, which UTF-8 cannot encode.
   - A setting that makes the server send something no run with the real game has seen yet
-    (`check_reachability`, `ladder_enabled`) is off by default until a run confirms it;
+    (`check_reachability`, `ladder_enabled`, `permanent_chat_groups`) is off by default until a
+    run confirms it;
     `allow_create_player` is off by default for the reasons in SECURITY.md.
 - The lobby works with and without the web interface, and anyone with the code can build their
   own tools on it. Every rule lives in a module the server and the command line use (the web
@@ -238,5 +249,7 @@ Seen in runs, not understood, not worked on (owner's decision, 2026-10-23):
 
 - A run with the real game for the ladder: a Liga match between two machines played to the end and
   one where the loser quits (does the stayer's report mark the leaver with slot state 3?), a
-  Clanliga 2 on 2, and `ladder_enabled` on to see the game show 0x6c. Only then may the setting
-  default to on.
+  Clanliga 2 on 2, and `ladder_enabled` on to see the game show 0x6c, and 0x6a for a match with a
+  player who has not joined. Only then may the setting default to on.
+- A run with `permanent_chat_groups` on: is a chat group no player opened listed, joined and
+  chatted in like any other? Only then may that setting default to on.
