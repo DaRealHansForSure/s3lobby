@@ -179,10 +179,12 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
   with `git merge --no-ff BRANCH -m "Merge branch 'BRANCH' into develop"`.
 - Before every release and every merge into `main` (owner's rule, 2026-10-24): bring the docs up
   to date with the code (README, SECURITY.md, CLAUDE.md, docs/ladder.md, docs/protocol.md, the
-  changelog; an audit of the changes since the last release finds what is outdated) and retake the
-  README screenshots with `.venv/bin/python scripts/readme_screenshots.py`, which fills a demo
-  lobby, renders every pictured page in light and dark, crops the pictures and copies them into
-  `docs/images`. A page the README does not picture yet but should goes into its list.
+  changelog; an audit of the changes since the last release finds what is outdated). Retake the
+  README screenshots only when something they show changed (a pictured page, its templates or
+  styles, or the demo data), not for every merge: `.venv/bin/python
+  scripts/readme_screenshots.py` fills a demo lobby, renders every pictured page in light and
+  dark, crops the pictures and copies them into `docs/images`. A page the README does not picture
+  yet but should goes into its list.
 - Releases follow SemVer: minor for features or anything that changes behaviour, patch for fixes
   only. **Never release 1.0.0 (or any 1.x) until the owner explicitly says so**, whatever is
   finished or tested; until then every release stays 0.x. A release is a
