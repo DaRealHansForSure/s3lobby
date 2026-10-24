@@ -29,7 +29,7 @@
           <td>{{ theme.name }}</td>
           <td>{{ theme.description or "-" }}</td>
           <td>{% if theme.language %}{{ theme.language }} games{% else %}All games{% endif %}</td>
-          <td class="cell-actions">{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--outline", confirm="Remove the chat theme " ~ theme.name ~ "?") }}</td>
+          <td class="cell-actions">{{ action_button(url_for('chat_themes.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--outline", confirm="Remove the chat theme " ~ theme.name ~ "?") }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -51,16 +51,16 @@
       <tbody>
         {% for theme in built_in_themes %}{% for group in groups_by_theme.get(none, []) %}
         <tr><td>{{ theme.name }}</td><td>[Server] {{ group.name }}</td>
-          <td class="cell-actions">{{ action_button(url_for('content.delete_permanent_chat_group', group_row_id=group.group_row_id), "Remove", "btn--outline", confirm="Stop keeping " ~ group.name ~ " open?") }}</td></tr>
+          <td class="cell-actions">{{ action_button(url_for('chat_themes.delete_permanent_chat_group', group_row_id=group.group_row_id), "Remove", "btn--outline", confirm="Stop keeping " ~ group.name ~ " open?") }}</td></tr>
         {% endfor %}{% endfor %}
         {% for theme in themes %}{% for group in groups_by_theme.get(theme.theme_id, []) %}
         <tr><td>{{ theme.name }}</td><td>[Server] {{ group.name }}</td>
-          <td class="cell-actions">{{ action_button(url_for('content.delete_permanent_chat_group', group_row_id=group.group_row_id), "Remove", "btn--outline", confirm="Stop keeping " ~ group.name ~ " open?") }}</td></tr>
+          <td class="cell-actions">{{ action_button(url_for('chat_themes.delete_permanent_chat_group', group_row_id=group.group_row_id), "Remove", "btn--outline", confirm="Stop keeping " ~ group.name ~ " open?") }}</td></tr>
         {% endfor %}{% endfor %}
       </tbody>
     </table>
   </div>
-  <form class="card" method="post" action="{{ url_for('content.add_permanent_chat_group') }}">
+  <form class="card" method="post" action="{{ url_for('chat_themes.add_permanent_chat_group') }}">
     {{ csrf_field() }}
     <div class="form-grid">
       <label class="field"><span class="label">Theme</span>
@@ -79,7 +79,7 @@
 
 <section>
   <div class="section-head"><h2>New theme</h2></div>
-  <form method="post" action="{{ url_for('content.add_chat_theme') }}">
+  <form method="post" action="{{ url_for('chat_themes.add_chat_theme') }}">
     {{ csrf_field() }}
     <div class="form-grid">
       <label class="field">

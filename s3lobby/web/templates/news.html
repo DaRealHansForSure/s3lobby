@@ -13,7 +13,7 @@
 <section>
   <div class="grid-12">
     {% for form in forms %}
-    <form class="card col-6 stack" method="post" action="{{ url_for('content.set_news', audience=form.audience) }}">
+    <form class="card col-6 stack" method="post" action="{{ url_for('news.set_news', audience=form.audience) }}">
       {{ csrf_field() }}
       <h2>{{ form.audience_title }}</h2>
       <label class="field">
