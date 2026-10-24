@@ -131,6 +131,33 @@
   </div>
 </section>
 
+<section id="ladders">
+  <div class="section-head"><h2>Ladders</h2>
+  <p>Players take part only in the ladders they join, in the game with <code>/ladder join</code>.
+  Taking a player out keeps their results for their opponents; joining again starts at the start
+  rating.</p></div>
+  <div class="grid">
+    <div class="card">
+      {% if ladders %}
+      <ul class="plain-list">
+        {% for ladder in ladders %}
+        <li class="row">{{ ladder }} {{ action_button(url_for('accounts.leave_ladder_for_account', account_id=account.account_id), "Take out", "btn--outline", fields={"ladder": ladder}, confirm="Take " ~ account.name ~ " out of " ~ ladder ~ "? Joining again starts at the start rating.") }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty-state">{{ account.name }} is in no ladder.</p>
+      {% endif %}
+    </div>
+    <form class="card" method="post" action="{{ url_for('accounts.join_ladder_for_account', account_id=account.account_id) }}">
+      {{ csrf_field() }}
+      <label class="field"><span class="label">Join a ladder</span>
+        <select class="select" name="ladder">{% for ladder in joinable_ladders if ladder not in ladders %}<option>{{ ladder }}</option>{% endfor %}</select>
+      </label>
+      <div class="form-actions"><button class="btn btn--outline" type="submit">Join</button></div>
+    </form>
+  </div>
+</section>
+
 <section id="ban">
   <div class="section-head"><h2>Ban</h2></div>
   {% if is_own_account %}

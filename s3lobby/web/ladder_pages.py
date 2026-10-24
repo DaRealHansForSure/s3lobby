@@ -44,6 +44,7 @@ from s3lobby.ladder_book import (
     ResultRow,
     StandingRow,
     join_ladder,
+    ladder_members,
     last_season_day,
     leave_ladder,
     membership_rows,
@@ -68,6 +69,8 @@ STATISTICS_VIEW = "statistics"
 VIEWS = (LIGA, CLANLIGA, CLANS_VIEW, STATISTICS_VIEW)
 VIEW_LABELS = {LIGA: "Liga", CLANLIGA: "Clanliga", CLANS_VIEW: "Clan strength", STATISTICS_VIEW: "Races and maps"}
 RECENT_RESULT_COUNT = 10
+# How many members' names a ladder's line on the Ladder page shows before "and N more".
+MEMBER_NAME_LIMIT = 30
 # The admins' state tabs; "waiting" are games without a result yet.
 WAITING_TAB = "waiting"
 ALL_TAB = "all"
@@ -223,6 +226,8 @@ def show_ladder() -> str:
         map_rows=map_rows,
         chart=chart,
         recent=recent,
+        members=ladder_members(database),
+        member_name_limit=MEMBER_NAME_LIMIT,
         counted_count=counted_count,
         running_count=running_count,
         start_rating=settings_start(database),
@@ -395,6 +400,7 @@ def list_members() -> str:
     return render_template(
         "ladder_members.html",
         rows=membership_rows(database),
+        members=ladder_members(database),
         ladder_choices=["Liga", "Clanliga", *joinable_seasons],
     )
 

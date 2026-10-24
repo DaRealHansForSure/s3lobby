@@ -71,6 +71,12 @@ ladder data for players who did not ask for it.
   opponents' ratings do not change after the fact. A player who joins again starts at the start
   rating: a rating belongs to one membership (`Rating.period_start`), and results of an earlier one
   never count for the new one.
+- **Who is in shows everywhere:** the public Ladder page counts and names each ladder's members
+  ("Who takes part"), a player's page lists their ladders, the admin account page lists them with
+  Join and Take out, and the ladder's own MessageZone theme starts with an info message ("How the
+  ladder works", German "So funktioniert die Liga") that explains joining and what counts and
+  gives the number of members. The server rewrites it when its text changes, keeps it on top, and
+  never prunes it; admins may hide it. The news block under the Home tab names the counts too.
 - **Clans do not join;** players do. A clan is ranked in the Clanliga from the matches of its
   members who joined the Clanliga, and its strength from Liga counts only members in the Liga.
 

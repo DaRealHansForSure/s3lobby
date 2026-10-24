@@ -8,6 +8,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- Who is in which ladder, everywhere: the Ladder page counts and names each ladder's members, the
+  player pages and the admin account pages list a player's ladders (with Join and Take out for
+  admins), and the ladder's MessageZone theme starts with a message on how to join, what counts
+  and how many joined, which the server keeps up to date and on top. The news block names the
+  member counts too.
 - Permanent chat groups: with the setting `permanent_chat_groups` (off until a run with the game
   confirms it) every chat theme keeps chat groups open, marked "[Server]", that never close and
   that players join to chat at once. Each theme starts with one named after it (General too);
