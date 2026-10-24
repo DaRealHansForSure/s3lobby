@@ -2,6 +2,8 @@
 // adds the toggle and keeps the live lobby current without reloading.
 
 const LIVE_REFRESH_INTERVAL_MS = 3000;
+// A page needs this many big sections before a bar to jump between them helps.
+const MIN_SECTIONS_FOR_BAR = 2;
 
 const root = document.documentElement;
 
@@ -185,6 +187,8 @@ function setUpLiveRefresh() {
             const response = await fetch(stateUrl, { credentials: "same-origin", cache: "no-store" });
             if (response.ok) {
                 liveState.innerHTML = await response.text();
+                // The fresh copy has new sections without the anchors the jump bar links to.
+                giveSectionsAnchors();
             }
         } catch (error) {
             // The web interface is unreachable for a moment; the next refresh tries again.
@@ -195,8 +199,61 @@ function setUpLiveRefresh() {
     document.addEventListener("visibilitychange", refreshLiveState);
 }
 
+// The page's big sections: every section whose head has a second level heading.
+function pageSections() {
+    return Array.from(document.querySelectorAll("main section")).filter(
+        (section) => section.querySelector(".section-head h2")
+    );
+}
+
+// An id for each section that has none, made from its heading ("Permanent chat groups" becomes
+// "permanent-chat-groups"); the same heading always gives the same id, so links survive a refresh.
+function giveSectionsAnchors() {
+    const usedIds = new Set();
+    for (const section of pageSections()) {
+        if (!section.id) {
+            const heading = section.querySelector(".section-head h2").textContent;
+            let id = heading.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "section";
+            // Two sections with the same heading get a number after the second.
+            let candidate = id;
+            let number = 2;
+            while (usedIds.has(candidate) || document.getElementById(candidate)) {
+                candidate = `${id}-${number}`;
+                number += 1;
+            }
+            section.id = candidate;
+        }
+        usedIds.add(section.id);
+    }
+}
+
+// The bar under the menu with a link to each big section of the page, for long pages; shown only
+// when there are at least two sections to jump between.
+function setUpSectionBar() {
+    const bar = document.getElementById("section-bar");
+    if (!bar) {
+        return;
+    }
+    giveSectionsAnchors();
+    const sections = pageSections();
+    if (sections.length < MIN_SECTIONS_FOR_BAR) {
+        return;
+    }
+    // One link per section, named by its heading without the badges next to it.
+    for (const section of sections) {
+        const heading = section.querySelector(".section-head h2").cloneNode(true);
+        heading.querySelectorAll(".badge").forEach((badge) => badge.remove());
+        const link = document.createElement("a");
+        link.href = `#${section.id}`;
+        link.textContent = heading.textContent.trim();
+        bar.appendChild(link);
+    }
+    bar.hidden = false;
+}
+
 setUpThemeToggle();
 setUpNavigationMenus();
 setUpSortableLists();
 setUpConfirmations();
 setUpLiveRefresh();
+setUpSectionBar();

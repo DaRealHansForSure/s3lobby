@@ -40,6 +40,9 @@
     </nav>
   </div>
   {% endblock %}
+  {# Links to the page's big sections, filled in by app.js from their headings; a page with fewer
+     than two sections, or a browser without script, shows no bar. #}
+  <nav class="section-bar" id="section-bar" aria-label="On this page" hidden></nav>
 </header>
 
 <main class="wrap page">
