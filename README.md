@@ -628,17 +628,17 @@ Every port that plays a part, who opens it, and who has to make it reachable. "F
 port forwarding on the router in front of that machine; a firewall on the machine itself has to
 let the same traffic in.
 
-| Port | Protocol | Opened by | Traffic | Forward it? |
-|---|---|---|---|---|
-| 3344 | UDP | the lobby server (`--port`) | every game to the server: logon, lists, groups, server lines | yes, on the server's router (or `--upnp`) |
-| 3343 (to 3358) | UDP | each game | chat, straight between the players' games | optional, on a player's router |
-| 33430 to 33529 | UDP | the server's router, with `--upnp` | the outside port of each player in the server's own network | no, UPnP does it |
-| any free port | UDP | the lobby server | the reachability probe (`check_reachability`) | no, it only sends |
-| 47624 | TCP | the host's game (DirectPlay) | joiners looking up the host's match | yes, on the host's router |
-| 2300 to 2400 | TCP and UDP | every game in a match (DirectPlay) | the match itself | yes, on the host's router |
-| 21 | TCP | an FTP server of your choice | the banner picture the game downloads | only on the FTP server's side |
-| 8080 | TCP | the web interface (`web --port`) | browsers | only if the web interface is public; better behind a reverse proxy with HTTPS |
-| 3306 | TCP | MySQL or MariaDB | the server and the web interface to the database | no, keep it inside your network |
+| Side | Port | Protocol | Opened by | Traffic | Forward it? |
+|---|---|---|---|---|---|
+| Server | 3344 | UDP | the lobby server (`--port`) | every game to the server: logon, lists, groups, server lines | yes, on the server's router (or `--upnp`) |
+| Server | 33430 to 33529 | UDP | the server's router, with `--upnp` | the outside port of each player in the server's own network | no, UPnP does it |
+| Server | any free port | UDP | the lobby server | the reachability probe (`check_reachability`) | no, it only sends |
+| Server | 21 | TCP | an FTP server of your choice | the banner picture the game downloads | only on the FTP server's side |
+| Server | 8080 | TCP | the web interface (`web --port`) | browsers | only if the web interface is public; better behind a reverse proxy with HTTPS |
+| Server | 3306 | TCP | MySQL or MariaDB | the server and the web interface to the database | no, keep it inside your network |
+| Player | 3343 (to 3358) | UDP | each game | chat, straight between the players' games | optional, on a player's router |
+| Player (host) | 47624 | TCP | the host's game (DirectPlay) | joiners looking up the host's match | yes, on the host's router |
+| Player (host) | 2300 to 2400 | TCP and UDP | every game in a match (DirectPlay) | the match itself | yes, on the host's router |
 
 What each one is about:
 
