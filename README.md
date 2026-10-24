@@ -622,11 +622,63 @@ written to yet; the game retries for a minute, so a conversation usually gets go
 sides have written. A player who wants to receive chat from the first line on forwards the game's
 port on their own router.
 
-| Who | Forward to their PC |
-|---|---|
-| the server | UDP 3344 (or `--upnp`) |
-| a player on the internet | UDP 3343, for chat from players they have not written to |
-| whoever hosts a game | TCP 47624 and TCP and UDP 2300 to 2400 (DirectPlay, for the match) |
+### Ports
+
+Every port that plays a part, who opens it, and who has to make it reachable. "Forward" means a
+port forwarding on the router in front of that machine; a firewall on the machine itself has to
+let the same traffic in.
+
+| Port | Protocol | Opened by | Traffic | Forward it? |
+|---|---|---|---|---|
+| 3344 | UDP | the lobby server (`--port`) | every game to the server: logon, lists, groups, server lines | yes, on the server's router (or `--upnp`) |
+| 3343 (to 3358) | UDP | each game | chat, straight between the players' games | optional, on a player's router |
+| 33430 to 33529 | UDP | the server's router, with `--upnp` | the outside port of each player in the server's own network | no, UPnP does it |
+| any free port | UDP | the lobby server | the reachability probe (`check_reachability`) | no, it only sends |
+| 47624 | TCP | the host's game (DirectPlay) | joiners looking up the host's match | yes, on the host's router |
+| 2300 to 2400 | TCP and UDP | every game in a match (DirectPlay) | the match itself | yes, on the host's router |
+| 21 | TCP | an FTP server of your choice | the banner picture the game downloads | only on the FTP server's side |
+| 8080 | TCP | the web interface (`web --port`) | browsers | only if the web interface is public; better behind a reverse proxy with HTTPS |
+| 3306 | TCP | MySQL or MariaDB | the server and the web interface to the database | no, keep it inside your network |
+
+What each one is about:
+
+- **3344, the lobby.** The only port the server needs reachable. The game has no default port, so
+  the registry entry always names it (see [Pointing the game at the
+  server](#pointing-the-game-at-the-server)); 3344 is Blue Byte's old port and the server's
+  default. The server answers every datagram to the address and port it came from, so the players
+  need no forwarding for the lobby itself.
+- **3343, the game's own port.** The game binds UDP 3343, or the next free port when another copy
+  on the same machine has it (the server allows for 16 copies, 3343 to 3358). It sends to the server from
+  there and receives chat on it. Chat in a room goes directly from game to game, never through the
+  server: the server hands each game the other players' addresses. A home router changes that port
+  on its way out more often than not; `/net` in the game shows the address and port the server
+  sees. A player who forwards UDP 3343 to their PC gets chat from someone they have not written to
+  yet from the first line; without it the router drops that chat until the player has written to
+  the other side once (the game retries for a minute, so a conversation usually gets going).
+- **33430 to 33529, `--upnp`.** Several players behind the server's own router would all look like
+  one address from outside. With `--upnp` the router forwards one of these outside ports to each of
+  those players' games, and internet players are given that port, so each LAN player is reachable
+  on their own. The server's port 3344 is forwarded the same way. Only a game port (3343 to 3358)
+  of a private address is ever forwarded, so a forged datagram cannot open another machine's
+  service to the internet. The mappings last an hour, are renewed every half hour while the server
+  runs, and are removed when it stops.
+- **The probe port.** With `check_reachability` on, the server writes to a player's game from a
+  second, random UDP port, the way an unknown player would, and sees whether an answer comes back.
+  Nothing has to be forwarded for it.
+- **47624 and 2300 to 2400, the match.** When a match starts, the game hands it to Microsoft's
+  DirectPlay. The joiners connect to the host's PC: TCP 47624 to find the session, then TCP and UDP
+  in 2300 to 2400 for the game itself. The lobby server is not involved, so only the host's router
+  needs these forwarded. When the host cannot be reached, the match is listed in the lobby but
+  nobody can join it.
+- **21, the banner.** The game downloads the lobby's banner picture by anonymous FTP on port 21 in
+  active mode, where the FTP server opens the data connection back to the player. That needs the
+  player's router to let the FTP server's connection in, which routers with an FTP helper do; a
+  banner that reaches the other players but never one of them points at that player's router. No
+  banner is offered while its id is 0.
+- **8080 and 3306, the server's own tools.** The web interface listens on TCP 8080 by default; put
+  it behind a reverse proxy with HTTPS (`web --behind-proxy --secure-cookies`) before you open it
+  to the internet. A
+  MySQL or MariaDB database listens on 3306 and belongs inside your network only.
 
 In the game, `/net` shows a player the address the server sees them at and whether their router
 changed the game's port. With the setting `check_reachability` on, the server also tests after
