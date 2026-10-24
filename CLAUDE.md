@@ -107,6 +107,13 @@ SQLite needs nothing extra.
   missing). Inside functions, a comment above every step a junior programmer would not understand
   at once: the reason for a check, what a number or flag means for the game, why an order
   matters. No comments that restate the code.
+- No big chunk of code without a comment in the middle (owner's rule, 2026-10-24). A function
+  body with more than one step gets a short comment above each step: every loop, every branch
+  with a purpose of its own, every query or lookup, saying what that step is for in this
+  function ("games still waiting: the player joined them but no result is stored yet"), not
+  what the syntax does. A docstring alone does not cover a body of several steps; as a rule of
+  thumb no stretch of more than about five lines goes without one. Check new and changed code for
+  this before every commit.
 - Never commit game files, the game's executable, or recordings that contain them.
 - Network safety, learned from the security review (`a05c8b9`, `e91a88f`):
   - Anything answered before a logon is no bigger than the request: sender addresses can be
