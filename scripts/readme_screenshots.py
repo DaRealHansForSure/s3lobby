@@ -15,6 +15,7 @@ crops with the system's python3 instead. Run it before every release and every m
 from __future__ import annotations
 
 import importlib.util
+import os
 import random
 import shutil
 import subprocess
@@ -316,7 +317,10 @@ def take_pictures(database_path: Path, shots: list[Shot], accounts: dict[str, in
     # Imported here: only this step needs Flask.
     from s3lobby.web.app import create_app
 
-    app = create_app(str(database_path), secret_key=SESSION_TOKEN, is_development_mode=True)
+    # The Info page shows the database's location as the app was given it. Opened by its bare file
+    # name from inside the output folder, the pictures show no path of the machine that took them.
+    os.chdir(database_path.parent)
+    app = create_app(database_path.name, secret_key=SESSION_TOKEN, is_development_mode=True)
     visitor = app.test_client()
     admin = app.test_client()
     # The admin logs on with the development password, as `s3lobby web --dev` allows.
@@ -332,8 +336,12 @@ def take_pictures(database_path: Path, shots: list[Shot], accounts: dict[str, in
         response = client.get(shot.path)
         if response.status_code != 200:
             raise SystemExit(f"{shot.path} answered {response.status_code}")
-        # The page with its styles and scripts read from the checkout instead of the server.
         page = response.get_data(as_text=True)
+        # The pictures are published: a page that shows the home folder of whoever takes them
+        # (and so their user name) must never become one.
+        if str(Path.home()) in page:
+            raise SystemExit(f"{shot.path} shows the home folder {Path.home()}; not taking its picture")
+        # The page with its styles and scripts read from the checkout instead of the server.
         page = page.replace('href="/static/', f'href="file://{STATIC_FOLDER}/')
         page = page.replace('src="/static/', f'src="file://{STATIC_FOLDER}/')
         for theme in THEMES:
