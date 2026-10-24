@@ -144,6 +144,18 @@ class SqliteMigrationTest(unittest.TestCase):
         self.assertEqual(database.schema_version, 0, "looking changed nothing")
 
 
+class MigrationLogTest(unittest.TestCase):
+    """The log names every migration a database receives, so an admin sees what an update changed."""
+
+    def test_each_applied_migration_is_logged(self) -> None:
+        """A new database receives every migration, and each gets one INFO line."""
+        with self.assertLogs("s3lobby.database", level="INFO") as logs:
+            database = LobbyDatabase(":memory:")
+        database.close()
+        self.assertEqual(len(logs.records), latest_version("sqlite"))
+        self.assertIn("applied migration 0001 initial", logs.output[0])
+
+
 class CopyTest(unittest.TestCase):
     """Copying a whole lobby from one database to another, as database copy does."""
 

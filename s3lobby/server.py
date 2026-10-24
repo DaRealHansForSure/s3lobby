@@ -126,6 +126,11 @@ class LobbyServer(asyncio.DatagramProtocol):
         host, port = self._transport.get_extra_info("sockname")[:2]
         return (host, port)
 
+    @property
+    def schema_version(self) -> int:
+        """The number of the newest migration the server's database has applied, for the start line."""
+        return self._database.schema_version
+
     def evaluate_ladder_games(self) -> None:
         """Turn ladder games whose reports are in into results (s3lobby/ladder.py)."""
         self._lobby.evaluate_ladder_games()
@@ -641,7 +646,9 @@ async def serve_forever(settings: ServerSettings) -> None:
     server = await start_server(settings)
     host, port = server.bound_address
     log.info("Settlers III lobby server %r on UDP %s:%d", settings.server_name, host, port)
-    log.info("database: %s", describe_location(settings.database_location))
+    log.info(
+        "database: %s, schema version %d", describe_location(settings.database_location), server.schema_version
+    )
     if settings.is_development_mode:
         log.warning(
             "DEVELOPMENT MODE: every account also logs on with the password %r from this machine and "
