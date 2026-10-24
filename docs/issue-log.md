@@ -41,6 +41,20 @@ A run that restarts the server while a game sits in each tab would show the whol
 
 ## The game
 
+### 2026-10-24: the Home tab's news stays empty at the first visit (open)
+
+- **Seen:** at the first visit to Home after the game started, the news area stayed empty, also
+  at the next visit; after a new logon (the game still open) the news showed. Wine, Bob,
+  lobby.log 13:17:51 to 13:18:20.
+- **Cause:** open, *inferred* to be the game's display. The server sent the statistics and the
+  text id list with the join (13:17:51.852), the game asked for text 0x91 (13:17:52.355) and got
+  it a millisecond later (title "Title", text "Text"). The game keeps a fetched text for as long
+  as it runs (0x60bbe0) and did not ask again, so it had the text; it seems to fill the page only
+  when it builds it, not when the text arrives.
+- **Fix:** open. An idea to try in a run: send the statistics again right after the text, as their
+  arrival redraws the Home table, and maybe the text with it.
+- **Evidence:** lobby.log around 13:17:52; the screenshots of the owner's run.
+
 ### 2026-10-24: the ChatZone's theme list stays empty (open)
 
 - **Seen:** sometimes, after switching tabs, the ChatZone showed no themes while the group list
@@ -145,6 +159,16 @@ A run that restarts the server while a game sits in each tab would show the whol
 - **Fix:** `be7e53d`.
 
 ## Tools and tests
+
+### 2026-10-24: a README picture shows a stopped server
+
+- **Seen:** retaking the screenshots before a merge, the account page lost Jin's "online" badge,
+  though nothing in the code had changed.
+- **Cause:** the screenshot script wrote the demo's live lobby once at the start; the web
+  interface takes a live state older than 30 seconds (`LIVE_STATE_STALE_SECONDS`) for a stopped
+  server, and the pages late in the list were taken after that.
+- **Fix:** the script writes the live state again before each page.
+- **Evidence:** the earlier and the new account picture compared pixel by pixel.
 
 ### 2026-10-24: a long test run is killed
 
