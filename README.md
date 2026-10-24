@@ -696,6 +696,9 @@ security problem? Please report it privately to the maintainer rather than in a 
 layer the game builds on top of UDP, every message, and the order of a lobby session. Every
 statement there names the address in the game's executable it was read from.
 
+[docs/issue-log.md](docs/issue-log.md) records every problem met in runs with the game, in the
+tests and in the tools: what was seen, the cause, the fix and the evidence, open ones included.
+
 The code follows the same layers:
 
 | Module | Responsibility |
