@@ -6,6 +6,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-24
+
 ### Added
 
 - An Info page for admins and `s3lobby info [--format json]`: the version, Python and system, the
@@ -62,6 +64,12 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   opened.
 - A game's reports no longer call a ladder game "unranked here": the ladder ranks it, and the
   game's page shows the result.
+
+### Key commits
+
+- [`1245b09`](https://github.com/DaRealHansForSure/s3lobby/commit/1245b09) feat(ladder)!: rank only players who joined a ladder
+- [`a0fe963`](https://github.com/DaRealHansForSure/s3lobby/commit/a0fe963) feat(lobby): keep permanent chat groups open in the chat themes
+- [`88a50d2`](https://github.com/DaRealHansForSure/s3lobby/commit/88a50d2) feat(web): add an Info page with version, database and server state
 
 ## [0.11.0] - 2026-10-24
 
@@ -461,7 +469,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - [`b76d102`](https://github.com/DaRealHansForSure/s3lobby/commit/b76d102) refactor: rework the lobby server into the s3lobby package
 - [`46582ce`](https://github.com/DaRealHansForSure/s3lobby/commit/46582ce) docs(protocol): move the lobby protocol document into the project
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...v0.9.0
