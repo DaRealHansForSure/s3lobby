@@ -858,7 +858,10 @@ twenty years ago.
 
 The Settlers is a trademark of Ubisoft. This project is not affiliated with or endorsed by Ubisoft
 or Blue Byte. It contains no code or data from the game; the protocol was worked out by studying
-the behaviour of a legally owned copy, for interoperability.
+the behaviour of a legally owned copy, for interoperability. The S3.EXE addresses cited in
+[docs/protocol.md](docs/protocol.md) and in the code only say where in the game a fact was found;
+none of the game's code is reproduced. s3lobby neither ships nor downloads the game: every player
+needs their own copy of The Settlers III.
 
 ## License
 
