@@ -32,10 +32,12 @@ long ago, so the lobby has been dead for years.
 the game** can use its lobby again, on a LAN or over the internet. No patch, no launcher, no game
 files: point the game at your server and log on.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/live-lobby-dark.png">
-  <img src="docs/images/live-lobby-light.png" alt="The live lobby page of the s3lobby web interface: five players online, one open game and a chat group, two players in green and one in blue as in the game's member lists">
-</picture>
+<a href="docs/images/live-lobby-light.png">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/live-lobby-dark.png">
+    <img src="docs/images/live-lobby-light.png" alt="The live lobby page of the s3lobby web interface: five players online, one open game and a chat group, two players in green and one in blue as in the game's member lists">
+  </picture>
+</a>
 
 ## Contents
 
@@ -473,103 +475,128 @@ S3LOBBY_WEB_BEHIND_PROXY=1 gunicorn "s3lobby.web.app:create_app_from_environment
 
 ## Screenshots
 
-The screenshots show a demo lobby with made-up players. Names in green and blue are the ones the
-game's member lists draw in those colours.
+The screenshots show a demo lobby whose players carry the names of the game's makers (see
+[Credits](#credits)). Names in green and blue are the ones the game's member lists draw in those
+colours. Click a picture to see it full size.
 
 <table>
   <tr>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/ladder-dark.png">
-        <img src="docs/images/ladder-light.png" alt="The public Ladder page: the top three, a rating chart, the standings with form and win rate, the last results, who is online and who takes part in each ladder">
-      </picture>
+      <a href="docs/images/ladder-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/ladder-dark.png">
+          <img src="docs/images/ladder-light.png" alt="The public Ladder page: the top three, a rating chart, the standings with form and win rate, the last results, who is online and who takes part in each ladder">
+        </picture>
+      </a>
       <p align="center"><b>Ladder</b>: standings, ratings, results, members.</p>
     </td>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/player-dark.png">
-        <img src="docs/images/player-light.png" alt="A player's public page: place and rating, record, the ladders they joined, rating over time, the races played and the games with opponents and results">
-      </picture>
+      <a href="docs/images/player-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/player-dark.png">
+          <img src="docs/images/player-light.png" alt="A player's public page: place and rating, record, the ladders they joined, rating over time, the races played and the games with opponents and results">
+        </picture>
+      </a>
       <p align="center"><b>A player</b>: rating over time, ladders, races and games.</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/admin-start-dark.png">
-        <img src="docs/images/admin-start-light.png" alt="The admin start page: whether the server runs, players online, disputed ladder games and the latest games">
-      </picture>
+      <a href="docs/images/admin-start-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/admin-start-dark.png">
+          <img src="docs/images/admin-start-light.png" alt="The admin start page: whether the server runs, players online, disputed ladder games and the latest games">
+        </picture>
+      </a>
       <p align="center"><b>Admin start</b>: the server, disputes, latest games.</p>
     </td>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/admin-lobby-dark.png">
-        <img src="docs/images/admin-lobby-light.png" alt="The admin live lobby: each player with address, reachability and the buttons Message, Kick and Ban, and a form to message one player">
-      </picture>
+      <a href="docs/images/admin-lobby-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/admin-lobby-dark.png">
+          <img src="docs/images/admin-lobby-light.png" alt="The admin live lobby: each player with address, reachability and the buttons Message, Kick and Ban, and a form to message one player">
+        </picture>
+      </a>
       <p align="center"><b>Admin lobby</b>: Message, Kick and Ban for each player.</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/ladder-members-dark.png">
-        <img src="docs/images/ladder-members-light.png" alt="The ladder's Members page: how many joined each ladder, who is in which since when with Take out, and a form to add a player">
-      </picture>
+      <a href="docs/images/ladder-members-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/ladder-members-dark.png">
+          <img src="docs/images/ladder-members-light.png" alt="The ladder's Members page: how many joined each ladder, who is in which since when with Take out, and a form to add a player">
+        </picture>
+      </a>
       <p align="center"><b>Ladder members</b>: who joined which ladder.</p>
     </td>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
-        <img src="docs/images/board-light.png" alt="The message board page: themes and messages in the order the game shows them, with Up, Down, Hide and Remove, the server's Ladder theme on top">
-      </picture>
+      <a href="docs/images/board-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
+          <img src="docs/images/board-light.png" alt="The message board page: themes and messages in the order the game shows them, with Up, Down, Hide and Remove, the server's Ladder theme on top">
+        </picture>
+      </a>
       <p align="center"><b>Message board</b>: drag into order, hide or show.</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/chat-themes-dark.png">
-        <img src="docs/images/chat-themes-light.png" alt="The chat themes page: General built in, the default rooms with the language each is shown to, the permanent chat groups kept open in each theme, and the forms for new ones">
-      </picture>
+      <a href="docs/images/chat-themes-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/chat-themes-dark.png">
+          <img src="docs/images/chat-themes-light.png" alt="The chat themes page: General built in, the default rooms with the language each is shown to, the permanent chat groups kept open in each theme, and the forms for new ones">
+        </picture>
+      </a>
       <p align="center"><b>Chat themes</b>: rooms per language, permanent groups.</p>
     </td>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/games-dark.png">
-        <img src="docs/images/games-light.png" alt="The Games page: one line per game with host, type, map, players, opening time, result and how long it was open">
-      </picture>
+      <a href="docs/images/games-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/games-dark.png">
+          <img src="docs/images/games-light.png" alt="The Games page: one line per game with host, type, map, players, opening time, result and how long it was open">
+        </picture>
+      </a>
       <p align="center"><b>Games</b>: every game opened in the lobby, one line each.</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/game-details-dark.png">
-        <img src="docs/images/game-details-light.png" alt="A game's page: when it was opened, started, decided and closed, the winner, its ladder result, the teams with slot, race and lobby id, and the setup">
-      </picture>
+      <a href="docs/images/game-details-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/game-details-dark.png">
+          <img src="docs/images/game-details-light.png" alt="A game's page: when it was opened, started, decided and closed, the winner, its ladder result, the teams with slot, race and lobby id, and the setup">
+        </picture>
+      </a>
       <p align="center"><b>A game</b>: timeline, winners, ladder result, teams and setup.</p>
     </td>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/account-dark.png">
-        <img src="docs/images/account-light.png" alt="An account's page: its access codes, clan and rights, its ladders with Join and Take out, ban, and the games it joined with team, race and result">
-      </picture>
+      <a href="docs/images/account-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/account-dark.png">
+          <img src="docs/images/account-light.png" alt="An account's page: its access codes, clan and rights, its ladders with Join and Take out, ban, and the games it joined with team, race and result">
+        </picture>
+      </a>
       <p align="center"><b>An account</b>: access codes, clan, rights, ladders, ban, games.</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/clans-dark.png">
-        <img src="docs/images/clans-light.png" alt="The Clans page: clans with their members, which ones the game lists in green or blue, and the buttons to change that">
-      </picture>
+      <a href="docs/images/clans-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/clans-dark.png">
+          <img src="docs/images/clans-light.png" alt="The Clans page: clans with their members, which ones the game lists in green or blue, and the buttons to change that">
+        </picture>
+      </a>
       <p align="center"><b>Clans</b>: members, and the colour the game lists them in.</p>
     </td>
     <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/info-dark.png">
-        <img src="docs/images/info-light.png" alt="The admins' Info page: the version, whether the server runs, the schema version, the system, the lobby's numbers, the ladder's members, the settings worth knowing and the migrations">
-      </picture>
+      <a href="docs/images/info-light.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/images/info-dark.png">
+          <img src="docs/images/info-light.png" alt="The admins' Info page: the version, whether the server runs, the schema version, the system, the lobby's numbers, the ladder's members, the settings worth knowing and the migrations">
+        </picture>
+      </a>
       <p align="center"><b>Info</b>: version, schema, server and numbers.</p>
     </td>
   </tr>
