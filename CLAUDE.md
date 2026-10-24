@@ -64,6 +64,8 @@ another project; its history was carried over, so the early commits describe tha
   `templates/admin_base.html`, long lists paged by `paging.py`, SortableJS bundled in
   `static/vendor/` (the CSP allows no outside scripts).
 - `docs/protocol.md`: the protocol as read from the game, with the S3.EXE address of every fact.
+- `docs/issue-log.md`: every problem met in runs, tests and tools, with its cause, fix and
+  evidence (owner's rule, 2026-10-24: record every issue there as it comes up, newest first).
 - `tests/`: unittest. `support.py` has a background server and a fake game client.
 
 ## Commands
@@ -245,7 +247,8 @@ number can still slip in an ordinary action; admin commands are safe through /co
 
 ## Unexplained, left for later
 
-Seen in runs, not understood, not worked on (owner's decision, 2026-10-23):
+Seen in runs, not understood, not worked on (owner's decision, 2026-10-23); docs/issue-log.md
+keeps them with the issues of the same family:
 
 - After a server restart while the game (Wine, Bob) stayed logged on and was then logged on
   again, its join of the MessageZone (block 2, AddPlayerToGroup 4) was resent every half second
