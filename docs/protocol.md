@@ -382,7 +382,9 @@ and partly seen in runs:
    1, 0x435ac0; seen in runs: 2 for 1 vs 1, 1 for Human vs Computer), the long game block and the
    game description. Chat groups are opened the same way (CreateGame 0x5ca7d0, called from
    0x5dd5b9), without a game block.
-2. The server picks the id, sends the group back to the host with parent 0 and Result 0xc with
+2. The server picks the id (s3lobby counts up from 0x100000; past 0xfffffffe, as 0xffffffff is
+   the game's own request for an id, a new group is refused with Result 0xb), sends the group back
+   to the host with parent 0 and Result 0xc with
    the id, and shows it in the zone with its counters. The host's setup keeps its game in an
    empty slot (SwitchZone 5 with an empty CGroup, 0x454780) until that Result fills it
    (0x452b53); the setup updates (0x45506c), "show game in GameZone" (0x456370) and the match
