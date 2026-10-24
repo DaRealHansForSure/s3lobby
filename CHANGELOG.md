@@ -52,6 +52,10 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
+- Joining a board theme the game remembers from before a server restart works: the game skips
+  the language group and joined the theme directly, which the server refused with "Der Wechsel in
+  die Gruppe hat nicht geklappt" until the player went through another tab (seen in a run). The
+  board's groups, and the chat themes with their permanent groups, are now built on demand.
 - Group ids cannot run out into the game's reserved id: once the last id is given out, opening
   another game or chat group is refused with "Der Wechsel in die Gruppe hat nicht geklappt" and a
   warning in the log; a permanent chat group whose id would reach the players' groups is not

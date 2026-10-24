@@ -597,6 +597,12 @@ listed in that language group are the themes; a theme's text id list (0x14) hold
 own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
 theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
 
+A game that keeps its MessageZone across a new logon (the game stayed open while the server
+restarted) joins a theme it remembers right away, without joining the language group first (seen
+in a run). s3lobby builds the board's groups on demand when a join names one it has not built
+yet, so such a join works; the ids follow the board's order, so a remembered id still names the
+same theme while the order is unchanged.
+
 The order of the themes is the game's own: a group keeps its visible groups in a sorted array
 (CGroup +0xb8, binary search at 0x44d730) whose "less than" compares the group ids (CGroup's
 operator< at 0x5db570 compares +4, the id). So the game lists the groups inside any parent by

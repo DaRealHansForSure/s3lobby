@@ -541,6 +541,12 @@ class Lobby:
         if player is None or request.group_id == PRIVATE_CHAT_GROUP_ID:
             return
         group = self._groups.get(request.group_id)
+        # A group the server builds on demand may not exist yet: a game that kept its MessageZone
+        # from before a server restart joins a board theme it remembers without joining its
+        # language group first, and was refused with "Der Wechsel in die Gruppe hat nicht
+        # geklappt" (seen in a run). Built now, it is found.
+        if group is None:
+            group = self._build_group_on_demand(request.group_id)
         if group is None:
             self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "no such group")
             return
@@ -1438,6 +1444,21 @@ class Lobby:
             self._list_group_in(group, theme)
             log.info("permanent chat group %d %r kept open in group %d", group_id, name, theme.group_id)
 
+    def _build_group_on_demand(self, group_id: int) -> Group | None:
+        """Build the groups of the range a missing id falls into, the way joining their parent
+        would, and return the group if it exists now: board languages with all their themes, or
+        chat themes with their permanent chat groups. None for any other id."""
+        # The board: every language group, then the themes of each, as the board stands now.
+        if is_board_language_group(group_id) or is_board_theme_group(group_id):
+            self._sync_board_languages()
+            for index, language in enumerate(BOARD_LANGUAGES):
+                if BOARD_LANGUAGE_GROUP_ID_BASE + index in self._groups:
+                    self._sync_board_themes(language)
+        # The ChatZone: the themes, and with them the permanent chat groups.
+        elif is_chat_theme_group(group_id) or is_permanent_chat_group(group_id):
+            self._sync_chat_themes()
+        return self._groups.get(group_id)
+
     # The MessageZone tab.
 
     def _sync_board_languages(self) -> None:
@@ -1637,6 +1658,11 @@ def board_theme_group_id(language_index: int, rank: int, theme_id: int) -> int:
     a higher place, since the game lists groups by ascending id."""
     slot = language_index * MAX_BOARD_THEMES_PER_LANGUAGE + rank
     return BOARD_THEME_GROUP_ID_BASE + slot * BOARD_THEME_ID_SPAN + theme_id % BOARD_THEME_ID_SPAN
+
+
+def is_permanent_chat_group(group_id: int) -> bool:
+    """True for the id of a chat group the server keeps open, the range below the players' groups."""
+    return PERMANENT_CHAT_GROUP_ID_BASE <= group_id < FIRST_GAME_GROUP_ID
 
 
 def is_board_theme_group(group_id: int) -> bool:
