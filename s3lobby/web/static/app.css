@@ -248,7 +248,9 @@ a.tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--ac
 
 /* The admin area's navigation: a link per page of its own, a menu per topic with several pages.
    The bar may not clip: the menus open below it. */
-.app-nav-bar--admin { box-shadow: inset 0 -1px 0 var(--border); overflow: visible; }
+/* No line of its own: the header's border below is the one divider, and a line here would span the
+   bar's padding past the content's width. */
+.app-nav-bar--admin { overflow: visible; }
 .app-nav-bar--admin .app-nav { align-items: center; }
 .nav-menu { position: relative; }
 .nav-menu-button {
@@ -334,9 +336,13 @@ a.btn { text-decoration: none; }
 /* The row of links under the menu that jumps to the page's big sections (app.js). It scrolls
    sideways on a phone, like the menu above it. */
 .section-bar {
-  max-width: 62rem;
+  /* As wide as the page's content, not its padding, so the line above the links ends where the
+     content does. */
+  width: calc(100% - 2 * var(--space-5));
+  max-width: calc(62rem - 2 * var(--space-5));
   margin: 0 auto;
-  padding: var(--space-2) var(--space-5);
+  padding-block: var(--space-2);
+  border-top: 1px solid var(--border);
   display: flex;
   gap: var(--space-4);
   overflow-x: auto;
