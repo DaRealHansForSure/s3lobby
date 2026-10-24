@@ -644,6 +644,8 @@ async def serve_forever(settings: ServerSettings) -> None:
     Logs where it listens and which database it uses, and warns loudly in development mode, since
     that mode lets every account log on with a shared password."""
     server = await start_server(settings)
+    # The start lines: where the server listens, its database and schema version, and the
+    # development mode warning.
     host, port = server.bound_address
     log.info("Settlers III lobby server %r on UDP %s:%d", settings.server_name, host, port)
     log.info(
@@ -655,6 +657,7 @@ async def serve_forever(settings: ServerSettings) -> None:
             "its LAN. Never run this on a server others can reach.",
             DEVELOPMENT_PASSWORD,
         )
+    # Run until Ctrl+C or SIGTERM, then close cleanly: players are told, router mappings removed.
     stop_requested = asyncio.Event()
     watch_for_stop_signal(stop_requested)
     try:

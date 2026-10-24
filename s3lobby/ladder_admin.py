@@ -82,9 +82,11 @@ def show_statistics(database: LobbyDatabase, options: argparse.Namespace) -> Non
     """Print how often each race was played and won in a season's Liga, and how often each map was
     played and how long its matches took. JSON holds both lists; text and CSV print the one --of
     names."""
+    # Only results that count among the season's members, as the ratings do.
     book = LadderBook(database)
     season = find_season(book, options.season)
     evaluations = book.evaluations_in_ladder(season)
+    # Each race: how often played and won, and the win rate in percent.
     races = [
         {
             "race": RACE_NAMES.get(statistic.race, str(statistic.race)),
@@ -94,10 +96,12 @@ def show_statistics(database: LobbyDatabase, options: argparse.Namespace) -> Non
         }
         for statistic in race_statistics(evaluations, season)
     ]
+    # Each map: how often played and the average length of its matches.
     maps = [
         {"map": statistic.map_name, "played": statistic.played, "average_minutes": round(statistic.average_minutes, 1)}
         for statistic in map_statistics(evaluations, season)
     ]
+    # JSON holds both lists with the season and the format number; text and CSV the one --of names.
     if options.format == JSON_FORMAT:
         document = {
             "format": LADDER_JSON_FORMAT,

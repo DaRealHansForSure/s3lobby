@@ -173,6 +173,8 @@ def show_ladder() -> str:
     rating chart and the last results."""
     database = get_database()
     book = LadderBook(database)
+    # The view and the season from the address; anything unknown falls back to the infinite
+    # season's Liga.
     view = request.args.get("view", LIGA)
     if view not in VIEWS:
         view = LIGA
@@ -180,12 +182,15 @@ def show_ladder() -> str:
         season = book.find_season(request.args.get("season"))
     except LookupError:
         season = INFINITE_SEASON
+    # The search over the standings, and the data every view needs.
     search = request.args.get("q", "").strip()
     seasons = database.list_ladder_seasons()
     results = book.results()
     # Only results that count among the ladder's members, so form and statistics match the ratings.
     evaluations = book.evaluations_in_ladder(season)
 
+    # Each view fills only its own part: clan strength, races and maps, or standings with form, win
+    # rate and, for Liga, the rating chart.
     standings: list[StandingView] = []
     strength_rows: list[ClanStrengthRow] = []
     race_rows: list[RaceRow] = []
@@ -199,12 +204,15 @@ def show_ladder() -> str:
     else:
         ladder_type = ladder_type_of_view(view)
         colours = name_colours(database, view)
+        # Each line with the colour the game draws the name in, and the last five results.
         for row in book.standing_rows(season, view):
             form = recent_form(evaluations, row.side_id, ladder_type, season)
             standings.append(StandingView(row, colours.get(row.side_id, ""), form_marks(form), win_rate(row)))
         if view == LIGA:
             ratings = book.ratings(season).liga
             chart = rating_chart(standings[:CHART_SERIES_COUNT], ratings, settings_start(database), database.now())
+    # The top three for the podium, the standings the search leaves, the last results and the
+    # counts for the cards.
     podium = standings[:CHART_SERIES_COUNT]
     shown = [standing for standing in standings if not search or search.lower() in standing.row.name.lower()]
     recent = book.result_rows(season, [LadderState.COUNTED], RECENT_RESULT_COUNT)
@@ -409,11 +417,13 @@ def list_members() -> str:
 @admin_blueprint.post("/ladder/members")
 def add_member() -> Response:
     """Make a player a member of the ladder the form names."""
+    # The player by the name typed into the form.
     database = get_database()
     account = database.find_account(form_text("name"))
     if account is None:
         flash("There is no account with that name.", "bad")
         return redirect(url_for("ladder_admin.list_members"))
+    # Joined by the same rule as /ladder join in the game; a refusal is shown as it is.
     ladder = form_text("ladder")
     try:
         join_ladder(LadderBook(database), database, account.account_id, ladder)
@@ -427,6 +437,7 @@ def add_member() -> Response:
 @admin_blueprint.post("/ladder/members/<int:account_id>/leave")
 def remove_member(account_id: int) -> Response:
     """Take a player out of a ladder; their results stay for their opponents."""
+    # Taken out by the same rule as /ladder leave in the game; a refusal is shown as it is.
     database = get_database()
     ladder = form_text("ladder")
     try:

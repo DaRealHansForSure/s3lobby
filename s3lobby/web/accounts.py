@@ -136,9 +136,12 @@ def show_account(account_id: int) -> str:
 @blueprint.post("/accounts/<int:account_id>/ladders/join")
 def join_ladder_for_account(account_id: int) -> Response:
     """Make the player a member of the ladder the form names, as /ladder join does in the game."""
+    # The account from the address and the ladder from the form; an unknown account is a 404 page.
     database = get_database()
     account = require_account(account_id)
     ladder = form_text("ladder")
+    # The rule lives in ladder_book, the same as for /ladder in the game; a refusal is shown as it
+    # is.
     try:
         join_ladder(LadderBook(database), database, account_id, ladder)
     except LadderMembershipError as error:
@@ -151,9 +154,12 @@ def join_ladder_for_account(account_id: int) -> Response:
 @blueprint.post("/accounts/<int:account_id>/ladders/leave")
 def leave_ladder_for_account(account_id: int) -> Response:
     """Take the player out of a ladder; their results stay for their opponents."""
+    # The account from the address and the ladder from the form; an unknown account is a 404 page.
     database = get_database()
     account = require_account(account_id)
     ladder = form_text("ladder")
+    # The rule lives in ladder_book, the same as for /ladder in the game; a refusal is shown as it
+    # is.
     try:
         leave_ladder(LadderBook(database), database, account_id, ladder)
     except LadderMembershipError as error:

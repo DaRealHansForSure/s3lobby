@@ -621,7 +621,8 @@ class Lobby:
         if open_group_count >= MAX_OPEN_GROUPS_PER_PLAYER:
             self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "too many open groups")
             return
-
+        # Ids are given out once, counting up; past the last one nothing more is opened until the
+        # server starts again, rather than reaching the id the game uses to ask for a new one.
         if self._next_player_group_id > LAST_PLAYER_GROUP_ID:
             log.warning("no group id left for a new game or chat group; restart the server to count again")
             self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "no group id left")
@@ -632,6 +633,8 @@ class Lobby:
         announcement = with_real_host_address(request, player.address)
         # The third text is the password of a chat group: kept here, never shown to anyone.
         announcement = replace(announcement, group_id=group_id, third_text="")
+        # The group as the server keeps it; a game also gets its record in the database for the
+        # Games page.
         group = Group(
             announcement=announcement,
             kind=kind_of_new_group(request),
@@ -650,6 +653,7 @@ class Lobby:
                 ),
             )
             self._send_statistics_to_home()
+        # Known from now on, and logged.
         self._groups[group_id] = group
         log.info(
             "player %d %r opens %s %d %r in group %d",
@@ -860,6 +864,7 @@ class Lobby:
             "storing a match report",
             lambda: self._database.store_game_report(player.player_id, status.group_id, message.body, game_record_id),
         )
+        # The report in the log: map, outcome, slots and game time.
         outcome = "no winner yet"
         if status.has_winner:
             outcome = f"team {status.winning_team} won"
@@ -873,6 +878,8 @@ class Lobby:
             len(status.players),
             status.game_time,
         )
+        # What the game shows during the match: "stored", unless the ladder is off, the report can
+        # never count, or someone in the game has not joined a ladder.
         result_code = ResultCode.GAME_STATUS_STORED
         if status.is_ladder_game and not self._is_ladder_enabled():
             # Stored and evaluated like any report, but until the admins switch the ladder on the
@@ -920,19 +927,26 @@ class Lobby:
         """Turn ladder games whose reports are in (or whose time ran out) into results. The games
         this server still has open are passed on, so a game left open by an earlier run of the
         server can be told apart from one still being played."""
+        # The game records still open here: a game neither open nor closed was cut off by a
+        # restart.
         open_game_ids = [
             group.game_record_id
             for group in self._groups.values()
             if group.kind == GroupKind.GAME and group.game_record_id is not None
         ]
+        # The evaluation runs whether or not the ladder is on; only the players' lines wait for the
+        # switch.
         evaluated = self._ladder_book.evaluate_waiting_games(open_game_ids)
         if not self._is_ladder_enabled():
             return
+        # Games that count nowhere: their players hear who had not joined.
         for skipped in evaluated.skipped:
             self._tell_ladder_game_skipped(skipped)
         # The players of each decided game who are online hear how it ended, as a server line: the
         # game itself has no place to show a ladder result after the match.
         for decided in evaluated.stored:
+            # Who played it: from the result, or for a result without slots (a void one) from who
+            # joined the game.
             account_ids = {player.account_id for player in decided.evaluation.players}
             if not account_ids:
                 account_ids = {
@@ -940,6 +954,7 @@ class Lobby:
                     for player in self._database.list_game_players(decided.evaluation.game_id)
                     if player.account_id is not None
                 }
+            # The line about the result, to every one of them who is online.
             lines = self._ladder_book.match_lines(decided.evaluation, decided.game_name)
             if not lines:
                 continue
@@ -951,12 +966,15 @@ class Lobby:
 
     def _tell_ladder_game_skipped(self, skipped: SkippedGame) -> None:
         """The players of a ladder game that counts nowhere hear why: who had not joined, and how to."""
+        # Name the players who had not joined the game's own Liga or Clanliga, when there are any;
+        # otherwise everyone joined some ladder, only not the same one.
         ladder_name = "Clanliga" if skipped.ladder_type == LadderType.CLANS else "Liga"
         if skipped.names_not_joined:
             who = ", ".join(skipped.names_not_joined)
             reason = f"{who} had not joined the {ladder_name}"
         else:
             reason = "not every player had joined the same ladder"
+        # One line to every player of the game who is online.
         line = f"Ladder: {skipped.game_name} does not count ({reason}). Type /ladder join to take part."
         answer = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([line]))
         for account_id in skipped.account_ids:
@@ -967,6 +985,8 @@ class Lobby:
     def _can_count_in_a_ladder(self, group: Group) -> bool:
         """Whether a ladder game's players, as far as they joined it so far, are all members of a
         ladder it could count in right now."""
+        # The players who joined the game so far, checked against the ladders now; a database
+        # failure counts as no.
         ladder_type = ladder_type_of(group.announcement)
         if ladder_type is None:
             return False
@@ -1065,9 +1085,12 @@ class Lobby:
         them: while the ladder is off that ladder games are not ranked, and while it is on that they
         have not joined a ladder this game could count in. The host hears it when opening the game
         or turning it into a ladder game during the setup, a joiner when joining."""
+        # Only ladder games have something to tell.
         is_ladder = group.kind == GroupKind.GAME and is_ladder_game(group.announcement)
         if not is_ladder:
             return
+        # Each player hears it once per game: with the ladder off that nothing is ranked, with it
+        # on only a player who has not joined a ladder the game could count in.
         is_enabled = self._is_ladder_enabled()
         ladder_type = ladder_type_of(group.announcement)
         for player in players:
@@ -1079,6 +1102,7 @@ class Lobby:
                     continue
             else:
                 text = LADDER_NOT_SUPPORTED_TEXT
+            # Remembered, so a player who leaves and joins again is not told twice.
             group.ladder_notice_player_ids.add(player.player_id)
             self._outbox.send(player.address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([text])))
             log.info("player %d %r told about ladder game %d: %s", player.player_id, player.name, group.group_id, text)
@@ -1088,6 +1112,7 @@ class Lobby:
         for a member, who needs no line."""
         if ladder_type is None:
             return None
+        # Whether this player alone is in a ladder a game of this type could count in now.
         is_member = self._do_bookkeeping(
             "checking the ladder's members",
             lambda: self._ladder_book.can_count([player.player_id], ladder_type),
@@ -1095,6 +1120,7 @@ class Lobby:
         # A database failure tells nothing rather than something wrong.
         if is_member is not False:
             return None
+        # The ladder and the command for the game's type.
         ladder_name = "Liga"
         join_command = "/ladder join"
         if ladder_type == LadderType.CLANS:
@@ -1313,6 +1339,7 @@ class Lobby:
         """Bring the chat theme groups listed in ChatZone in line with the database: themes added
         while the server runs appear, removed ones disappear once nobody is in them. General is
         always listed, since the game joins the theme it was in last as soon as the tab opens."""
+        # The themes there should be: General always, then the database's themes under their ids.
         chat_zone = self._groups[CHAT_ZONE_GROUP_ID]
         wanted = {}
         for built_in in BUILT_IN_CHAT_THEMES:
@@ -1323,11 +1350,14 @@ class Lobby:
                 continue
             wanted[CHAT_THEME_GROUP_ID_BASE + theme.theme_id] = (theme.name, theme.description, theme.language)
 
+        # A theme no longer wanted goes once nobody is in it; one with players stays until they
+        # leave.
         for group in self._groups_listed_in(CHAT_ZONE_GROUP_ID):
             is_removed = group.group_id not in wanted
             if is_removed and not group.member_ids:
                 self._unlist_group_from(group, CHAT_ZONE_GROUP_ID)
                 self._groups.pop(group.group_id, None)
+        # New themes are listed to everyone in the ChatZone now.
         for group_id, (name, description, language) in wanted.items():
             if group_id in self._groups:
                 continue
@@ -1335,15 +1365,18 @@ class Lobby:
             theme = Group(announcement=announcement, kind=GroupKind.ROOM, language=language)
             self._groups[group_id] = theme
             self._list_group_in(theme, chat_zone)
+        # Then the chat groups the server keeps open in them.
         self._sync_permanent_chat_groups()
 
     def _sync_permanent_chat_groups(self) -> None:
         """Keep the permanent chat groups open in their themes while the setting
         permanent_chat_groups is on: new ones appear, removed ones (or all, with the setting off)
         close once nobody is in them. Players can chat at once instead of opening a group first."""
+        # The groups there should be, each under its theme; none while the setting is off.
         wanted = {}
         if self._database.get_boolean_setting(Setting.PERMANENT_CHAT_GROUPS):
             for stored in self._database.list_permanent_chat_groups():
+                # A group without a theme id belongs to General, at the base id itself.
                 theme_group_id = CHAT_THEME_GROUP_ID_BASE
                 if stored.chat_theme_id is not None:
                     theme_group_id = CHAT_THEME_GROUP_ID_BASE + stored.chat_theme_id
@@ -1360,9 +1393,12 @@ class Lobby:
                 if theme is None or CHAT_ZONE_GROUP_ID not in theme.listed_in_parent_ids:
                     continue
                 wanted[PERMANENT_CHAT_GROUP_ID_BASE + stored.group_row_id] = (stored.name, theme)
+        # A group no longer wanted closes once nobody is in it.
         for group in [group for group in self._groups.values() if group.is_permanent]:
             if group.group_id not in wanted and not group.member_ids:
                 self._close_player_group(group)
+        # New groups are opened and listed in their theme, shown to players of the theme's
+        # language.
         for group_id, (name, theme) in wanted.items():
             if group_id in self._groups:
                 continue
