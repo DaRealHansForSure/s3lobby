@@ -104,7 +104,7 @@ def main() -> None:
     OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
     database_path = OUTPUT_FOLDER / DATABASE_NAME
     accounts = fill_demo_database(database_path)
-    take_pictures(database_path, readme_shots(accounts))
+    take_pictures(database_path, readme_shots(accounts), accounts)
     crop_with_pillow(OUTPUT_FOLDER)
     # Only the pictures go into docs/images; the HTML and the database stay in build/.
     for picture in sorted(OUTPUT_FOLDER.glob("*.png")):
@@ -296,7 +296,7 @@ def demo_live_state(accounts: dict[str, int], now: datetime) -> LiveLobbyState:
     return LiveLobbyState(server_name="LAN Lobby", players=players, groups=groups)
 
 
-def take_pictures(database_path: Path, shots: list[Shot]) -> None:
+def take_pictures(database_path: Path, shots: list[Shot], accounts: dict[str, int]) -> None:
     """Render each page with Flask's test client and take a picture of it in each theme."""
     # Imported here: only this step needs Flask.
     from s3lobby.web.app import create_app
@@ -309,6 +309,10 @@ def take_pictures(database_path: Path, shots: list[Shot]) -> None:
         session["csrf_token"] = SESSION_TOKEN
     admin.post("/logon", data={"csrf_token": SESSION_TOKEN, "name": PLAYER_NAMES[0], "access_code": DEMO_PASSWORD})
     for shot in shots:
+        # The web interface takes a live state older than LIVE_STATE_STALE_SECONDS for a stopped
+        # server, and taking all the pictures lasts longer than that: written again before each
+        # page, the demo's server always runs and its players stay online.
+        refresh_live_state(database_path, accounts)
         client = admin if shot.as_admin else visitor
         response = client.get(shot.path)
         if response.status_code != 200:
@@ -335,6 +339,15 @@ def take_pictures(database_path: Path, shots: list[Shot]) -> None:
                 check=True,
                 capture_output=True,
             )
+
+
+def refresh_live_state(database_path: Path, accounts: dict[str, int]) -> None:
+    """Write the demo's running lobby again, as a running server rewrites it every few seconds."""
+    database = LobbyDatabase(str(database_path))
+    try:
+        database.write_live_state(demo_live_state(accounts, utc_now()))
+    finally:
+        database.close()
 
 
 def crop_with_pillow(folder: Path) -> None:

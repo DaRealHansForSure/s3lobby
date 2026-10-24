@@ -160,6 +160,16 @@ A run that restarts the server while a game sits in each tab would show the whol
 
 ## Tools and tests
 
+### 2026-10-24: a README picture shows a stopped server
+
+- **Seen:** retaking the screenshots before a merge, the account page lost Jin's "online" badge,
+  though nothing in the code had changed.
+- **Cause:** the screenshot script wrote the demo's live lobby once at the start; the web
+  interface takes a live state older than 30 seconds (`LIVE_STATE_STALE_SECONDS`) for a stopped
+  server, and the pages late in the list were taken after that.
+- **Fix:** the script writes the live state again before each page.
+- **Evidence:** the earlier and the new account picture compared pixel by pixel.
+
 ### 2026-10-24: a long test run is killed
 
 - **Seen:** the suite against MySQL and MariaDB in one command ended with exit code 137 before
