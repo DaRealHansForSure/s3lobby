@@ -6,7 +6,7 @@
 
 **Bring the online lobby of the original The Settlers III back to life.**
 
-[![Release 0.12.0](https://img.shields.io/badge/release-0.12.0-1b3a6b?style=flat-square)](CHANGELOG.md)
+[![Release 0.12.1](https://img.shields.io/badge/release-0.12.1-1b3a6b?style=flat-square)](CHANGELOG.md)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?style=flat-square&logo=python&logoColor=white)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-17603f?style=flat-square)
 [![MIT License](https://img.shields.io/badge/license-MIT-17603f?style=flat-square)](LICENSE)

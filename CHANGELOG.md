@@ -6,6 +6,25 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-24
+
+### Added
+
+- `docs/issue-log.md` records every problem met in runs with the game, in the tests and in the
+  tools, with its cause, fix and evidence; open issues stay there until they are understood.
+
+### Fixed
+
+- The README screenshot script writes the demo's live lobby again before each page, so pages taken
+  late no longer show a stopped server and players offline.
+
+### Key commits
+
+- [`4d3a480`](https://github.com/DaRealHansForSure/s3lobby/commit/4d3a480) keeps the demo server
+  running while the screenshots are taken
+- [`3b50663`](https://github.com/DaRealHansForSure/s3lobby/commit/3b50663) logs the Home tab's
+  empty news at the first visit
+
 ## [0.12.0] - 2026-10-24
 
 ### Added
@@ -469,7 +488,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - [`b76d102`](https://github.com/DaRealHansForSure/s3lobby/commit/b76d102) refactor: rework the lobby server into the s3lobby package
 - [`46582ce`](https://github.com/DaRealHansForSure/s3lobby/commit/46582ce) docs(protocol): move the lobby protocol document into the project
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...v0.10.0
