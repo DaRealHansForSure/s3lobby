@@ -434,7 +434,8 @@ Settings):
   the lobby's numbers and the settings worth knowing at a glance (`s3lobby info` prints the same,
   as text or JSON).
 
-Kicks, bans, removals and the ladder's decisions ask for a confirmation in a dialog first.
+Kicks, bans, removals and the ladder's decisions ask for a confirmation in a dialog first. Long
+pages have a row of links under the menu to their sections.
 
 ```sh
 .venv/bin/pip install '.[web]'
@@ -562,6 +563,13 @@ game's member lists draw in those colours.
         <img src="docs/images/clans-light.png" alt="The Clans page: clans with their members, which ones the game lists in green or blue, and the buttons to change that">
       </picture>
       <p align="center"><b>Clans</b>: members, and the colour the game lists them in.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/info-dark.png">
+        <img src="docs/images/info-light.png" alt="The admins' Info page: the version, whether the server runs, the schema version, the system, the lobby's numbers, the ladder's members, the settings worth knowing and the migrations">
+      </picture>
+      <p align="center"><b>Info</b>: version, schema, server and numbers.</p>
     </td>
   </tr>
 </table>
@@ -712,6 +720,7 @@ The code follows the same layers:
 | `s3lobby/backends/` | SQLite and MySQL behind one interface, chosen by the database location: `base.py`, `location.py`, `sqlite.py`, `mysql.py` |
 | `s3lobby/migrations.py`, `s3lobby/schema/` | the schema as numbered migration files per database |
 | `s3lobby/live.py` | the running lobby as the server writes it for the web interface |
+| `s3lobby/server_info.py` | the installation at a glance, for the Info page and `s3lobby info` |
 | `s3lobby/cli.py`, `s3lobby/admin.py` | the command line |
 | `s3lobby/web/` | the web interface (Flask) |
 

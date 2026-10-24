@@ -53,6 +53,11 @@ another project; its history was carried over, so the early commits describe tha
   and leaves ladders (`join_ladder`, `leave_ladder`, `ladder_members`), and builds the views with
   names every front end shows; `ladder_admin.py` is `s3lobby ladder`. Players take part only in
   the ladders they join. Ratings are never stored, always replayed from the results.
+- `s3lobby/server_info.py`: the installation at a glance (version, schema, server, numbers) for
+  the web interface's Info page and `s3lobby info`.
+- `scripts/`: `start.sh` and `stop.sh` (server and web interface together), `run-game-wine.sh` and
+  `game-language.sh` (the game under Wine for tests), `readme_screenshots.py` (the README's
+  pictures).
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,
   `templates/`, `static/`). Public: the live lobby, `/ladder`, `/players/NAME` and `/logon`;
   everything else under `/admin` (`ADMIN_PATH_PREFIX`) with the dropdown menus of
