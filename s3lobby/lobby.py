@@ -50,6 +50,7 @@ from s3lobby.constants import (
     JOINED_GROUP_PARENT_ID,
     KICK_REASON_READING_SECONDS,
     LADDER_NOT_SUPPORTED_TEXT,
+    LAST_PLAYER_GROUP_ID,
     LOBBY_TAB_GROUP_NAMES,
     LOGON_PROTOCOL_VERSION,
     MAX_BOARD_THEMES_PER_LANGUAGE,
@@ -621,6 +622,10 @@ class Lobby:
             self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "too many open groups")
             return
 
+        if self._next_player_group_id > LAST_PLAYER_GROUP_ID:
+            log.warning("no group id left for a new game or chat group; restart the server to count again")
+            self._refuse_join(player, request.group_id, ResultCode.GROUP_CHANGE_FAILED, "no group id left")
+            return
         group_id = self._next_player_group_id
         self._next_player_group_id += 1
         # The host only knows itself as 0.0.0.0; joiners need the address the server sees it at.
@@ -1342,6 +1347,14 @@ class Lobby:
                 theme_group_id = CHAT_THEME_GROUP_ID_BASE
                 if stored.chat_theme_id is not None:
                     theme_group_id = CHAT_THEME_GROUP_ID_BASE + stored.chat_theme_id
+                # Their ids end where the players' groups begin.
+                if stored.group_row_id >= FIRST_GAME_GROUP_ID - PERMANENT_CHAT_GROUP_ID_BASE:
+                    log.warning(
+                        "permanent chat group %d %r not opened: its id would reach the players' groups",
+                        stored.group_row_id,
+                        stored.name,
+                    )
+                    continue
                 theme = self._groups.get(theme_group_id)
                 # A group of a theme that is not listed (removed, or beyond its id range) waits.
                 if theme is None or CHAT_ZONE_GROUP_ID not in theme.listed_in_parent_ids:

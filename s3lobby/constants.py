@@ -321,6 +321,10 @@ PASSWORD_CHAT_GROUP_PARENT_ID = 5
 # A host opens its game with this group id and leaves the choice of the real id to the server
 # (seen in a run: CreateGame 0x5ca7d0 sends 0xffffffff).
 SERVER_ASSIGNS_GROUP_ID = 0xFFFFFFFF
+# The highest id the server gives a player's game or chat group: they count up from
+# FIRST_GAME_GROUP_ID, and SERVER_ASSIGNS_GROUP_ID above is the game's request for a new id. Past
+# it, opening another group is refused rather than handing out an id the game would misread.
+LAST_PLAYER_GROUP_ID = SERVER_ASSIGNS_GROUP_ID - 1
 
 # This server's choice of id ranges for the groups it makes, far above the ids the client uses on
 # its own (1 to 4 for the tabs, 30 to 38 for the game zones), so nothing ever collides:

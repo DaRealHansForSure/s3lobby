@@ -16,6 +16,7 @@ from s3lobby.constants import (
     CHAT_THEME_GROUP_ID_BASE,
     CHAT_ZONE_GROUP_ID,
     EMPTY_CHAT_GROUP_KEEP_SECONDS,
+    LAST_PLAYER_GROUP_ID,
     FIRST_GAME_GROUP_ID,
     GAME_BLOCK_SIZE_BY_MESSAGE_TYPE,
     GROUP_COUNTERS_FULL,
@@ -329,6 +330,16 @@ class GroupRulesTest(LobbyTestCase):
         self.assertEqual(joined.parent_id, JOINED_GROUP_PARENT_ID)
         channel = Result.decode(alice.receive_next(MessageType.RESULT))
         self.assertEqual((channel.code, channel.value), (ResultCode.GROUP_OPENED, joined.group_id))
+
+    def test_no_group_is_opened_once_the_ids_are_used_up(self) -> None:
+        """Past the last id the server could give, a new chat group is refused with "Der Wechsel in
+        die Gruppe hat nicht geklappt" instead of reaching 0xffffffff, which the game reads as
+        "server, pick an id"."""
+        self.server._server._lobby._next_player_group_id = LAST_PLAYER_GROUP_ID + 1
+        alice, _ = self.player_in_chat_theme("Alice", 17)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "test", password="")
+        refusal = Result.decode(alice.receive_next(MessageType.RESULT))
+        self.assertEqual(refusal.code, ResultCode.GROUP_CHANGE_FAILED)
 
     def test_host_finds_its_chat_group_again_after_the_game_setup(self) -> None:
         """A player who opens a game inside a chat group leaves the group in the same block and,

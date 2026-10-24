@@ -39,6 +39,10 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Fixed
 
+- Group ids cannot run out into the game's reserved id: once the last id is given out, opening
+  another game or chat group is refused with "Der Wechsel in die Gruppe hat nicht geklappt" and a
+  warning in the log; a permanent chat group whose id would reach the players' groups is not
+  opened.
 - A game's reports no longer call a ladder game "unranked here": the ladder ranks it, and the
   game's page shows the result.
 
