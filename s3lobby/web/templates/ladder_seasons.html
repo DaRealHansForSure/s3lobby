@@ -6,16 +6,17 @@
 <section>
   <div class="section-head">
     <h1>Seasons</h1>
-    <p>The infinite season always runs and holds every counted result. Custom seasons count only the
-    results between their dates and start everyone again; several may run at once. Also
-    <code>s3lobby ladder season</code> on the command line.</p>
+    <p>The infinite season always runs and holds the counted results of its Liga and Clanliga
+    members. Custom seasons count only the results between their dates, of players who joined the
+    season (<code>/ladder join SEASON</code> in the game, or the Members page), and start everyone
+    again; several may run at once. Also <code>s3lobby ladder season</code> on the command line.</p>
   </div>
 </section>
 <section>
   <div class="grid">
     <div class="card season-card">
       <div class="row"><h3>Infinite season</h3><span class="badge badge--accent">always</span></div>
-      <div class="muted">Every counted result, never reset.</div>
+      <div class="muted">Every counted result of its members, never reset.</div>
     </div>
     {% for card in seasons %}
     <div class="card season-card">
@@ -37,7 +38,7 @@
       </details>
       <div class="row season-actions">
         {% if card.state == "running" %}{{ action_button(url_for('ladder_admin.end_season', season_id=card.season.season_id), "End now", confirm="End " ~ card.season.name ~ " now? Its standings become final.") }}{% endif %}
-        {{ action_button(url_for('ladder_admin.delete_season', season_id=card.season.season_id), "Delete", "btn--outline", confirm="Delete the season " ~ card.season.name ~ "? Its results stay in the infinite season.") }}
+        {{ action_button(url_for('ladder_admin.delete_season', season_id=card.season.season_id), "Delete", "btn--outline", confirm="Delete the season " ~ card.season.name ~ " and its members? Its results stay for the infinite season.") }}
       </div>
     </div>
     {% endfor %}

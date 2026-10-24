@@ -8,8 +8,9 @@ from datetime import datetime, timedelta, timezone
 from s3lobby.commands import MAX_ANSWER_LINE_LENGTH, ChatCommands
 from s3lobby.constants import LADDER_COMMAND_BURST, LadderState, LadderType, SeasonCounts
 from s3lobby.database import LobbyDatabase
-from s3lobby.ladder import Evaluation, ResultPlayer
+from s3lobby.ladder import CLANLIGA_KEY, LIGA_KEY, Evaluation, ResultPlayer
 from s3lobby.reachability import Reachability
+from tests.support import join_ladder_since
 from tests.test_commands import Sender
 
 NOW = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
@@ -27,6 +28,9 @@ class LadderCommandsTest(unittest.TestCase):
         self.romans = self.database.create_clan("Romans").clan_id
         self.amazons = self.database.create_clan("Amazons").clan_id
         self.database.set_clan_of_account(self.alice, self.romans)
+        players = [self.alice, self.bob, self.carol]
+        join_ladder_since(self.database, players, LIGA_KEY)
+        join_ladder_since(self.database, players, CLANLIGA_KEY)
         for day in (1, 2):
             self.store(LadderType.INDIVIDUAL, day, (self.alice, None, True), (self.bob, None, False))
         self.store(LadderType.CLANS, 3, (self.alice, self.romans, True), (self.carol, self.amazons, False))
@@ -107,6 +111,35 @@ class LadderCommandsTest(unittest.TestCase):
         self.assertEqual(self.ask("/top"), ("Too many ladder questions; ask again in a few seconds.",))
         self.time_seconds += 10
         self.assertTrue(self.ask("/top")[0].startswith("Liga:"))
+
+
+    # /ladder, /ladder join and /ladder leave: players take part only in ladders they joined, and
+    # the game has no other place to join one.
+
+    def test_ladder_names_the_player_s_ladders(self) -> None:
+        """Alice is in the Liga and the Clanliga."""
+        self.assertEqual(self.ask("/ladder"), ("Your ladders: Liga, Clanliga. Games count where every player has joined.",))
+
+    def test_leaving_hides_the_player_and_joining_again_starts_over(self) -> None:
+        """After /ladder leave Alice has no Liga place; after /ladder join she is back without her
+        old results, while they still count for Bob."""
+        self.assertIn("Left Liga", self.ask("/ladder leave")[0])
+        self.assertEqual(self.ask("/ladder leave"), ("Ladder: not in Liga.",))
+        self.assertIn("has no Liga place", self.ask("/rank")[0])
+        # Past the limit on ladder questions, which this test would otherwise run into.
+        self.time_seconds += 60
+        self.assertIn("Joined Liga", self.ask("/ladder join liga")[0])
+        self.assertIn("has no Liga place", self.ask("/rank")[0])
+        self.assertIn("Bob: Liga", self.ask("/rank Bob")[0])
+
+    def test_a_season_is_joined_by_name_until_it_ends(self) -> None:
+        """A custom season is joined by its name; one that is over cannot be joined."""
+        self.database.add_ladder_season("Autumn Cup", NOW - timedelta(days=1), None, SeasonCounts.LIGA)
+        self.database.add_ladder_season("Summer Cup", NOW - timedelta(days=90), NOW - timedelta(days=30), SeasonCounts.LIGA)
+        self.assertIn("Joined Autumn Cup", self.ask("/ladder join autumn cup")[0])
+        self.assertIn("Autumn Cup", self.ask("/ladder")[0])
+        self.assertEqual(self.ask("/ladder join Summer Cup"), ("Ladder: Summer Cup is over.",))
+        self.assertIn("there is no season named", self.ask("/ladder join Winter")[0])
 
 
 if __name__ == "__main__":

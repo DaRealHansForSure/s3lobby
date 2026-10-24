@@ -11,9 +11,10 @@ from datetime import timedelta
 
 from s3lobby.constants import LadderState, LadderType, SeasonCounts
 from s3lobby.database import DatabaseError, LobbyDatabase, Setting
-from s3lobby.ladder import Evaluation, ResultPlayer
+from s3lobby.ladder import LIGA_KEY, SEASON_LADDER, Evaluation, LadderKey, ResultPlayer
 from s3lobby.ladder_book import LadderBook, count_same_day_results
 from tests.databases import database_location_for_test
+from tests.support import join_ladder_since
 from tests.test_database import START, SteppingClock
 
 
@@ -204,6 +205,7 @@ class LadderBookTest(LadderTestCase):
 
     def test_an_admin_decides_a_disputed_game(self) -> None:
         """Bob's team is named the winner: the result counts for Bob, and names the admin."""
+        join_ladder_since(self.database, [self.alice, self.bob])
         self.database.store_ladder_result(self.evaluation(LadderState.DISPUTED, "the reports name different winners"))
         book = LadderBook(self.database)
         decided = book.decide(self.game_id, winning_team=1, admin_account_id=self.alice)
@@ -238,6 +240,38 @@ class LadderBookTest(LadderTestCase):
             9, LadderType.INDIVIDUAL, LadderState.COUNTED, played_at=START - timedelta(days=1), players=today.players
         )
         self.assertEqual(count_same_day_results(today, earlier_today + (yesterday,)), 2)
+
+
+
+class LadderMembershipTest(LadderTestCase):
+    """Who is in which ladder, and since when: players join and leave ladders one by one."""
+
+    def test_join_and_leave_are_kept_with_their_times(self) -> None:
+        """Joining twice changes nothing; leaving ends the membership, joining again starts a new one."""
+        self.assertTrue(self.database.join_ladder(self.alice, LIGA_KEY))
+        self.assertFalse(self.database.join_ladder(self.alice, LIGA_KEY))
+        self.assertTrue(self.database.leave_ladder(self.alice, LIGA_KEY))
+        self.assertFalse(self.database.leave_ladder(self.alice, LIGA_KEY))
+        self.assertTrue(self.database.join_ladder(self.alice, LIGA_KEY))
+        memberships = self.database.list_ladder_memberships()
+        self.assertEqual(len(memberships), 2)
+        self.assertIsNotNone(memberships[0].left_at)
+        self.assertIsNone(memberships[1].left_at)
+
+    def test_a_deleted_season_takes_its_members_along(self) -> None:
+        """Season memberships go with their season; Liga memberships stay."""
+        season = self.database.add_ladder_season("Autumn Cup", START, None, SeasonCounts.LIGA)
+        self.database.join_ladder(self.alice, LadderKey(SEASON_LADDER, season.season_id))
+        self.database.join_ladder(self.alice, LIGA_KEY)
+        self.database.delete_ladder_season(season.season_id)
+        self.assertEqual([membership.key for membership in self.database.list_ladder_memberships()], [LIGA_KEY])
+
+    def test_a_skipped_game_is_not_looked_at_again(self) -> None:
+        """A ladder game that counts nowhere is marked, so the server does not evaluate it every
+        round from then on."""
+        self.assertEqual([game.game_id for game in self.database.list_unresolved_ladder_games()], [self.game_id])
+        self.database.mark_ladder_game_skipped(self.game_id)
+        self.assertEqual(self.database.list_unresolved_ladder_games(), [])
 
 
 if __name__ == "__main__":

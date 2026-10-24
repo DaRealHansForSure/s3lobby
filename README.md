@@ -68,7 +68,7 @@ files: point the game at your server and log on.
 - **Accounts made by the server's admins**: players log on with an access code instead of a
   self-chosen password; codes are stored as salted scrypt hashes only.
 - **Server lines in the game's chat**: welcome message, announcements, and the chat commands
-  `/who`, `/clan`, `/help`, the ladder's `/rank`, `/top`, `/clanrank` and `/seasons`, and, for
+  `/who`, `/clan`, `/help`, the ladder's `/ladder`, `/rank`, `/top`, `/clanrank` and `/seasons`, and, for
   admins, `/announce`, `/kick` and `/ban`.
 - **A ladder for Liga and Clanliga**: Elo ratings for players and clans, an infinite season and
   custom seasons, disputes decided by admins, standings on the web, in the chat and as JSON.
@@ -353,14 +353,20 @@ every player is told at once instead of waiting a minute for a timeout.
 ### The ladder
 
 Ladder games ("Liga" 1 on 1, "Clanliga" clan against clan) are ranked by the server, as Blue
-Byte's server once did: the game keeps no ladder itself, it only reports each match. A match
-counts when every player's game reports the same winner, it lasted long enough, and the players
-joined it in the lobby; reports that disagree make it disputed until an admin decides. Ratings are
+Byte's server once did: the game keeps no ladder itself, it only reports each match. Players take
+part only in the ladders they join (`/ladder join` in the game): the Liga, the Clanliga and each
+custom season separately, and nothing is stored for a match whose players did not all join one it
+counts in. A match counts when every player's game reports the same winner, it lasted long enough,
+and the players joined it in the lobby; reports that disagree make it disputed until an admin
+decides. A player who leaves a ladder keeps their results for their opponents and starts at the
+start rating when joining again. Ratings are
 Elo, everyone starts at 1000, and they are always recomputed from the results, so a decision or a
 changed setting applies at once. An infinite season always runs; admins can add custom seasons
 (cups, tournaments) that count only their dates. The rules in full: [docs/ladder.md](docs/ladder.md).
 
 ```sh
+s3lobby ladder join Alice                   # Alice takes part in the Liga (players: /ladder join)
+s3lobby ladder members                      # who is in which ladder
 s3lobby ladder standings                    # players' Liga ranking, infinite season
 s3lobby ladder standings --ladder clanliga --season "Autumn Cup" --format json
 s3lobby ladder results --state disputed
@@ -372,7 +378,8 @@ s3lobby ladder season add "Autumn Cup" --start 2026-10-01 --end 2026-11-30 --cou
 s3lobby setting set ladder_enabled true      # tell the game results are stored (untried)
 ```
 
-In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat. While the ladder is
+In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat, and `/ladder join`
+(or `/ladder join clanliga`, `/ladder join SEASON`) makes the player a member. While the ladder is
 on, the server also writes it where the game has room for text: a MessageZone theme of its own
 ("Liga" in German, "Ladder" otherwise) with season starts, season ends and a weekly summary, the
 top five under the Home tab's news, an announcement when a custom season ends, and lines at logon
@@ -405,7 +412,8 @@ Settings):
 - past games and match reports: each game with the setup its host chose (type, map, teams,
   computer opponents, player limit, Amazons, version), who joined it, when its match started and
   how it ended, its ladder result, and every report decoded field by field;
-- the ladder: disputed games to decide or void, custom seasons, and the ladder's settings.
+- the ladder: its members, disputed games to decide or void, custom seasons, and the ladder's
+  settings.
 
 Kicks, bans, removals and the ladder's decisions ask for a confirmation in a dialog first.
 

@@ -70,6 +70,7 @@ from s3lobby.constants import (
     WRONG_GROUP_PASSWORDS_PER_SECOND,
     WRONG_GROUP_PASSWORD_BURST,
     GroupFlag,
+    LadderType,
     MessageType,
     PlayerFlag,
     ResultCode,
@@ -101,7 +102,7 @@ from s3lobby.groups import (
 )
 from s3lobby.guards import RateLimiter, ThrottledLogger
 from s3lobby.ladder import report_can_count
-from s3lobby.ladder_book import LadderBook
+from s3lobby.ladder_book import LadderBook, SkippedGame
 from s3lobby.ladder_texts import ENGLISH, GERMAN, LADDER_EVENT_MAX_AGE, LadderWriter, text_size
 from s3lobby.live import LiveGroup, LiveLobbyState, LivePlayer
 from s3lobby.logon import AcceptedLogon, LobbyOccupancy, LogonCheck, RefusedLogon
@@ -870,6 +871,10 @@ class Lobby:
             # A report that can never count (computer opponents, the game's own invalid mark) is
             # told so at once; whether a good one counts is decided once every report is in.
             result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
+        elif status.is_ladder_game and group is not None and not self._can_count_in_a_ladder(group):
+            # Players take part only in ladders they joined: with someone in the game who joined
+            # none it could count in, nothing will be stored, and the game must not say otherwise.
+            result_code = ResultCode.GAME_NOT_VALID_FOR_LADDER
         self._outbox.send(client_address, Result(result_code))
 
     def _record_game_announcement(self, group: Group) -> None:
@@ -908,12 +913,14 @@ class Lobby:
             for group in self._groups.values()
             if group.kind == GroupKind.GAME and group.game_record_id is not None
         ]
-        stored = self._ladder_book.evaluate_waiting_games(open_game_ids)
-        if not stored or not self._is_ladder_enabled():
+        evaluated = self._ladder_book.evaluate_waiting_games(open_game_ids)
+        if not self._is_ladder_enabled():
             return
+        for skipped in evaluated.skipped:
+            self._tell_ladder_game_skipped(skipped)
         # The players of each decided game who are online hear how it ended, as a server line: the
         # game itself has no place to show a ladder result after the match.
-        for decided in stored:
+        for decided in evaluated.stored:
             account_ids = {player.account_id for player in decided.evaluation.players}
             if not account_ids:
                 account_ids = {
@@ -929,6 +936,33 @@ class Lobby:
                 player = self._players_by_id.get(account_id)
                 if player is not None:
                     self._outbox.send(player.address, answer)
+
+    def _tell_ladder_game_skipped(self, skipped: SkippedGame) -> None:
+        """The players of a ladder game that counts nowhere hear why: who had not joined, and how to."""
+        ladder_name = "Clanliga" if skipped.ladder_type == LadderType.CLANS else "Liga"
+        if skipped.names_not_joined:
+            who = ", ".join(skipped.names_not_joined)
+            reason = f"{who} had not joined the {ladder_name}"
+        else:
+            reason = "not every player had joined the same ladder"
+        line = f"Ladder: {skipped.game_name} does not count ({reason}). Type /ladder join to take part."
+        answer = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([line]))
+        for account_id in skipped.account_ids:
+            player = self._players_by_id.get(account_id)
+            if player is not None:
+                self._outbox.send(player.address, answer)
+
+    def _can_count_in_a_ladder(self, group: Group) -> bool:
+        """Whether a ladder game's players, as far as they joined it so far, are all members of a
+        ladder it could count in right now."""
+        ladder_type = ladder_type_of(group.announcement)
+        if ladder_type is None:
+            return False
+        account_ids = sorted(group.recorded_player_ids)
+        return self._do_bookkeeping(
+            "checking the ladder's members",
+            lambda: self._ladder_book.can_count(account_ids, ladder_type),
+        ) is True
 
     def write_ladder_texts(self) -> None:
         """Write the ladder's board texts that are due (season starts and ends, the weekly
@@ -1015,23 +1049,49 @@ class Lobby:
                 self._send_board_message_ids(player, group.group_id, theme_id)
 
     def _tell_about_ladder(self, group: Group, players: Iterable[Player]) -> None:
-        """Blue Byte's server ranked ladder games; this one keeps no ladder, so a ladder game
-        counts for nothing beyond the match itself. Each player of a ladder game hears so once, as
-        a server line: the host when opening it or when turning it into one during the setup, a
-        joiner when joining."""
+        """Each player of a ladder game hears once, as a server line, when it cannot count for
+        them: while the ladder is off that ladder games are not ranked, and while it is on that they
+        have not joined a ladder this game could count in. The host hears it when opening the game
+        or turning it into a ladder game during the setup, a joiner when joining."""
         is_ladder = group.kind == GroupKind.GAME and is_ladder_game(group.announcement)
-        # With the ladder switched on, ladder games are ranked, so there is nothing to warn about.
-        if not is_ladder or self._is_ladder_enabled():
+        if not is_ladder:
             return
-        line = ChatCommandAnswer(group_id=ANNOUNCEMENT_GROUP_ID, lines=fit_answer([LADDER_NOT_SUPPORTED_TEXT]))
+        is_enabled = self._is_ladder_enabled()
+        ladder_type = ladder_type_of(group.announcement)
         for player in players:
             if player.player_id in group.ladder_notice_player_ids:
                 continue
+            if is_enabled:
+                text = self._ladder_join_hint(player, ladder_type)
+                if text is None:
+                    continue
+            else:
+                text = LADDER_NOT_SUPPORTED_TEXT
             group.ladder_notice_player_ids.add(player.player_id)
-            self._outbox.send(player.address, line)
-            log.info(
-                "player %d %r told that ladder game %d is not ranked", player.player_id, player.name, group.group_id
-            )
+            self._outbox.send(player.address, ChatCommandAnswer(ANNOUNCEMENT_GROUP_ID, fit_answer([text])))
+            log.info("player %d %r told about ladder game %d: %s", player.player_id, player.name, group.group_id, text)
+
+    def _ladder_join_hint(self, player: Player, ladder_type: int | None) -> str | None:
+        """The line for a player of a ladder game who has joined no ladder it could count in; None
+        for a member, who needs no line."""
+        if ladder_type is None:
+            return None
+        is_member = self._do_bookkeeping(
+            "checking the ladder's members",
+            lambda: self._ladder_book.can_count([player.player_id], ladder_type),
+        )
+        # A database failure tells nothing rather than something wrong.
+        if is_member is not False:
+            return None
+        ladder_name = "Liga"
+        join_command = "/ladder join"
+        if ladder_type == LadderType.CLANS:
+            ladder_name = "Clanliga"
+            join_command = "/ladder join clanliga"
+        return (
+            f"You have not joined the {ladder_name}: this game counts only if every player has. "
+            f"Type {join_command} to take part."
+        )
 
     # The Home tab.
 

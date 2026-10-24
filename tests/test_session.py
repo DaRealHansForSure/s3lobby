@@ -47,7 +47,7 @@ from s3lobby.messages import (
     Result,
     TextMessage,
 )
-from s3lobby.ladder import Evaluation, ResultPlayer
+from s3lobby.ladder import LIGA_KEY, Evaluation, ResultPlayer
 from tests.test_groups import game_description, receive_announcement
 from tests.support import (
     ACCESS_CODE,
@@ -62,6 +62,7 @@ from tests.support import (
     LobbyTestCase,
     go_to_lobby_server,
     join_group,
+    join_ladder_since,
     log_on,
     open_game,
     receive_member_entry,
@@ -349,6 +350,13 @@ class LadderEvaluationTest(LobbyTestCase):
     """The ladder turns a Liga match into a result once both players reported and left. Nothing
     breaks in the game without it, the game only reports; without it the server ranks nothing."""
 
+    def setUp(self) -> None:
+        """The test server, with Alice, Bob and Carol in the Liga: players take part only in the
+        ladders they joined."""
+        super().setUp()
+        account_ids = [self.database.find_account(name).account_id for name in ("Alice", "Bob", "Carol")]
+        join_ladder_since(self.database, account_ids)
+
     def play_liga_match(self, bob_serial: str) -> int:
         """Alice hosts a Liga game, Bob (on bob_serial) joins, both report Alice's win after 30
         minutes, both leave the game. Returns the game's record id."""
@@ -455,6 +463,24 @@ class LadderEvaluationTest(LobbyTestCase):
         log_on(again)
         answer = ChatCommandAnswer.decode(again.receive_next(MessageType.CHAT_COMMAND_ANSWER))
         self.assertEqual(answer.lines, ("Liga: 1016, place 1 of 2.",))
+
+    def test_a_match_with_a_player_outside_the_liga_is_stored_nowhere(self) -> None:
+        """Players take part only in ladders they joined (owner's decision): with Bob out of the
+        Liga nothing is kept for the match, the game is told during the match that it is not
+        valid for the ladder (0x540b89) instead of "stored", and both hear afterwards who had not
+        joined and how to; without the line they would wait for a result that never comes."""
+        self.database.set_setting(Setting.LADDER_ENABLED, "true")
+        self.database.leave_ladder(self.database.find_account("Bob").account_id, LIGA_KEY)
+        game_id = self.play_liga_match(OTHER_SERIAL_NUMBER)
+        self.assertEqual(self.report_codes, [ResultCode.GAME_NOT_VALID_FOR_LADDER] * 2)
+        self.server.evaluate_ladder_games()
+        self.assertIsNone(self.database.find_ladder_result(game_id))
+        self.assertEqual(self.database.list_unresolved_ladder_games(), [])
+        expected = "Ladder: Alice's game does not count (Bob had not joined the Liga). Type /ladder join to take part."
+        for client in (self.alice, self.bob):
+            lines = []
+            while expected not in lines:
+                lines = list(ChatCommandAnswer.decode(client.receive_next(MessageType.CHAT_COMMAND_ANSWER)).lines)
 
     def test_two_copies_of_one_installation_do_not_count(self) -> None:
         """Bob logs on with Alice's serial number: one installation against itself is void."""

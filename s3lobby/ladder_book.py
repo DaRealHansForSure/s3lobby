@@ -1,5 +1,8 @@
 """The ladder's records: games turned into results, and results turned into standings.
 
+Only players who joined a ladder take part in it (docs/ladder.md): a game whose players were not
+all members of at least one ladder it could count in is marked as skipped and nothing is stored.
+
 s3lobby/ladder.py holds the rules as pure functions; this module feeds them from the database and
 keeps what they decide. The server evaluates waiting ladder games in its housekeeping, the
 command line and the web interface read standings and let admins decide or void results. All of
@@ -16,10 +19,15 @@ from datetime import datetime, time, timedelta, timezone
 from s3lobby.constants import LadderState, LadderType, MessageType
 from s3lobby.database import DELETED_ACCOUNT_NAME, GameRecord, LadderResultRecord, LobbyDatabase
 from s3lobby.ladder import (
+    CLANLIGA_KEY,
     INFINITE_SEASON,
+    LIGA_KEY,
+    SEASON_LADDER,
     Evaluation,
     GameFacts,
     GamePlayerFacts,
+    LadderKey,
+    LadderRoll,
     LadderSettings,
     Ratings,
     ReportFacts,
@@ -28,10 +36,14 @@ from s3lobby.ladder import (
     Standing,
     clan_strength,
     compute_ratings,
+    counting_ladders,
     evaluate_game,
     exceeds_pair_limit,
+    keep_current_memberships,
     ladder_minutes,
+    ladder_key,
     pair_key,
+    results_in_ladder,
     standings,
 )
 from s3lobby.messages import GameStatus
@@ -104,6 +116,36 @@ class StoredEvaluation:
     game_name: str
 
 
+@dataclass(frozen=True)
+class SkippedGame:
+    """A ladder game stored nowhere because not every player had joined a ladder it could count
+    in: its players, and the names of those not in its Liga or Clanliga, for the players' line."""
+
+    game_id: int
+    game_name: str
+    ladder_type: int
+    account_ids: tuple[int, ...]
+    names_not_joined: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class EvaluatedGames:
+    """What one round of evaluation did: the results it stored and the games it skipped."""
+
+    stored: list[StoredEvaluation]
+    skipped: list[SkippedGame]
+
+
+@dataclass(frozen=True)
+class MembershipRow:
+    """One current membership with names, for the admins' list: who, which ladder, since when."""
+
+    account_id: int
+    name: str
+    ladder: str
+    joined_at: datetime
+
+
 class LadderBook:
     """Reads and writes the ladder through the database, on the database's clock."""
 
@@ -115,24 +157,47 @@ class LadderBook:
         # LobbyDatabase.ladder_results_version): a burst of /top in the chat replays nothing.
         self._cached_version: tuple[int, int] | None = None
         self._cached_results: list[LadderResultRecord] = []
-        self._cached_ratings: dict[tuple[Season, LadderSettings], Ratings] = {}
+        self._cached_ratings: dict[tuple[Season, LadderSettings, LadderRoll], Ratings] = {}
 
     def settings(self) -> LadderSettings:
         """The ladder's numbers as the admins set them."""
         return self._database.get_ladder_settings()
 
-    def evaluate_waiting_games(self, open_game_ids: Iterable[int]) -> list[StoredEvaluation]:
-        """Evaluate every ladder game without a result and store those that are decided; return
-        them. open_game_ids are the game records the running server still has open: a game neither
-        open nor closed was cut off by a restart."""
+    def evaluate_waiting_games(self, open_game_ids: Iterable[int]) -> EvaluatedGames:
+        """Evaluate every ladder game without a result and store those that are decided and count
+        in at least one ladder; mark the others as skipped. open_game_ids are the game records the
+        running server still has open: a game neither open nor closed was cut off by a restart."""
         open_ids = set(open_game_ids)
         settings = self.settings()
         now = self._clock()
+        roll = self.roll()
+        seasons = self._database.list_ladder_seasons()
         stored = []
+        skipped = []
         earlier_results = [record.evaluation for record in self._database.list_ladder_results()]
         for game in self._database.list_unresolved_ladder_games():
-            evaluation = evaluate_game(self.game_facts(game, game.game_id in open_ids), settings, now)
+            facts = self.game_facts(game, game.game_id in open_ids)
+            evaluation = evaluate_game(facts, settings, now)
             if evaluation is None or evaluation.state == LadderState.WAITING:
+                continue
+            # Membership is judged for everyone who joined the game in the lobby, when the match
+            # was decided (or, for a game without an end report, now): the result of players who
+            # did not all join a ladder is not kept anywhere.
+            account_ids = tuple(player.account_id for player in facts.players)
+            moment = evaluation.played_at or now
+            if not counting_ladders(account_ids, evaluation.ladder_type, moment, seasons, roll):
+                self._database.mark_ladder_game_skipped(game.game_id)
+                base_key = ladder_key(INFINITE_SEASON, evaluation.ladder_type)
+                skipped.append(
+                    SkippedGame(
+                        game.game_id,
+                        game.name,
+                        evaluation.ladder_type,
+                        account_ids,
+                        self.names_not_joined(account_ids, base_key, moment, roll),
+                    )
+                )
+                log.info("ladder: game %d %r skipped, not every player joined a ladder", game.game_id, game.name)
                 continue
             evaluation = exceeds_pair_limit(evaluation, count_same_day_results(evaluation, earlier_results), settings)
             self._database.store_ladder_result(evaluation)
@@ -145,7 +210,28 @@ class LadderBook:
                 evaluation.state.value,
                 f" ({evaluation.reason})" if evaluation.reason else "",
             )
-        return stored
+        return EvaluatedGames(stored, skipped)
+
+    def names_not_joined(
+        self, account_ids: Iterable[int], key: LadderKey, moment: datetime, roll: LadderRoll
+    ) -> tuple[str, ...]:
+        """The names of the players who were not in the ladder at the moment, for the players' line."""
+        names = {account.account_id: account.name for account in self._database.list_accounts()}
+        return tuple(
+            names.get(account_id, DELETED_ACCOUNT_NAME)
+            for account_id in account_ids
+            if not roll.is_member(account_id, key, moment)
+        )
+
+    def can_count(self, account_ids: Iterable[int], ladder_type: int) -> bool:
+        """Whether a game of these players could count in some ladder right now: all of them in its
+        Liga or Clanliga, or in one running custom season that counts it."""
+        seasons = self._database.list_ladder_seasons()
+        return bool(counting_ladders(account_ids, ladder_type, self._clock(), seasons, self.roll()))
+
+    def roll(self) -> LadderRoll:
+        """Every membership, read fresh: joining and leaving change who counts at once."""
+        return LadderRoll(tuple(self._database.list_ladder_memberships()))
 
     def game_facts(self, game: GameRecord, is_open: bool) -> GameFacts:
         """What the rules need to know about one stored game: its players as they joined, and its
@@ -193,10 +279,18 @@ class LadderBook:
         settings while the results stay the same. Callers must not change what they get."""
         results = self.results()
         settings = self.settings()
-        key = (season, settings)
+        roll = self.roll()
+        key = (season, settings, roll)
         if key not in self._cached_ratings:
-            self._cached_ratings[key] = compute_ratings((record.evaluation for record in results), settings, season)
+            replayed = compute_ratings((record.evaluation for record in results), settings, season, roll)
+            self._cached_ratings[key] = keep_current_memberships(replayed, roll, season)
         return self._cached_ratings[key]
+
+    def evaluations_in_ladder(self, season: Season = INFINITE_SEASON) -> list[Evaluation]:
+        """The stored results that count in a season's ladder by its members, for form strips and
+        statistics, which must agree with the ratings."""
+        evaluations = [record.evaluation for record in self.results()]
+        return results_in_ladder(evaluations, season, self.roll())
 
     def decide(self, game_id: int, winning_team: int, admin_account_id: int | None) -> Evaluation:
         """An admin names the winner of a game the reports disagree on (or overrules any other
@@ -292,7 +386,14 @@ class LadderBook:
             ]
             return [replace(row, place=place) for place, row in enumerate(clan_rows, start=1)]
         accounts = {account.account_id: account for account in self._database.list_accounts()}
-        hidden = [account_id for account_id, account in accounts.items() if account.is_banned_at(now)]
+        # Only players in the ladder now are ranked: one who left keeps their results for their
+        # opponents but leaves the list, and comes back at the start rating when joining again.
+        members = self.roll().current_members(ladder_key(season, LadderType.INDIVIDUAL), now)
+        hidden = [
+            account_id
+            for account_id, account in accounts.items()
+            if account.is_banned_at(now) or account_id not in members
+        ]
         clan_of_account = self.clan_names_of_accounts()
         rows = []
         for standing in standings(ratings.liga, now, settings, hidden_ids=hidden, hides_inactive=hides_inactive):
@@ -321,9 +422,12 @@ class LadderBook:
         liga = self.ratings().liga
         account_names = {account.account_id: account.name for account in self._database.list_accounts()}
         memberships = self._database.list_clan_memberships()
+        # Only clan members who are in the Liga now lend the clan their rating.
+        liga_members = self.roll().current_members(LIGA_KEY, now)
         rows = []
         for clan in self._database.list_clans():
-            strength = clan_strength(clan.clan_id, memberships.get(clan.clan_id, []), liga, now, settings)
+            member_ids = [account_id for account_id in memberships.get(clan.clan_id, []) if account_id in liga_members]
+            strength = clan_strength(clan.clan_id, member_ids, liga, now, settings)
             members = tuple(
                 (account_names.get(account_id, DELETED_ACCOUNT_NAME), round(rating))
                 for account_id, rating in strength.counted_members
@@ -353,6 +457,90 @@ class LadderBook:
             if limit is not None and len(rows) >= limit:
                 break
         return rows
+
+
+class LadderMembershipError(ValueError):
+    """A join or leave that cannot be done: an unknown or ended ladder, or nothing to change."""
+
+
+def find_ladder_key(book: LadderBook, name: str | None) -> tuple[LadderKey, str]:
+    """The ladder a player names for /ladder join and the like, with the name to show: "liga" (the
+    default), "clanliga", or a custom season by name. Raises LadderMembershipError naming the
+    choices."""
+    text = (name or "").strip()
+    if not text or text.lower() == LIGA:
+        return LIGA_KEY, "Liga"
+    if text.lower() == CLANLIGA:
+        return CLANLIGA_KEY, "Clanliga"
+    try:
+        season = book.find_season(text)
+    except LookupError as error:
+        raise LadderMembershipError(f"{error}; or liga, clanliga") from error
+    if season.season_id is None:
+        return LIGA_KEY, "Liga"
+    return LadderKey(SEASON_LADDER, season.season_id), season.name
+
+
+def join_ladder(book: LadderBook, database: LobbyDatabase, account_id: int, name: str | None) -> str:
+    """Make a player a member of a ladder; returns the sentence to tell them. A season that is over
+    cannot be joined. Raises LadderMembershipError when there is nothing to do."""
+    key, label = find_ladder_key(book, name)
+    if key.season_id is not None:
+        season = next(season for season in database.list_ladder_seasons() if season.season_id == key.season_id)
+        if season.ends_at is not None and season.ends_at <= database.now():
+            raise LadderMembershipError(f"{label} is over")
+    if not database.join_ladder(account_id, key):
+        raise LadderMembershipError(f"already in {label}")
+    return f"Joined {label}. Your ladder games count there once every player in them has joined it too."
+
+
+def leave_ladder(book: LadderBook, database: LobbyDatabase, account_id: int, name: str | None) -> str:
+    """End a player's membership of a ladder; returns the sentence to tell them. Raises
+    LadderMembershipError when they were not in it."""
+    key, label = find_ladder_key(book, name)
+    if not database.leave_ladder(account_id, key):
+        raise LadderMembershipError(f"not in {label}")
+    return f"Left {label}. Your results stay for your opponents; joining again starts you at the start rating."
+
+
+def ladder_labels(database: LobbyDatabase, account_id: int) -> list[str]:
+    """The ladders a player is in now, by name: Liga, Clanliga and custom seasons."""
+    now = database.now()
+    season_names = {season.season_id: season.name for season in database.list_ladder_seasons()}
+    labels = []
+    for membership in database.list_ladder_memberships():
+        if membership.account_id != account_id or not membership.covers(now):
+            continue
+        labels.append(key_label(membership.key, season_names))
+    return labels
+
+
+def key_label(key: LadderKey, season_names: dict[int, str]) -> str:
+    """A ladder's name for people."""
+    if key == LIGA_KEY:
+        return "Liga"
+    if key == CLANLIGA_KEY:
+        return "Clanliga"
+    return season_names.get(key.season_id, f"season {key.season_id}")
+
+
+def membership_rows(database: LobbyDatabase) -> list[MembershipRow]:
+    """Every current membership with names, by ladder and then by player name."""
+    now = database.now()
+    names = {account.account_id: account.name for account in database.list_accounts()}
+    season_names = {season.season_id: season.name for season in database.list_ladder_seasons()}
+    rows = [
+        MembershipRow(
+            membership.account_id,
+            names.get(membership.account_id, DELETED_ACCOUNT_NAME),
+            key_label(membership.key, season_names),
+            membership.joined_at,
+        )
+        for membership in database.list_ladder_memberships()
+        if membership.covers(now)
+    ]
+    rows.sort(key=lambda row: (row.ladder.lower(), row.name.lower()))
+    return rows
 
 
 def count_same_day_results(evaluation: Evaluation, earlier: Iterable[Evaluation]) -> int:

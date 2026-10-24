@@ -57,7 +57,7 @@ from s3lobby.constants import (
     LadderState,
     SeasonCounts,
 )
-from s3lobby.ladder import Evaluation, LadderSettings, ResultPlayer, Season
+from s3lobby.ladder import Evaluation, LadderKey, LadderMembership, LadderSettings, ResultPlayer, Season
 from s3lobby.live import LiveLobbyState, StoredLiveState
 from s3lobby.migrations import Migration, MigrationError, MigrationStatus, current_version, migrate, read_status
 
@@ -79,6 +79,7 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "ladder_results",
     "ladder_result_players",
     "ladder_seasons",
+    "ladder_memberships",
     "ladder_events",
     "settings",
     "pending_announcements",
@@ -1668,11 +1669,76 @@ class LobbyDatabase:
         off by a restart."""
         rows = self._backend.fetch_all(
             self.GAME_COLUMNS
-            + "WHERE games.ladder_type IS NOT NULL AND games.ladder_type <> 0 "
+            + "WHERE games.ladder_type IS NOT NULL AND games.ladder_type <> 0 AND games.is_ladder_skipped = 0 "
             "AND NOT EXISTS (SELECT 1 FROM ladder_results WHERE ladder_results.game_id = games.id) "
             "ORDER BY games.id",
         )
         return [game_record_from_row(row, []) for row in rows]
+
+    def mark_ladder_game_skipped(self, game_id: int) -> None:
+        """Note that a ladder game counts in no ladder because not every player had joined one: no
+        result is stored for it, and the server does not look at it again."""
+        with self._backend.transaction():
+            self._backend.execute("UPDATE games SET is_ladder_skipped = 1 WHERE id = ?", (game_id,))
+
+    def join_ladder(self, account_id: int, key: LadderKey) -> bool:
+        """Make the player a member of a ladder from now on; False when they are one already."""
+        now = self._clock()
+        with self._backend.transaction():
+            if self._active_ladder_membership_id(account_id, key) is not None:
+                return False
+            self._backend.execute(
+                "INSERT INTO ladder_memberships (account_id, ladder, season_id, joined_at) VALUES (?, ?, ?, ?)",
+                (account_id, key.ladder, key.season_id, to_stored_time(now)),
+            )
+        return True
+
+    def leave_ladder(self, account_id: int, key: LadderKey) -> bool:
+        """End the player's membership of a ladder now; False when they were not a member. Their
+        results stay, so their opponents' ratings do not change."""
+        with self._backend.transaction():
+            membership_id = self._active_ladder_membership_id(account_id, key)
+            if membership_id is None:
+                return False
+            self._backend.execute(
+                "UPDATE ladder_memberships SET left_at = ? WHERE id = ?",
+                (to_stored_time(self._clock()), membership_id),
+            )
+        return True
+
+    def _active_ladder_membership_id(self, account_id: int, key: LadderKey) -> int | None:
+        """The row id of the player's current membership of a ladder, or None."""
+        # "season_id = ?" never matches NULL, hence the two forms.
+        if key.season_id is None:
+            row = self._backend.fetch_one(
+                "SELECT id FROM ladder_memberships WHERE account_id = ? AND ladder = ? AND season_id IS NULL "
+                "AND left_at IS NULL",
+                (account_id, key.ladder),
+            )
+        else:
+            row = self._backend.fetch_one(
+                "SELECT id FROM ladder_memberships WHERE account_id = ? AND ladder = ? AND season_id = ? "
+                "AND left_at IS NULL",
+                (account_id, key.ladder, key.season_id),
+            )
+        if row is None:
+            return None
+        return row["id"]
+
+    def list_ladder_memberships(self) -> list[LadderMembership]:
+        """Every membership, past ones included, oldest first: who was in which ladder when."""
+        rows = self._backend.fetch_all(
+            "SELECT account_id, ladder, season_id, joined_at, left_at FROM ladder_memberships ORDER BY id"
+        )
+        return [
+            LadderMembership(
+                account_id=row["account_id"],
+                key=LadderKey(row["ladder"], row["season_id"]),
+                joined_at=from_stored_time(row["joined_at"]),
+                left_at=from_optional_stored_time(row["left_at"]),
+            )
+            for row in rows
+        ]
 
     def store_ladder_result(self, evaluation: Evaluation, decided_by_account_id: int | None = None) -> None:
         """Keep what the ladder made of a game, replacing an earlier result of the same game (an
@@ -1843,8 +1909,8 @@ class LobbyDatabase:
             raise DatabaseError(f"there is no season {season_id}")
 
     def delete_ladder_season(self, season_id: int) -> None:
-        """Delete a custom season. Its results stay: they count in the infinite season and in any
-        other season whose dates include them."""
+        """Delete a custom season and its memberships. Its results stay: they count in the
+        infinite season and in other seasons for the players who are members there."""
         with self._backend.transaction():
             self._backend.execute("DELETE FROM ladder_seasons WHERE id = ?", (season_id,))
 

@@ -19,15 +19,21 @@ from s3lobby.constants import (
 )
 from s3lobby.ladder import (
     INFINITE_SEASON,
+    LIGA_KEY,
+    SEASON_LADDER,
     Evaluation,
     GameFacts,
     GamePlayerFacts,
+    LadderKey,
+    LadderMembership,
+    LadderRoll,
     LadderSettings,
     ReportFacts,
     ResultPlayer,
     Season,
     clan_strength,
     compute_ratings,
+    counting_ladders,
     evaluate_game,
     exceeds_pair_limit,
     expected_score,
@@ -365,6 +371,59 @@ class RatingTest(unittest.TestCase):
         self.assertEqual(recent_form(results, ALICE, LadderType.INDIVIDUAL), "WXW")
         self.assertEqual(recent_form(results, BOB, LadderType.INDIVIDUAL, count=2), "WL")
         self.assertEqual(recent_form(results, CAROL, LadderType.INDIVIDUAL), "")
+
+
+def october(day: int) -> datetime:
+    """Noon of a day of October 2026, UTC."""
+    return datetime(2026, 10, day, 12, 0, tzinfo=timezone.utc)
+
+
+class MembershipTest(unittest.TestCase):
+    """Only players who joined a ladder take part in it (owner's decision, docs/ladder.md)."""
+
+    def test_a_result_counts_only_when_every_player_had_joined(self) -> None:
+        """Bob joined after the first match: it counts for nobody, the second one counts."""
+        roll = LadderRoll((LadderMembership(ALICE, LIGA_KEY, october(1)), LadderMembership(BOB, LIGA_KEY, october(2))))
+        results = [counted(1, ALICE, BOB, 1), counted(2, ALICE, BOB, 3)]
+        ratings = compute_ratings(results, SETTINGS, roll=roll).liga
+        self.assertEqual((ratings[ALICE].results, ratings[BOB].results), (1, 1))
+
+    def test_joining_again_starts_at_the_start_rating(self) -> None:
+        """Bob left after losing twice and joined again: his rating starts over, while Alice keeps
+        what she won against him (owner's decision)."""
+        roll = LadderRoll(
+            (
+                LadderMembership(ALICE, LIGA_KEY, october(1)),
+                LadderMembership(BOB, LIGA_KEY, october(1), left_at=october(5)),
+                LadderMembership(BOB, LIGA_KEY, october(6)),
+            )
+        )
+        results = [counted(1, ALICE, BOB, 2), counted(2, ALICE, BOB, 3), counted(3, BOB, ALICE, 7)]
+        ratings = compute_ratings(results, SETTINGS, roll=roll).liga
+        self.assertEqual(ratings[BOB].results, 1)
+        self.assertEqual(ratings[ALICE].results, 3)
+        self.assertGreater(ratings[BOB].rating, SETTINGS.start_rating)
+
+    def test_a_season_counts_only_its_own_members(self) -> None:
+        """Both players are in the Liga, only Alice in the Autumn Cup: the match counts in the Liga
+        and nowhere else."""
+        autumn = Season(7, "Autumn Cup", starts_at=october(1), counts=SeasonCounts.BOTH)
+        autumn_key = LadderKey(SEASON_LADDER, autumn.season_id)
+        roll = LadderRoll(
+            (
+                LadderMembership(ALICE, LIGA_KEY, october(1)),
+                LadderMembership(BOB, LIGA_KEY, october(1)),
+                LadderMembership(ALICE, autumn_key, october(1)),
+            )
+        )
+        ladders = counting_ladders([ALICE, BOB], LadderType.INDIVIDUAL, october(3), [autumn], roll)
+        self.assertEqual(ladders, [LIGA_KEY])
+        self.assertEqual(compute_ratings([counted(1, ALICE, BOB, 3)], SETTINGS, autumn, roll).liga, {})
+
+    def test_nobody_in_a_ladder_means_no_ladder(self) -> None:
+        """Without members a match counts nowhere, so the server stores nothing for it."""
+        self.assertEqual(counting_ladders([ALICE, BOB], LadderType.INDIVIDUAL, october(3), [], LadderRoll()), [])
+
 
 if __name__ == "__main__":
     unittest.main()
