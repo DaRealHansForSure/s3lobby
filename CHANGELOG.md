@@ -12,6 +12,16 @@ version may change behaviour; the owner decides when 1.0.0 comes.
   `hide-message`, `show-message`: the board's order and visibility from the command line, as on
   the web; `board list` marks hidden and server-written themes.
 
+### Changed
+
+- **Players take part only in the ladders they join.** `/ladder join` in the game (or
+  `/ladder join clanliga`, `/ladder join SEASON`), `/ladder leave` and `/ladder`; admins use the new
+  Ladder > Members page or `s3lobby ladder join|leave|members`. A ladder game whose players did not
+  all join a ladder it counts in is stored nowhere, the game hears "not valid for ladder", and the
+  players hear who had not joined. A player who leaves keeps their results for their opponents and
+  starts at the start rating when joining again. Migration 0015 adds the memberships. Results
+  stored before were played before anyone joined, so they count for nobody.
+
 ### Fixed
 
 - A game's reports no longer call a ladder game "unranked here": the ladder ranks it, and the

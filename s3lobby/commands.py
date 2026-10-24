@@ -13,6 +13,8 @@ Commands:
     /top [SEASON]       the best five of the infinite season, or of a custom season
     /clanrank [CLAN]    a clan's Clanliga rating and its strength from Liga (yours without a name)
     /seasons            the custom seasons running now
+    /ladder [join|leave [LADDER]]   the ladders you are in; join or leave Liga (the default),
+                        Clanliga or a custom season by name. Only members' games count.
     /announce TEXT      (admins) a line for every player in the lobby
     /kick NAME [REASON]          (admins) remove a player from the lobby; they may log on again
     /ban NAME HOURS [REASON]     (admins) bar an account, online or not; an online player is removed
@@ -55,11 +57,23 @@ from s3lobby.constants import (
 from s3lobby.database import DatabaseError, LobbyDatabase, is_whole_number_text, utc_now, with_reason
 from s3lobby.guards import RateLimiter
 from s3lobby.ladder import INFINITE_SEASON, Season
-from s3lobby.ladder_book import CLANLIGA, LIGA, LadderBook, StandingRow
+from s3lobby.ladder_book import (
+    CLANLIGA,
+    LIGA,
+    LadderBook,
+    LadderMembershipError,
+    StandingRow,
+    join_ladder,
+    ladder_labels,
+    leave_ladder,
+)
 from s3lobby.reachability import Reachability
 from s3lobby.wire import Address
 
 COMMAND_PREFIX = "/"
+# The words after /ladder that join or leave a ladder.
+LADDER_JOIN = "join"
+LADDER_LEAVE = "leave"
 # Answers stay short: the chat shows each line on its own, and a long answer would push the
 # conversation off the screen.
 MAX_ANSWER_LINE_LENGTH = 100
@@ -131,7 +145,7 @@ class ChatCommands:
                 lines = self._clan(sender)
             case "net":
                 lines = describe_network(sender.address, self._reachability_of(sender.address))
-            case "rank" | "top" | "clanrank" | "seasons":
+            case "rank" | "top" | "clanrank" | "seasons" | "ladder":
                 lines = self._answer_ladder_question(sender, command_name, argument)
             case "announce":
                 lines = self._announce_for(sender, argument)
@@ -152,6 +166,7 @@ class ChatCommands:
             "/clan: your clan and its members online",
             "/net: your address as the server sees it, and what to forward on your router",
             "/rank [NAME], /top [SEASON], /clanrank [CLAN], /seasons: the ladder",
+            "/ladder, /ladder join [LADDER], /ladder leave [LADDER]: your ladders (Liga, Clanliga, a season)",
         ]
         if self._is_admin_now(sender):
             lines.append("/announce TEXT: a line for every player in the lobby")
@@ -225,7 +240,29 @@ class ChatCommands:
                 return self._top(name)
             case "clanrank":
                 return self._clan_rank(sender, name)
+            case "ladder":
+                return self._ladder_membership(sender, argument)
         return self._seasons()
+
+    def _ladder_membership(self, sender: CommandSender, argument: str) -> list[str]:
+        """/ladder: the ladders the player is in; /ladder join [LADDER] and /ladder leave [LADDER]
+        change that. Players take part only in ladders they joined (owner's decision), and the game
+        has no other place to do it."""
+        action, ladder_name = split_command(COMMAND_PREFIX + argument.strip())
+        ladder_name = ladder_name[:MAX_GROUP_TEXT_LENGTH].strip()
+        try:
+            if action == LADDER_JOIN:
+                return [join_ladder(self._ladder, self._database, sender.player_id, ladder_name)]
+            if action == LADDER_LEAVE:
+                return [leave_ladder(self._ladder, self._database, sender.player_id, ladder_name)]
+        except LadderMembershipError as error:
+            return [f"Ladder: {error}."]
+        if action:
+            return [f"Type {COMMAND_PREFIX}ladder join or {COMMAND_PREFIX}ladder leave, with liga, clanliga or a season."]
+        labels = ladder_labels(self._database, sender.player_id)
+        if not labels:
+            return [f"You are in no ladder: your ladder games do not count. Type {COMMAND_PREFIX}ladder join."]
+        return [f"Your ladders: {', '.join(labels)}. Games count where every player has joined."]
 
     def _rank(self, sender: CommandSender, name: str) -> list[str]:
         """/rank [NAME]: a player's Liga rating and place in the infinite season and in every

@@ -2,8 +2,8 @@
 
 Status: built (steps 1 to 4 below), not yet tried with the real game. This document describes how s3lobby ranks ladder games with the data the
 unmodified game already sends. Facts about the game cite `docs/protocol.md` or an S3.EXE address;
-everything else is design. The owner's decisions of 2026-10-23 are listed at the end and built into
-the text.
+everything else is design. The owner's decisions of 2026-10-23 and 2026-10-24 are listed at the
+end and built into the text.
 
 Where it lives: the rules in `s3lobby/ladder.py` (pure functions), reading and writing the
 database in `s3lobby/ladder_book.py` (LadderBook), the server's evaluation in `Lobby.evaluate_ladder_games`
@@ -47,9 +47,37 @@ interface decodes it. A ladder report was answered with 0x6a, and every player o
 a server line that ladder games are not ranked. With `ladder_enabled` off, the game still hears
 exactly that.
 
+## Joining the ladder
+
+Nobody is in the ladder until they join it (owner's decision, 2026-10-24): the server keeps no
+ladder data for players who did not ask for it.
+
+- **Each ladder is joined on its own:** the infinite season's Liga, its Clanliga, and every custom
+  season. In the game: `/ladder` (the ladders the player is in), `/ladder join` (Liga),
+  `/ladder join clanliga`, `/ladder join Autumn Cup` (a season by name), and `/ladder leave` with
+  the same names. Admins do the same on the web (Ladder > Members) and with
+  `s3lobby ladder join|leave NAME [--ladder LADDER]` and `s3lobby ladder members`. A season that is
+  over cannot be joined.
+- **A match counts in a ladder only when every player in it was a member of that ladder when the
+  match was decided.** It may count in several (the Liga and a running custom season that counts
+  Liga, if everyone joined both). A ladder game that counts in none is stored nowhere: no result,
+  no rating, only a mark on the game (`games.is_ladder_skipped`) so the server does not look at it
+  again. Its reports stay on the Games page like any game's.
+- **The game hears it too.** With `ladder_enabled` on, a report from a ladder game whose players
+  are not all in a ladder it could count in is answered with 0x6a ("not valid for ladder") rather
+  than 0x6c; a player who joins such a game hears once that they have not joined and how to; and
+  after the match the players hear who had not joined.
+- **Leaving** ends the membership; the player leaves the standings. Their results stay, so their
+  opponents' ratings do not change after the fact. A player who joins again starts at the start
+  rating: a rating belongs to one membership (`Rating.period_start`), and results of an earlier one
+  never count for the new one.
+- **Clans do not join;** players do. A clan is ranked in the Clanliga from the matches of its
+  members who joined the Clanliga, and its strength from Liga counts only members in the Liga.
+
 ## 1. When a ladder result counts
 
-A ladder game becomes a **result** only when all of these hold. Each failed rule is stored as the
+A ladder game is looked at only when its players joined a ladder it can count in (above). It then
+becomes a **result** only when all of these hold. Each failed rule is stored as the
 reason, so admins see why a match did not count.
 
 1. The game was opened on this server as a ladder game (description and reports agree on ladder
@@ -283,7 +311,7 @@ project:
   server's `text_message` would otherwise drop the last lines to stay within 1200 bytes.
 - **Once per event:** each board message and announcement is stored with its event, so a restart
   never posts it twice and a crash in the middle never posts half.
-- **Chat commands** (`/rank`, `/top`, `/clanrank`, `/seasons`) get a rate limit per player, their
+- **Chat commands** (`/rank`, `/top`, `/clanrank`, `/seasons`, `/ladder`) get a rate limit per player, their
   arguments are cut to `MAX_GROUP_TEXT_LENGTH`, and the answers go through `fit_answer`. Ratings are
   computed once per change and cached, so a burst of commands costs no recomputation.
 - **Housekeeping** (the report timeout, the weekly summary, season ends) runs guarded like the
@@ -338,7 +366,7 @@ should be able to build their own pages, bots or tools on it. So:
   as the web interface does with the live lobby. Ratings are not stored; a tool computes them with
   `compute_ratings` or takes them from the JSON.
 
-## 5. Database (migration 0010 for every dialect, and 0013)
+## 5. Database (migration 0010 for every dialect, 0013 and 0015)
 
 - `ladder_results`: game id, ladder type, state (counted, disputed, void), reason, winning team,
   game time, decided at, decided by (server or an admin account).
@@ -356,6 +384,9 @@ should be able to build their own pages, bots or tools on it. So:
   its opponents' ratings replay exactly as they were played.
 - `ladder_results.map_name` (migration 0013): the map the reports name, for the statistics per
   map; results stored before keep an empty name.
+- `ladder_memberships` (migration 0015): account, ladder (`liga`, `clanliga` or `season` with the
+  season's id), joined at, left at (null while still in it). A season's memberships go with it.
+  `games.is_ladder_skipped` marks a ladder game that counted in no ladder.
 - No rating table: ratings are computed from the results when asked and cached in memory by the
   web interface and the server; the number of results of a small lobby keeps this cheap.
 
@@ -415,3 +446,11 @@ switched on long after a season ended) is noted without a text.
 3. Minimum game time and daily limit per pair, both configurable (section 4).
 4. An infinite season that always runs, and custom seasons admins create (section 2, Seasons).
 5. Clanliga in the first version.
+
+Decisions of 2026-10-24:
+
+6. Players take part only in ladders they joined; nothing is stored for others (Joining the ladder).
+7. Players join with a chat command, admins on the web and from the command line.
+8. Liga, Clanliga and each custom season are joined separately.
+9. A ladder game with a player who did not join stores nothing at all.
+10. Leaving keeps the results for the opponents; joining again starts at the start rating.

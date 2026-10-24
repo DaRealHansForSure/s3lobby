@@ -14,7 +14,8 @@ from pathlib import Path
 from s3lobby.cli import EXIT_FAILURE, EXIT_SUCCESS, main
 from s3lobby.constants import LADDER_JSON_FORMAT, LadderState, LadderType
 from s3lobby.database import LobbyDatabase
-from s3lobby.ladder import Evaluation, ResultPlayer
+from s3lobby.ladder import SEASON_LADDER, Evaluation, LadderKey, ResultPlayer
+from tests.support import join_ladder_since
 
 PLAYED_AT = datetime(2026, 10, 5, 20, 0, tzinfo=timezone.utc)
 
@@ -32,6 +33,7 @@ class LadderCommandLineTest(unittest.TestCase):
         try:
             alice = database.create_account("Alice").account_id
             bob = database.create_account("Bob").account_id
+            join_ladder_since(database, [alice, bob])
             self.game_id = database.record_game_opened("Revenge", alice, ladder_type=LadderType.INDIVIDUAL)
             database.store_ladder_result(
                 Evaluation(
@@ -95,6 +97,14 @@ class LadderCommandLineTest(unittest.TestCase):
         )
         self.assertEqual(exit_code, EXIT_SUCCESS)
         self.assertIn("from 2026-10-01 to 2026-10-31", output)
+        # Only the season's members are ranked in it; they joined before the match.
+        database = LobbyDatabase(self.database_path)
+        try:
+            autumn = database.find_ladder_season("Autumn")
+            players = [database.find_account(name).account_id for name in ("Alice", "Bob")]
+            join_ladder_since(database, players, LadderKey(SEASON_LADDER, autumn.season_id))
+        finally:
+            database.close()
         _, output, _ = self.run_command("ladder", "standings", "--season", "Autumn", "--format", "json")
         self.assertEqual(json.loads(output)["standings"][0]["name"], "Alice")
 
@@ -106,6 +116,16 @@ class LadderCommandLineTest(unittest.TestCase):
         exit_code, _, errors = self.run_command("ladder", "decide", "999", "--winner", "0")
         self.assertEqual(exit_code, EXIT_FAILURE)
         self.assertIn("has no ladder result", errors)
+
+
+    def test_players_join_and_leave_ladders_from_the_command_line(self) -> None:
+        """ladder join, leave and members do what /ladder does in the game, for admins."""
+        self.assertEqual(self.run_command("ladder", "leave", "Alice")[0], EXIT_SUCCESS)
+        self.assertEqual(self.run_command("ladder", "leave", "Alice")[0], EXIT_FAILURE)
+        self.assertEqual(self.run_command("ladder", "join", "Alice", "--ladder", "clanliga")[0], EXIT_SUCCESS)
+        _, output, _ = self.run_command("ladder", "members", "--format", "json")
+        members = {(row["ladder"], row["name"]) for row in json.loads(output)["members"]}
+        self.assertEqual(members, {("Clanliga", "Alice"), ("Liga", "Bob")})
 
 
 if __name__ == "__main__":

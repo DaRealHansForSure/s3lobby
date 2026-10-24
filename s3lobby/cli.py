@@ -476,6 +476,17 @@ def add_ladder_commands(commands: argparse._SubParsersAction, database_option: a
     void.add_argument("--reason", default="", help="kept with the result")
     void.set_defaults(admin_function=ladder_admin.void_game)
 
+    # Players take part only in the ladders they joined; this is what /ladder join does in the game.
+    ladder_choice = argparse.ArgumentParser(add_help=False)
+    ladder_choice.add_argument("name", help="the player")
+    ladder_choice.add_argument("--ladder", default="", help="liga (default), clanliga or a custom season's name")
+    join = actions.add_parser("join", parents=[database_option, ladder_choice], help="make a player a ladder member")
+    join.set_defaults(admin_function=ladder_admin.join_ladder_for)
+    leave = actions.add_parser("leave", parents=[database_option, ladder_choice], help="take a player out of a ladder")
+    leave.set_defaults(admin_function=ladder_admin.leave_ladder_for)
+    members = actions.add_parser("members", parents=[database_option, output_option], help="who is in which ladder")
+    members.set_defaults(admin_function=ladder_admin.list_members)
+
     add_ladder_season_commands(actions, database_option, output_option, admin_option)
 
 

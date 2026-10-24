@@ -14,6 +14,7 @@ import tempfile
 import threading
 import unittest
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 from s3lobby.constants import (
@@ -28,7 +29,8 @@ from s3lobby.constants import (
     LadderType,
     MessageType,
 )
-from s3lobby.database import LobbyDatabase
+from s3lobby.database import LobbyDatabase, to_stored_time
+from s3lobby.ladder import LIGA_KEY, LadderKey
 from s3lobby.messages import (
     AcknowledgeMessages,
     AddPlayerToGroup,
@@ -435,3 +437,20 @@ class LobbyTestCase(unittest.TestCase):
         player_id = log_on(client)
         join_group(client, room_id, player_id)
         return client, player_id
+
+
+# Long before every result the tests store: memberships from then cover all of them.
+LADDER_MEMBERS_SINCE = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+
+def join_ladder_since(
+    database: LobbyDatabase, account_ids: list[int], key: LadderKey = LIGA_KEY, since: datetime = LADDER_MEMBERS_SINCE
+) -> None:
+    """Make players members of a ladder from a moment in the past. The database only joins players
+    from now on; tests that store results played earlier need memberships that cover them."""
+    with database._backend.transaction():
+        for account_id in account_ids:
+            database._backend.execute(
+                "INSERT INTO ladder_memberships (account_id, ladder, season_id, joined_at) VALUES (?, ?, ?, ?)",
+                (account_id, key.ladder, key.season_id, to_stored_time(since)),
+            )

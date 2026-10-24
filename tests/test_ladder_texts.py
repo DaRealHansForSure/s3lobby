@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from s3lobby.constants import MAX_TEXT_MESSAGE_BYTES, LadderState, LadderType, SeasonCounts
 from s3lobby.database import DatabaseError, LobbyDatabase, Setting, check_game_text
-from s3lobby.ladder import Evaluation, ResultPlayer
+from s3lobby.ladder import SEASON_LADDER, Evaluation, LadderKey, ResultPlayer
 from s3lobby.ladder_book import LadderBook
 from s3lobby.ladder_texts import (
     BOARD_BYLINE_RESERVE_BYTES,
@@ -19,6 +19,7 @@ from s3lobby.ladder_texts import (
     text_size,
     week_start_of,
 )
+from tests.support import join_ladder_since
 
 # A Wednesday; its week started on Monday 19 October 2026.
 NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
@@ -46,6 +47,7 @@ class LadderTextsTest(unittest.TestCase):
         self.database = LobbyDatabase(":memory:", clock=self.clock)
         self.alice = self.database.create_account("Alice").account_id
         self.bob = self.database.create_account("Bob").account_id
+        join_ladder_since(self.database, [self.alice, self.bob])
         for day, winner, loser in ((12, self.alice, self.bob), (13, self.alice, self.bob), (14, self.alice, self.bob),
                                    (15, self.bob, self.alice)):
             self.store(day, winner, loser)
@@ -126,6 +128,7 @@ class LadderTextsTest(unittest.TestCase):
         """A season that started posts its start; once it ended, its end and one announcement."""
         season_start = NOW - timedelta(days=1)
         season = self.database.add_ladder_season("Autumn Cup", season_start, NOW + timedelta(days=1), SeasonCounts.LIGA)
+        join_ladder_since(self.database, [self.alice, self.bob], LadderKey(SEASON_LADDER, season.season_id))
         self.store(20, self.alice, self.bob)
         self.assertEqual(self.writer.run().announcements, ())
         self.assertIn("Autumn Cup begins", self.board_titles(ENGLISH))

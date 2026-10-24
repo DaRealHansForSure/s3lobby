@@ -40,9 +40,13 @@ from s3lobby.ladder_book import (
     LIGA,
     ClanStrengthRow,
     LadderBook,
+    LadderMembershipError,
     ResultRow,
     StandingRow,
+    join_ladder,
     last_season_day,
+    leave_ladder,
+    membership_rows,
     parse_season_day,
     parse_season_end,
 )
@@ -176,7 +180,8 @@ def show_ladder() -> str:
     search = request.args.get("q", "").strip()
     seasons = database.list_ladder_seasons()
     results = book.results()
-    evaluations = [record.evaluation for record in results]
+    # Only results that count among the ladder's members, so form and statistics match the ratings.
+    evaluations = book.evaluations_in_ladder(season)
 
     standings: list[StandingView] = []
     strength_rows: list[ClanStrengthRow] = []
@@ -372,8 +377,58 @@ def delete_season(season_id: int) -> Response:
     database = get_database()
     season = require_season(database, season_id)
     database.delete_ladder_season(season_id)
-    flash(f"Season {season.name} deleted; its results still count in the infinite season.", "good")
+    flash(f"Season {season.name} deleted with its members; its results stay for the infinite season.", "good")
     return redirect(url_for("ladder_admin.list_seasons"))
+
+
+@admin_blueprint.get("/ladder/members")
+def list_members() -> str:
+    """Who is in which ladder now, with the form to add a player and a button to take one out.
+    Players join themselves with /ladder join in the game; this is the admins' way to do it."""
+    database = get_database()
+    now = database.now()
+    joinable_seasons = [
+        season.name
+        for season in database.list_ladder_seasons()
+        if season.ends_at is None or season.ends_at > now
+    ]
+    return render_template(
+        "ladder_members.html",
+        rows=membership_rows(database),
+        ladder_choices=["Liga", "Clanliga", *joinable_seasons],
+    )
+
+
+@admin_blueprint.post("/ladder/members")
+def add_member() -> Response:
+    """Make a player a member of the ladder the form names."""
+    database = get_database()
+    account = database.find_account(form_text("name"))
+    if account is None:
+        flash("There is no account with that name.", "bad")
+        return redirect(url_for("ladder_admin.list_members"))
+    ladder = form_text("ladder")
+    try:
+        join_ladder(LadderBook(database), database, account.account_id, ladder)
+    except LadderMembershipError as error:
+        flash(f"{account.name}: {error}.", "bad")
+        return redirect(url_for("ladder_admin.list_members"))
+    flash(f"{account.name} is in {ladder or 'Liga'} now.", "good")
+    return redirect(url_for("ladder_admin.list_members"))
+
+
+@admin_blueprint.post("/ladder/members/<int:account_id>/leave")
+def remove_member(account_id: int) -> Response:
+    """Take a player out of a ladder; their results stay for their opponents."""
+    database = get_database()
+    ladder = form_text("ladder")
+    try:
+        leave_ladder(LadderBook(database), database, account_id, ladder)
+    except LadderMembershipError as error:
+        flash(f"{error}.", "bad")
+        return redirect(url_for("ladder_admin.list_members"))
+    flash(f"Taken out of {ladder or 'Liga'}; joining again starts at the start rating.", "good")
+    return redirect(url_for("ladder_admin.list_members"))
 
 
 # Helpers.
