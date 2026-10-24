@@ -543,7 +543,10 @@ With the setting `permanent_chat_groups` on, the server keeps chat groups of its
 themes: announced like a chat group a player opens without a password (AddGroupToGroup2, flags
 0x300073, no player limit), with the name marked "[Server] " and "Always open" as second text,
 under ids from 0xe0000 (above the board themes, below the players' groups at 0x100000). They never
-close when empty and a RemoveGroupFromGroup for them is ignored. Empty player chat groups stay
+close when empty and a RemoveGroupFromGroup for them is ignored. Chat group names are unique
+among the open chat groups (in any case, a permanent group with and without its mark), and a
+player's group may not carry the "[Server]" mark: such a new group is answered with Result 0xb
+like a failed join, the only refusal the game has for opening a group. Empty player chat groups stay
 listed for minutes too, so an empty listed chat group is nothing new to the game (seen in runs);
 a group no player opened is *inferred* to work the same and waits for a run, hence the setting
 is off by default.

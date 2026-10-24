@@ -324,7 +324,8 @@ game names its language when it connects. With the setting `permanent_chat_group
 default until a run with the game confirms it), each theme also keeps chat groups open, marked
 "[Server]", so players can chat at once instead of opening a group first: one named after the
 theme to begin with, more on the Chat themes page or with `s3lobby chat-theme add-group THEME
-NAME` (`remove-group ID`, ids from `chat-theme list`). On the board, new messages come first, and
+NAME` (`remove-group ID`, ids from `chat-theme list`). Chat group names are unique: a player
+cannot open a group whose name an open group already has, or one marked "[Server]". On the board, new messages come first, and
 the server's own Liga theme starts on top; it can be hidden but not removed.
 
 The Home tab shows the news for the game's language (German, or the other text for every other

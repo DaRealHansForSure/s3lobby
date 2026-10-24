@@ -1310,22 +1310,28 @@ class LobbyDatabase:
                     "INSERT INTO chat_themes (name, description, language, created_at) VALUES (?, ?, ?, ?)",
                     (name, description, language, to_stored_time(self._clock())),
                 )
-                # Every theme starts with one permanent chat group named after it.
-                self._backend.execute(
-                    "INSERT INTO permanent_chat_groups (chat_theme_id, name, created_at) VALUES (?, ?, ?)",
-                    (result.last_row_id, name[:MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH], to_stored_time(self._clock())),
-                )
+                # Every theme starts with one permanent chat group named after it, unless a group of
+                # that name exists already: group names stay unique.
+                if not self.is_permanent_chat_group_name_taken(name[:MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH]):
+                    self._backend.execute(
+                        "INSERT INTO permanent_chat_groups (chat_theme_id, name, created_at) VALUES (?, ?, ?)",
+                        (result.last_row_id, name[:MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH], to_stored_time(self._clock())),
+                    )
         except ConstraintViolation as error:
             raise DatabaseError(f"a chat theme named {name!r} already exists") from error
         return ChatTheme(theme_id=result.last_row_id, name=name, description=description, language=language)
 
     def add_permanent_chat_group(self, chat_theme_id: int | None, name: str) -> PermanentChatGroup:
         """Keep one more chat group open in a theme (None: General). Raises DatabaseError for a
-        name the game cannot show, or a theme that does not exist."""
+        name the game cannot show, a name another permanent group has (in any case), or a theme
+        that does not exist."""
         # A name the game can show after the "[Server] " mark, and not empty.
         check_game_text("chat group name", name, MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH)
         if not name.strip():
             raise DatabaseError("chat group name must not be empty")
+        # Chat group names are unique in the whole lobby, so players never face two groups of one name.
+        if self.is_permanent_chat_group_name_taken(name):
+            raise DatabaseError(f"a permanent chat group named {name!r} exists already")
         # The theme's foreign key refuses a theme that does not exist.
         try:
             with self._backend.transaction():
@@ -1336,6 +1342,12 @@ class LobbyDatabase:
         except ConstraintViolation as error:
             raise DatabaseError(f"there is no chat theme {chat_theme_id}") from error
         return PermanentChatGroup(result.last_row_id, chat_theme_id, name)
+
+    def is_permanent_chat_group_name_taken(self, name: str) -> bool:
+        """True when a permanent chat group has this name, compared without regard to case or the
+        spaces around it."""
+        wanted = name.strip().casefold()
+        return any(group.name.strip().casefold() == wanted for group in self.list_permanent_chat_groups())
 
     def list_permanent_chat_groups(self) -> list[PermanentChatGroup]:
         """Every permanent chat group, in the order they were added."""

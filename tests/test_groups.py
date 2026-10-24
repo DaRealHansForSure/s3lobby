@@ -87,6 +87,11 @@ def open_chat_group(client: FakeGameClient, parent_id: int, name: str, password:
     )
 
 
+def is_group_change_failed(message: RawMessage) -> bool:
+    """Whether the message is the Result that shows "Der Wechsel in die Gruppe hat nicht geklappt"."""
+    return message.message_type == MessageType.RESULT and Result.decode(message).code == ResultCode.GROUP_CHANGE_FAILED
+
+
 def game_update(
     group_id: int,
     update_mask: int,
@@ -330,6 +335,18 @@ class GroupRulesTest(LobbyTestCase):
         self.assertEqual(joined.parent_id, JOINED_GROUP_PARENT_ID)
         channel = Result.decode(alice.receive_next(MessageType.RESULT))
         self.assertEqual((channel.code, channel.value), (ResultCode.GROUP_OPENED, joined.group_id))
+
+    def test_a_chat_group_name_is_taken_once(self) -> None:
+        """Two open chat groups of one name could not be told apart in the theme's list; the second
+        is refused like a failed join, and so is a name with the server's "[Server]" mark."""
+        alice, _ = self.player_in_chat_theme("Alice", 17)
+        bob, _ = self.player_in_chat_theme("Bob", 42)
+        open_chat_group(alice, CHAT_THEME_PARENT_ID, "Tactics", password="")
+        receive_announcement(alice)
+        for name in ("tactics ", "[Server] Tactics talk"):
+            open_chat_group(bob, CHAT_THEME_PARENT_ID, name, password="")
+            refusal = Result.decode(bob.receive_matching(is_group_change_failed))
+            self.assertEqual(refusal.code, ResultCode.GROUP_CHANGE_FAILED)
 
     def test_no_group_is_opened_once_the_ids_are_used_up(self) -> None:
         """Past the last id the server could give, a new chat group is refused with "Der Wechsel in
