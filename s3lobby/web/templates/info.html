@@ -1,0 +1,111 @@
+{% extends "admin_base.html" %}
+{% set active_nav = "info" %}
+{% block title %}Info{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Info</h1>
+    <p>This installation at a glance. <code>s3lobby info</code> prints the same on the command line,
+    as text or JSON.</p>
+  </div>
+  <div class="grid">
+    <div class="card"><h3>s3lobby</h3><div class="stat-number">{{ info.version }}</div>
+      <p class="meta">Python {{ info.python_version }}</p></div>
+    <div class="card"><h3>Server</h3>
+      <div>{% if info.is_running %}<span class="badge badge--good">running</span>{% else %}<span class="badge badge--bad">not running</span>{% endif %}</div>
+      <p class="meta">{{ info.server_name or "-" }}{% if info.live_state_written_at %}, last seen {{ info.live_state_written_at | relative_moment }}{% endif %}</p></div>
+    <div class="card"><h3>Schema version</h3><div class="stat-number">{{ info.schema_version }}</div>
+      <p class="meta">{% if info.pending_migration_count %}{{ info.pending_migration_count }} migration(s) pending{% else %}up to date{% endif %}</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>System</h2></div>
+  <div class="scroll-x">
+    <table class="table">
+      <tbody>
+        <tr><th>Version</th><td>s3lobby {{ info.version }}</td></tr>
+        <tr><th>Python</th><td>{{ info.python_version }}</td></tr>
+        <tr><th>System</th><td>{{ info.system }}</td></tr>
+        <tr><th>Database</th><td><code>{{ info.database }}</code> ({{ info.dialect }})</td></tr>
+        <tr><th>Web interface</th><td>
+          {% if modes.is_development_mode %}<span class="badge badge--warn">development mode</span>{% endif %}
+          {% if modes.has_secure_cookies %}<span class="badge badge--good">HTTPS-only cookies</span>{% else %}<span class="badge">cookies also over HTTP</span>{% endif %}
+          {% if modes.is_behind_proxy %}<span class="badge">behind a reverse proxy</span>{% endif %}
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Lobby</h2><p>Players and games as the Home tab counts them, and what the
+  database holds.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th></th><th class="num">Now</th><th class="num">Last hour</th><th class="num">Last day</th><th class="num">In all</th></tr></thead>
+      <tbody>
+        <tr><th>Players</th><td class="num">{{ info.players_online }}</td><td class="num">{{ info.players_last_hour }}</td><td class="num">{{ info.players_last_day }}</td><td class="num">{{ info.account_count }}</td></tr>
+        <tr><th>Games</th><td class="num">{{ info.games_open }}</td><td class="num">{{ info.games_last_hour }}</td><td class="num">{{ info.games_last_day }}</td><td class="num">{{ info.game_count }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="scroll-x">
+    <table class="table">
+      <tbody>
+        <tr><th>Accounts</th><td class="num">{{ info.account_count }}</td><td>{{ info.admin_count }} admin(s), {{ info.banned_count }} banned</td></tr>
+        <tr><th>Clans</th><td class="num">{{ info.clan_count }}</td><td></td></tr>
+        <tr><th>Chat themes</th><td class="num">{{ info.chat_theme_count }}</td><td>{{ info.permanent_group_count }} permanent chat group(s)</td></tr>
+        <tr><th>Board themes</th><td class="num">{{ info.board_theme_count }}</td><td>{{ info.board_message_count }} message(s)</td></tr>
+        <tr><th>Match reports</th><td class="num">{{ info.report_count }}</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Ladder</h2><p>Results by state, and who joined which ladder.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <tbody>
+        <tr><th>Results</th><td>{{ info.counted_result_count }} counted, {{ info.disputed_result_count }} disputed, {{ info.void_result_count }} void</td></tr>
+        {% for members in info.ladder_members %}
+        <tr><th>{{ members.ladder }}</th><td>{{ members.names | length }} member(s)</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Settings</h2><p>The ones worth knowing at a glance; all of them are on the
+  <a href="{{ url_for('server_settings.show_settings') }}">Settings</a> page.</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <tbody>
+        {% for key, is_on in info.settings %}
+        <tr><th><code>{{ key }}</code></th><td>{% if is_on %}<span class="badge badge--good">on</span>{% else %}<span class="badge badge--bad">off</span>{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Migrations</h2><p>The schema's history: each migration this database
+  received, and when.</p></div>
+  <details>
+    <summary>{{ info.applied_migrations | length }} applied</summary>
+    <div class="scroll-x">
+      <table class="table">
+        <thead><tr><th class="num">Number</th><th>Name</th><th>Applied</th></tr></thead>
+        <tbody>
+          {% for migration in info.applied_migrations | reverse %}
+          <tr><td class="num">{{ "%04d" | format(migration.version) }}</td><td>{{ migration.name }}</td><td class="cell-time">{{ migration.applied_at }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+{% endblock %}

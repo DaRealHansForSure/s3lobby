@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from werkzeug.wrappers import Response
 
 from s3lobby.constants import MAX_GROUP_TEXT_LENGTH, LadderState
 from s3lobby.database import GameRecord, Setting
 from s3lobby.ladder_book import LadderBook
+from s3lobby.server_info import collect_server_info
 from s3lobby.web.auth import redirect_visitors_to_logon
 from s3lobby.web.lobby_view import LiveLobbyPage, read_live_lobby_page, search_text
 from s3lobby.web.storage import apply_change, get_database
@@ -39,6 +40,29 @@ class Dashboard:
     custom_season_count: int
     recent_games: tuple[GameRecord, ...]
     is_ladder_enabled: bool
+
+
+@dataclass(frozen=True)
+class WebModes:
+    """How this web interface was started, which only the web process knows."""
+
+    is_development_mode: bool
+    has_secure_cookies: bool
+    is_behind_proxy: bool
+
+
+@blueprint.get("/info")
+def show_info() -> str:
+    """The installation at a glance: version, database and schema, whether the server runs, the
+    lobby's numbers, the ladder's members, the settings worth knowing, and this web interface's
+    modes. `s3lobby info` prints the same without the web modes."""
+    database = get_database()
+    modes = WebModes(
+        is_development_mode=current_app.config["S3LOBBY_DEVELOPMENT_MODE"],
+        has_secure_cookies=current_app.config["S3LOBBY_HTTPS_ONLY"],
+        is_behind_proxy=current_app.config.get("S3LOBBY_BEHIND_PROXY", False),
+    )
+    return render_template("info.html", info=collect_server_info(database), modes=modes)
 
 
 @blueprint.get("/")

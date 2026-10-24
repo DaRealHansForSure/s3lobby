@@ -429,7 +429,10 @@ Settings):
   computer opponents, player limit, Amazons, version), who joined it, when its match started and
   how it ended, its ladder result, and every report decoded field by field;
 - the ladder: its members, disputed games to decide or void, custom seasons, and the ladder's
-  settings.
+  settings;
+- Info: the version, the database and its schema with every migration, whether the server runs,
+  the lobby's numbers and the settings worth knowing at a glance (`s3lobby info` prints the same,
+  as text or JSON).
 
 Kicks, bans, removals and the ladder's decisions ask for a confirmation in a dialog first.
 

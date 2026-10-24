@@ -8,6 +8,9 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ### Added
 
+- An Info page for admins and `s3lobby info [--format json]`: the version, Python and system, the
+  database with its schema version and migrations, whether the server runs, the lobby's numbers,
+  the ladder's members and the settings worth knowing.
 - A bar under the menu on every page with links to the page's big sections (Ladder page: Top 3,
   Standings, Online now and more), shown when a page has at least two.
 - The Chat themes page shows beside "Permanent chat groups" whether their setting is on (green)
