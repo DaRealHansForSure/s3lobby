@@ -26,7 +26,7 @@
   </div>
   {% for language, entries in themes | groupby("theme.language") %}
   <h2>{{ language }}</h2>
-  <div class="board-themes stack" data-sortable-url="{{ url_for('content.order_board_themes') }}">
+  <div class="board-themes stack" data-sortable-url="{{ url_for('board.order_board_themes') }}">
     {% for entry in entries %}
     <div class="card board-theme{% if entry.theme.is_hidden %} is-hidden{% endif %}" data-id="{{ entry.theme.theme_id }}">
       <div class="board-theme-head">
@@ -35,9 +35,9 @@
         {% if entry.theme.is_server_written %}<span class="badge badge--accent" title="The ladder's texts; nobody can post here">written by the server</span>{% endif %}
         {% if entry.theme.is_hidden %}<span class="badge badge--warn">hidden from the game</span>{% endif %}
         <div class="board-actions">
-          {{ order_buttons(url_for('content.move_board_theme', theme_id=entry.theme.theme_id)) }}
-          {{ hide_toggle(url_for('content.set_board_theme_hidden', theme_id=entry.theme.theme_id), entry.theme.is_hidden) }}
-          {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_theme', theme_id=entry.theme.theme_id), "Remove", "btn--outline", confirm="Remove the theme " ~ entry.theme.name ~ " with all its messages?") }}{% endif %}
+          {{ order_buttons(url_for('board.move_board_theme', theme_id=entry.theme.theme_id)) }}
+          {{ hide_toggle(url_for('board.set_board_theme_hidden', theme_id=entry.theme.theme_id), entry.theme.is_hidden) }}
+          {% if not entry.theme.is_server_written %}{{ action_button(url_for('board.delete_board_theme', theme_id=entry.theme.theme_id), "Remove", "btn--outline", confirm="Remove the theme " ~ entry.theme.name ~ " with all its messages?") }}{% endif %}
         </div>
       </div>
       {% if entry.theme.description %}<p>{{ entry.theme.description }}</p>{% endif %}
@@ -45,7 +45,7 @@
       <div class="scroll-x">
         <table class="table">
           <thead><tr><th class="cell-handle"></th><th>Message</th><th>Author</th><th>Posted</th><th class="cell-actions"></th></tr></thead>
-          <tbody data-sortable-url="{{ url_for('content.order_board_messages', theme_id=entry.theme.theme_id) }}">
+          <tbody data-sortable-url="{{ url_for('board.order_board_messages', theme_id=entry.theme.theme_id) }}">
             {% for message in entry.messages %}
             <tr data-id="{{ message.message_id }}"{% if message.is_hidden %} class="is-hidden"{% endif %}>
               <td class="cell-handle"><span class="drag-handle" title="Drag to move" aria-hidden="true"></span></td>
@@ -58,9 +58,9 @@
               <td>{{ message.author or "-" }}</td>
               <td class="cell-time">{{ message.posted_at | short_moment }}</td>
               <td class="cell-actions">
-                {{ order_buttons(url_for('content.move_board_message', message_id=message.message_id)) }}
-                {{ hide_toggle(url_for('content.set_board_message_hidden', message_id=message.message_id), message.is_hidden) }}
-                {% if not entry.theme.is_server_written %}{{ action_button(url_for('content.delete_board_message', message_id=message.message_id), "Remove", "btn--outline", confirm="Remove the message " ~ message.title ~ "?") }}{% endif %}
+                {{ order_buttons(url_for('board.move_board_message', message_id=message.message_id)) }}
+                {{ hide_toggle(url_for('board.set_board_message_hidden', message_id=message.message_id), message.is_hidden) }}
+                {% if not entry.theme.is_server_written %}{{ action_button(url_for('board.delete_board_message', message_id=message.message_id), "Remove", "btn--outline", confirm="Remove the message " ~ message.title ~ "?") }}{% endif %}
               </td>
             </tr>
             {% endfor %}
@@ -81,7 +81,7 @@
 {% if themes %}
 <section>
   <div class="section-head"><h2>New message</h2></div>
-  <form method="post" action="{{ url_for('content.post_board_message') }}">
+  <form method="post" action="{{ url_for('board.post_board_message') }}">
     {{ csrf_field() }}
     <div class="form-grid">
       <label class="field">
@@ -112,7 +112,7 @@
 
 <section>
   <div class="section-head"><h2>New theme</h2></div>
-  <form method="post" action="{{ url_for('content.add_board_theme') }}">
+  <form method="post" action="{{ url_for('board.add_board_theme') }}">
     {{ csrf_field() }}
     <div class="form-grid">
       <label class="field">
