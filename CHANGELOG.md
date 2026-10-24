@@ -6,6 +6,11 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+### Added
+
+- A Credits section in the README for the people who made The Settlers III, with a thank-you to
+  Volker Wertich; the demo players in the screenshots now carry their names.
+
 ## [0.12.1] - 2026-10-24
 
 ### Added
