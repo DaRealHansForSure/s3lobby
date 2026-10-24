@@ -483,6 +483,8 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         [group] = [group for group in self.database.list_permanent_chat_groups() if group.name == "Looking for a game"]
         self.assertIsNone(group.chat_theme_id)
         self.assertIn("[Server] Looking for a game", self.client.get("/admin/chat-themes").get_data(as_text=True))
+        # The bar under the menu that app.js fills with links to the page's sections.
+        self.assertIn('<nav class="section-bar" id="section-bar" aria-label="On this page" hidden>', self.client.get("/admin/chat-themes").get_data(as_text=True))
         # Off by default: the section's badge says so in red.
         self.assertIn('badge badge--bad" title="The setting', self.client.get("/admin/chat-themes").get_data(as_text=True))
         self.post(f"/admin/chat-themes/groups/{group.group_row_id}/delete")
