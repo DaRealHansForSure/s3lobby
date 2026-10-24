@@ -158,6 +158,7 @@ class LadderPagesTest(WebInterfaceTestCase):
         player's ladders and joins or takes them out, as /ladder does in the game."""
         page = self.client.get("/ladder").get_data(as_text=True)
         self.assertIn("Who takes part", page)
+        self.assertIn("No Liga member is online right now.", page)
         self.assertIn(f">{PLAYER_NAME}</a>", page)
         self.log_on()
         account_path = f"/admin/accounts/{self.player.account_id}"

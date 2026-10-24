@@ -68,7 +68,8 @@ files: point the game at your server and log on.
 - **Accounts made by the server's admins**: players log on with an access code instead of a
   self-chosen password; codes are stored as salted scrypt hashes only.
 - **Server lines in the game's chat**: welcome message, announcements, and the chat commands
-  `/who`, `/clan`, `/help`, the ladder's `/ladder`, `/rank`, `/top`, `/clanrank` and `/seasons`, and, for
+  `/who`, `/clan`, `/help`, the ladder's `/ladder`, `/rank`, `/top`, `/clanrank`, `/seasons`,
+  `/season`, `/opponents`, `/results`, `/vs` and `/pending`, and, for
   admins, `/announce`, `/kick` and `/ban`.
 - **A ladder for Liga and Clanliga**: Elo ratings for players and clans, an infinite season and
   custom seasons, disputes decided by admins, standings on the web, in the chat and as JSON.
@@ -381,7 +382,10 @@ s3lobby ladder season add "Autumn Cup" --start 2026-10-01 --end 2026-11-30 --cou
 s3lobby setting set ladder_enabled true      # tell the game results are stored (untried)
 ```
 
-In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat, and `/ladder join`
+In the game, `/rank`, `/top [SEASON] [clanliga]`, `/clanrank`, `/seasons` and `/season NAME` answer
+in the chat; `/opponents` names the Liga members online closest to your rating (the Ladder page
+shows them as "Online now"), `/results` your last results, `/vs NAME` your record against one
+player, `/pending` your games still waiting for a result, `/ladder rules` how it works; `/ladder join`
 (or `/ladder join clanliga`, `/ladder join SEASON`) makes the player a member. The ladder's
 MessageZone theme starts with a message on how to join and how many have joined, kept up to date;
 the Ladder page lists who takes part, and each player's page and admin account page their ladders. While the ladder is
