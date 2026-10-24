@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from s3lobby import __version__
 from s3lobby.constants import (
     DEVELOPMENT_PASSWORD,
     FIRST_GAME_GROUP_ID,
@@ -476,6 +477,26 @@ class ContentAndSettingsPagesTest(WebInterfaceTestCase):
         the server splits into the game's text lines."""
         self.post("/admin/news/german", title="Willkommen", body="Erste Zeile\r\nZweite Zeile\r\n")
         self.assertEqual(self.database.find_news("german").body, "Erste Zeile\nZweite Zeile")
+
+    def test_permanent_chat_groups_are_added_and_removed_on_the_chat_themes_page(self) -> None:
+        """The Chat themes page adds a permanent group to General (no theme id) and removes it."""
+        self.post("/admin/chat-themes/groups", theme_id="", name="Looking for a game")
+        [group] = [group for group in self.database.list_permanent_chat_groups() if group.name == "Looking for a game"]
+        self.assertIsNone(group.chat_theme_id)
+        self.assertIn("[Server] Looking for a game", self.client.get("/admin/chat-themes").get_data(as_text=True))
+        # The bar under the menu that app.js fills with links to the page's sections.
+        self.assertIn('<nav class="section-bar" id="section-bar" aria-label="On this page" hidden>', self.client.get("/admin/chat-themes").get_data(as_text=True))
+        # Off by default: the section's badge says so in red.
+        self.assertIn('badge badge--bad" title="The setting', self.client.get("/admin/chat-themes").get_data(as_text=True))
+        self.post(f"/admin/chat-themes/groups/{group.group_row_id}/delete")
+        self.assertNotIn(group, self.database.list_permanent_chat_groups())
+
+    def test_the_info_page_shows_version_schema_and_settings(self) -> None:
+        """The admins' Info page: the version, the schema version and the settings worth knowing."""
+        page = self.client.get("/admin/info").get_data(as_text=True)
+        self.assertIn(__version__, page)
+        self.assertIn(f">{self.database.schema_version}<", page)
+        self.assertIn("permanent_chat_groups", page)
 
     def test_text_the_game_cannot_show_is_refused(self) -> None:
         """A chat theme with a character outside the game's code page is refused, and the page says why."""

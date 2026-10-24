@@ -9,13 +9,31 @@ administration command can use the same database at the same time.
 from __future__ import annotations
 
 import argparse
-from datetime import timedelta
+import json
+from dataclasses import asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from s3lobby.commands import kick_reason
 from s3lobby.constants import NEWS_AUDIENCES
-from s3lobby.database import BUILT_IN_CHAT_THEMES, Account, Clan, DatabaseError, LobbyDatabase, Setting, utc_now
+from s3lobby.database import (
+    BUILT_IN_CHAT_THEMES,
+    Account,
+    Clan,
+    DatabaseError,
+    LobbyDatabase,
+    PermanentChatGroup,
+    Setting,
+    is_built_in_chat_theme_name,
+    utc_now,
+)
+from s3lobby.server_info import collect_server_info
 
+
+# s3lobby info --format: text for people, JSON for tools.
+INFO_TEXT_FORMAT = "text"
+INFO_JSON_FORMAT = "json"
+INFO_FORMATS = (INFO_TEXT_FORMAT, INFO_JSON_FORMAT)
 
 # board move-theme and move-message: the directions, and which kind of board item a command acts on.
 MOVE_UP = "up"
@@ -208,12 +226,49 @@ def remove_chat_theme(database: LobbyDatabase, options: argparse.Namespace) -> N
 
 def list_chat_themes(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Print every chat theme with its description and, for a theme of one language, that
-    language; the built-in ones first."""
+    language; the built-in ones first. Under each, its permanent chat groups with their ids."""
+    # General first, with its permanent groups indented under it.
+    groups = database.list_permanent_chat_groups()
     for built_in in BUILT_IN_CHAT_THEMES:
         print(f"{built_in.name}  {built_in.description}  (built in)")
+        print_permanent_groups(groups, None)
+    # Then the admins' themes, each with its language if it has one, and its groups.
     for theme in database.list_chat_themes():
         language_note = f"  ({theme.language} games only)" if theme.language else ""
         print(f"{theme.name}  {theme.description}{language_note}".rstrip())
+        print_permanent_groups(groups, theme.theme_id)
+
+
+def print_permanent_groups(groups: list[PermanentChatGroup], chat_theme_id: int | None) -> None:
+    """Print the permanent chat groups of one theme, indented under it."""
+    for group in groups:
+        if group.chat_theme_id == chat_theme_id:
+            print(f"    group {group.group_row_id}: {group.name}")
+
+
+def add_permanent_chat_group(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Keep one more chat group open in a theme, named by the theme's name ("General" for the
+    built-in one)."""
+    chat_theme_id = require_chat_theme_id(database, options.theme)
+    group = database.add_permanent_chat_group(chat_theme_id, options.name)
+    print(f"Permanent chat group {group.group_row_id} {group.name!r} added.")
+
+
+def remove_permanent_chat_group(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Stop keeping a chat group open, by its id from chat-theme list."""
+    database.delete_permanent_chat_group(options.group_id)
+    print(f"Permanent chat group {options.group_id} removed; it closes once nobody is in it.")
+
+
+def require_chat_theme_id(database: LobbyDatabase, name: str) -> int | None:
+    """The database id of the theme with this name, None for the built-in General; raises
+    AdminError for an unknown theme."""
+    if is_built_in_chat_theme_name(name):
+        return None
+    for theme in database.list_chat_themes():
+        if theme.name.casefold() == name.strip().casefold():
+            return theme.theme_id
+    raise AdminError(f"there is no chat theme named {name!r}")
 
 
 # MessageZone board.
@@ -234,6 +289,7 @@ def remove_board_theme(database: LobbyDatabase, options: argparse.Namespace) -> 
 def list_board(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Print every board theme with the messages posted to it, in the board's order, hidden ones
     marked."""
+    # One line per theme with its marks, its messages indented under it in the board's order.
     for theme in database.list_board_themes():
         theme_marks = hidden_mark(theme.is_hidden)
         if theme.is_server_written:
@@ -242,6 +298,7 @@ def list_board(database: LobbyDatabase, options: argparse.Namespace) -> None:
         if theme.description:
             line += f"  {theme.description}"
         print(line + theme_marks)
+        # Each message with its id, for move-message, hide-message and remove-message.
         for message in database.list_board_messages(theme.theme_id):
             print(
                 f"    message {message.message_id}: {message.title} ({message.author}, "
@@ -258,6 +315,7 @@ def hidden_mark(is_hidden: bool) -> str:
 
 def move_board_item(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Move a board theme or message one place up or down, as Up and Down on the web do."""
+    # The same move as Up and Down on the web, for a theme or a message.
     is_up = options.direction == MOVE_UP
     if options.board_item_kind == BOARD_THEME_KIND:
         database.move_board_theme(options.item_id, is_up)
@@ -269,6 +327,7 @@ def move_board_item(database: LobbyDatabase, options: argparse.Namespace) -> Non
 def set_board_item_hidden(database: LobbyDatabase, options: argparse.Namespace) -> None:
     """Hide a board theme or message from the game, or show it again. The server's own theme and
     messages can be hidden like any other, though not removed."""
+    # The same switch as Hide and Show on the web, for a theme or a message.
     if options.board_item_kind == BOARD_THEME_KIND:
         database.set_board_theme_hidden(options.item_id, options.is_hidden)
     else:
@@ -323,6 +382,47 @@ def list_settings(database: LobbyDatabase, options: argparse.Namespace) -> None:
 
 
 # The database itself.
+
+
+def show_info(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Print the installation at a glance, as the web interface's Info page shows it: text for
+    people, JSON (--format json) for tools."""
+    info = collect_server_info(database)
+    if options.format == INFO_JSON_FORMAT:
+        print(json.dumps(asdict(info), default=json_time, indent=2, ensure_ascii=False))
+        return
+    # The software, the database and the server.
+    state = "running" if info.is_running else "not running"
+    lines = [
+        f"s3lobby {info.version}, Python {info.python_version}, {info.system}",
+        f"Database: {info.database} ({info.dialect}), schema version {info.schema_version}, "
+        f"{info.pending_migration_count} migration(s) pending",
+        f"Server: {info.server_name or '-'} {state}",
+    ]
+    # The lobby's numbers.
+    lines += [
+        f"Players: {info.players_online} online, {info.players_last_hour} in the last hour, "
+        f"{info.players_last_day} in the last day",
+        f"Games: {info.games_open} open, {info.games_last_hour} in the last hour, {info.games_last_day} in the "
+        f"last day, {info.game_count} in all, {info.report_count} report(s)",
+        f"Accounts: {info.account_count} ({info.admin_count} admin(s), {info.banned_count} banned), "
+        f"{info.clan_count} clan(s)",
+        f"Content: {info.chat_theme_count} chat theme(s), {info.permanent_group_count} permanent group(s), "
+        f"{info.board_theme_count} board theme(s) with {info.board_message_count} message(s)",
+        f"Ladder: {info.counted_result_count} counted, {info.disputed_result_count} disputed, "
+        f"{info.void_result_count} void",
+    ]
+    lines += [f"  {members.ladder}: {len(members.names)} member(s)" for members in info.ladder_members]
+    # The settings worth knowing at a glance.
+    lines += [f"{key} = {'on' if is_on else 'off'}" for key, is_on in info.settings]
+    print("\n".join(lines))
+
+
+def json_time(value: object) -> str:
+    """What json cannot write itself: times as ISO 8601."""
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    raise TypeError(f"{type(value).__name__} is not JSON")
 
 
 def show_database_status(database: LobbyDatabase, options: argparse.Namespace) -> None:

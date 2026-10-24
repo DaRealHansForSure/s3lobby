@@ -46,8 +46,10 @@ If you build your own lobby, launcher or service on this code or on its protocol
 ## Known limits
 
 - Access codes and chat cross the network in plain text (above).
-- The public player pages (`/players/NAME`) show each player's games: opponents, races, results
-  and when they played. Run the web interface on a LAN only if that should stay among the players.
+- The public player pages (`/players/NAME`) show each player's games (opponents, races, results,
+  when they played) and the ladders they joined; the public Ladder page names every member of each
+  ladder and the Liga members online with their ratings. Run the web interface on a LAN only if
+  that should stay among the players.
 - On networks that allow forged sender addresses, someone who knows a logged on player's address
   and port can send datagrams that look like theirs, without seeing the answers. The server
   refuses lobby messages outside the game's numbered blocks (the game sends none, see

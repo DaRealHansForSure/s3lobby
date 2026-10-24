@@ -40,15 +40,20 @@ from s3lobby.ladder_book import (
     LIGA,
     ClanStrengthRow,
     LadderBook,
+    LadderMembershipError,
     ResultRow,
     StandingRow,
+    join_ladder,
+    ladder_members,
     last_season_day,
+    leave_ladder,
+    membership_rows,
     parse_season_day,
     parse_season_end,
 )
 from s3lobby.web.accounts import account_row_colour
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
-from s3lobby.web.lobby_view import map_text
+from s3lobby.web.lobby_view import map_text, online_player_names
 from s3lobby.web.paging import pagination_from_request
 from s3lobby.web.storage import get_database, sentence_from_error
 from s3lobby.web.texts import form_text
@@ -64,6 +69,8 @@ STATISTICS_VIEW = "statistics"
 VIEWS = (LIGA, CLANLIGA, CLANS_VIEW, STATISTICS_VIEW)
 VIEW_LABELS = {LIGA: "Liga", CLANLIGA: "Clanliga", CLANS_VIEW: "Clan strength", STATISTICS_VIEW: "Races and maps"}
 RECENT_RESULT_COUNT = 10
+# How many members' names a ladder's line on the Ladder page shows before "and N more".
+MEMBER_NAME_LIMIT = 30
 # The admins' state tabs; "waiting" are games without a result yet.
 WAITING_TAB = "waiting"
 ALL_TAB = "all"
@@ -166,6 +173,8 @@ def show_ladder() -> str:
     rating chart and the last results."""
     database = get_database()
     book = LadderBook(database)
+    # The view and the season from the address; anything unknown falls back to the infinite
+    # season's Liga.
     view = request.args.get("view", LIGA)
     if view not in VIEWS:
         view = LIGA
@@ -173,11 +182,15 @@ def show_ladder() -> str:
         season = book.find_season(request.args.get("season"))
     except LookupError:
         season = INFINITE_SEASON
+    # The search over the standings, and the data every view needs.
     search = request.args.get("q", "").strip()
     seasons = database.list_ladder_seasons()
     results = book.results()
-    evaluations = [record.evaluation for record in results]
+    # Only results that count among the ladder's members, so form and statistics match the ratings.
+    evaluations = book.evaluations_in_ladder(season)
 
+    # Each view fills only its own part: clan strength, races and maps, or standings with form, win
+    # rate and, for Liga, the rating chart.
     standings: list[StandingView] = []
     strength_rows: list[ClanStrengthRow] = []
     race_rows: list[RaceRow] = []
@@ -191,12 +204,15 @@ def show_ladder() -> str:
     else:
         ladder_type = ladder_type_of_view(view)
         colours = name_colours(database, view)
+        # Each line with the colour the game draws the name in, and the last five results.
         for row in book.standing_rows(season, view):
             form = recent_form(evaluations, row.side_id, ladder_type, season)
             standings.append(StandingView(row, colours.get(row.side_id, ""), form_marks(form), win_rate(row)))
         if view == LIGA:
             ratings = book.ratings(season).liga
             chart = rating_chart(standings[:CHART_SERIES_COUNT], ratings, settings_start(database), database.now())
+    # The top three for the podium, the standings the search leaves, the last results and the
+    # counts for the cards.
     podium = standings[:CHART_SERIES_COUNT]
     shown = [standing for standing in standings if not search or search.lower() in standing.row.name.lower()]
     recent = book.result_rows(season, [LadderState.COUNTED], RECENT_RESULT_COUNT)
@@ -218,6 +234,9 @@ def show_ladder() -> str:
         map_rows=map_rows,
         chart=chart,
         recent=recent,
+        members=ladder_members(database),
+        member_name_limit=MEMBER_NAME_LIMIT,
+        online_members=book.online_members(online_account_ids(database)),
         counted_count=counted_count,
         running_count=running_count,
         start_rating=settings_start(database),
@@ -372,11 +391,71 @@ def delete_season(season_id: int) -> Response:
     database = get_database()
     season = require_season(database, season_id)
     database.delete_ladder_season(season_id)
-    flash(f"Season {season.name} deleted; its results still count in the infinite season.", "good")
+    flash(f"Season {season.name} deleted with its members; its results stay for the infinite season.", "good")
     return redirect(url_for("ladder_admin.list_seasons"))
 
 
+@admin_blueprint.get("/ladder/members")
+def list_members() -> str:
+    """Who is in which ladder now, with the form to add a player and a button to take one out.
+    Players join themselves with /ladder join in the game; this is the admins' way to do it."""
+    database = get_database()
+    now = database.now()
+    joinable_seasons = [
+        season.name
+        for season in database.list_ladder_seasons()
+        if season.ends_at is None or season.ends_at > now
+    ]
+    return render_template(
+        "ladder_members.html",
+        rows=membership_rows(database),
+        members=ladder_members(database),
+        ladder_choices=["Liga", "Clanliga", *joinable_seasons],
+    )
+
+
+@admin_blueprint.post("/ladder/members")
+def add_member() -> Response:
+    """Make a player a member of the ladder the form names."""
+    # The player by the name typed into the form.
+    database = get_database()
+    account = database.find_account(form_text("name"))
+    if account is None:
+        flash("There is no account with that name.", "bad")
+        return redirect(url_for("ladder_admin.list_members"))
+    # Joined by the same rule as /ladder join in the game; a refusal is shown as it is.
+    ladder = form_text("ladder")
+    try:
+        join_ladder(LadderBook(database), database, account.account_id, ladder)
+    except LadderMembershipError as error:
+        flash(f"{account.name}: {error}.", "bad")
+        return redirect(url_for("ladder_admin.list_members"))
+    flash(f"{account.name} is in {ladder or 'Liga'} now.", "good")
+    return redirect(url_for("ladder_admin.list_members"))
+
+
+@admin_blueprint.post("/ladder/members/<int:account_id>/leave")
+def remove_member(account_id: int) -> Response:
+    """Take a player out of a ladder; their results stay for their opponents."""
+    # Taken out by the same rule as /ladder leave in the game; a refusal is shown as it is.
+    database = get_database()
+    ladder = form_text("ladder")
+    try:
+        leave_ladder(LadderBook(database), database, account_id, ladder)
+    except LadderMembershipError as error:
+        flash(f"{error}.", "bad")
+        return redirect(url_for("ladder_admin.list_members"))
+    flash(f"Taken out of {ladder or 'Liga'}; joining again starts at the start rating.", "good")
+    return redirect(url_for("ladder_admin.list_members"))
+
+
 # Helpers.
+
+
+def online_account_ids(database: LobbyDatabase) -> list[int]:
+    """The account ids of the players the running server has online now, from the live lobby."""
+    online = {name.casefold() for name in online_player_names()}
+    return [account.account_id for account in database.list_accounts() if account.name.casefold() in online]
 
 
 @dataclass(frozen=True)

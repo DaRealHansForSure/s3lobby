@@ -1,0 +1,52 @@
+{% extends "admin_base.html" %}
+{% from "_macros.html" import csrf_field, action_button with context %}
+{% set active_nav = "ladder_members" %}
+{% block title %}Ladder members{% endblock %}
+{% block content %}
+<section>
+  <div class="section-head">
+    <h1>Members</h1>
+    <p>Players take part only in the ladders they joined: Liga, Clanliga and each custom season one by
+    one. A ladder game counts in a ladder only when every player in it had joined that ladder before
+    the match; otherwise nothing is stored for it. Players join with <code>/ladder join</code> in the
+    game; here, and with <code>s3lobby ladder join</code>, admins do it for them. A player who leaves
+    keeps their results for their opponents and starts at the start rating when joining again.</p>
+  </div>
+  <div class="grid">
+    {% for ladder in members %}
+    <div class="card"><h3>{{ ladder.ladder }}</h3><div class="stat-number">{{ ladder.names | length }}</div></div>
+    {% endfor %}
+  </div>
+  {% if rows %}
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Ladder</th><th>Player</th><th>Since</th><th class="cell-actions"></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.ladder }}</td>
+          <td><a href="{{ url_for('players.show_player', name=row.name) }}">{{ row.name }}</a></td>
+          <td class="cell-time">{{ row.joined_at | short_moment }}</td>
+          <td class="cell-actions">{{ action_button(url_for('ladder_admin.remove_member', account_id=row.account_id), "Take out", "btn--outline", confirm="Take " ~ row.name ~ " out of " ~ row.ladder ~ "? Joining again starts at the start rating.", fields={"ladder": row.ladder}) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Nobody has joined a ladder yet, so no ladder game counts.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head"><h2>Add a player</h2></div>
+  <form class="card" method="post" action="{{ url_for('ladder_admin.add_member') }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field"><span class="label">Player</span><input class="input" type="text" name="name" maxlength="{{ max_name_length }}" required></label>
+      <label class="field"><span class="label">Ladder</span><select class="select" name="ladder">{% for choice in ladder_choices %}<option>{{ choice }}</option>{% endfor %}</select></label>
+    </div>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Add</button></div>
+  </form>
+</section>
+{% endblock %}

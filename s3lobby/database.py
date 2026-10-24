@@ -22,9 +22,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import re
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -48,6 +49,7 @@ from s3lobby.constants import (
     DEFAULT_CHAT_THEME_DESCRIPTION,
     DEFAULT_CHAT_THEME_NAME,
     FIRST_PRINTABLE_CHARACTER,
+    PERMANENT_CHAT_GROUP_NAME_PREFIX,
     GAME_LANGUAGES,
     MAX_ANNOUNCEMENT_LENGTH,
     MAX_GROUP_TEXT_LENGTH,
@@ -57,9 +59,11 @@ from s3lobby.constants import (
     LadderState,
     SeasonCounts,
 )
-from s3lobby.ladder import Evaluation, LadderSettings, ResultPlayer, Season
+from s3lobby.ladder import Evaluation, LadderKey, LadderMembership, LadderSettings, ResultPlayer, Season
 from s3lobby.live import LiveLobbyState, StoredLiveState
 from s3lobby.migrations import Migration, MigrationError, MigrationStatus, current_version, migrate, read_status
+
+log = logging.getLogger(__name__)
 
 # Every table of the schema, each after the tables its foreign keys point to: the order to copy
 # them in, and the reverse order to empty them in.
@@ -70,6 +74,7 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "clan_members",
     "news",
     "chat_themes",
+    "permanent_chat_groups",
     "board_themes",
     "board_messages",
     "lobby_sessions",
@@ -79,6 +84,7 @@ TABLES_IN_DEPENDENCY_ORDER = (
     "ladder_results",
     "ladder_result_players",
     "ladder_seasons",
+    "ladder_memberships",
     "ladder_events",
     "settings",
     "pending_announcements",
@@ -88,8 +94,9 @@ TABLES_IN_DEPENDENCY_ORDER = (
 )
 
 # Tables a migration fills with starting rows in every new database (0014: the default chat
-# themes). A copy replaces them in its target instead of refusing it as not empty.
-TABLES_SEEDED_BY_MIGRATIONS = ("chat_themes",)
+# themes, 0016: their permanent chat groups). A copy replaces them in its target instead of
+# refusing it as not empty.
+TABLES_SEEDED_BY_MIGRATIONS = ("permanent_chat_groups", "chat_themes")
 
 # Shown for a game's player whose account was deleted since.
 DELETED_ACCOUNT_NAME = "(deleted account)"
@@ -146,6 +153,9 @@ class Setting(Enum):
     # The original refused a second logon with the same serial number as an illegal copy. Off by
     # default: on a LAN, one household's copies often share a serial.
     UNIQUE_SERIAL_NUMBERS = "unique_serial_numbers"
+    # Keep the permanent chat groups open in the chat themes (table permanent_chat_groups). Off
+    # until a run with the real game has shown a chat group no player opened.
+    PERMANENT_CHAT_GROUPS = "permanent_chat_groups"
     # The game's "Create Player" button makes an account with the name and password typed in the
     # game. Off by default: accounts are made by admins, who hand out access codes.
     ALLOW_CREATE_PLAYER = "allow_create_player"
@@ -200,6 +210,7 @@ class Setting(Enum):
 SETTING_DEFAULTS = {
     Setting.MAX_PLAYERS: "0",
     Setting.UNIQUE_SERIAL_NUMBERS: "false",
+    Setting.PERMANENT_CHAT_GROUPS: "false",
     Setting.ALLOW_CREATE_PLAYER: "false",
     Setting.WELCOME_MESSAGE: "",
     Setting.BANNER_URL: "",
@@ -234,6 +245,10 @@ CHOSEN_IN_GAME_LABEL = "chosen in the game"
 REASON_LABEL = "Reason"
 NO_REASON_TEXT = "No reason given."
 
+# A permanent chat group's name as admins give it; the game shows it after the "[Server] " mark,
+# and the whole name must stay within MAX_GROUP_TEXT_LENGTH.
+MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH = MAX_GROUP_TEXT_LENGTH - len(PERMANENT_CHAT_GROUP_NAME_PREFIX)
+
 # What a player is told when their account is deleted while they are online.
 ACCOUNT_REMOVED_KICK_REASON = "Your account was removed."
 
@@ -248,6 +263,7 @@ BOOLEAN_SETTINGS = frozenset(
     {
         Setting.UNIQUE_SERIAL_NUMBERS,
         Setting.ALLOW_CREATE_PLAYER,
+        Setting.PERMANENT_CHAT_GROUPS,
         Setting.MARK_ADMINS,
         Setting.CHECK_REACHABILITY,
         Setting.LADDER_ENABLED,
@@ -326,6 +342,15 @@ class ChatTheme:
     description: str
     # Shown only to games of this language (a name from GAME_LANGUAGES); ALL_LANGUAGES for every game.
     language: str = ALL_LANGUAGES
+
+
+@dataclass(frozen=True)
+class PermanentChatGroup:
+    """A chat group the server keeps open in a chat theme. chat_theme_id None is General."""
+
+    group_row_id: int
+    chat_theme_id: int | None
+    name: str
 
 
 @dataclass(frozen=True)
@@ -614,15 +639,19 @@ def with_reason(text: str, reason: str) -> str:
 
 def moved_one_place(ids: list[int], item_id: int, is_up: bool) -> list[int]:
     """The ids with one of them a place up or down; unchanged at either end or when it is missing."""
+    # An id that is not in the list moves nothing.
     if item_id not in ids:
         return ids
+    # The place it moves to: one up or one down.
     index = ids.index(item_id)
     if is_up:
         target = index - 1
     else:
         target = index + 1
+    # At the top or the bottom already: it stays.
     if target < 0 or target >= len(ids):
         return ids
+    # Swap it with its neighbour in a copy.
     reordered = list(ids)
     reordered[index], reordered[target] = reordered[target], reordered[index]
     return reordered
@@ -738,6 +767,7 @@ class LobbyDatabase:
         this object, or mysql://user@host/name (s3lobby/backends/). The migrations the database is
         missing are applied, and listed in applied_migrations; applies_migrations False opens it
         as it is, which only suits looking at its migration status."""
+        # The connection first; a location that cannot be opened is a DatabaseError like any other.
         self._clock = clock
         self.location = str(location)
         self.applied_migrations: list[Migration] = []
@@ -745,14 +775,24 @@ class LobbyDatabase:
             self._backend = open_backend(self.location)
         except BackendError as error:
             raise DatabaseError(str(error)) from error
+        # Looking at the status only: the database stays as it is.
         if not applies_migrations:
             return
+        # The migrations it is missing, in order.
         try:
             self.applied_migrations = migrate(self._backend, to_stored_time(clock()))
         except (BackendError, MigrationError) as error:
             # The caller never gets this object, so nobody else could close the connection.
             self._backend.close()
             raise DatabaseError(str(error)) from error
+        # An admin reading the start of the log sees the schema change that came with an update.
+        for migration in self.applied_migrations:
+            log.info(
+                "database %s: applied migration %04d %s",
+                describe_location(self.location),
+                migration.version,
+                migration.name,
+            )
 
     def close(self) -> None:
         """Close the connection to the database; the object cannot be used afterwards."""
@@ -1256,21 +1296,68 @@ class LobbyDatabase:
         """Add a theme to the ChatZone tab and return it; language limits it to the games of one
         language. Raises DatabaseError for a text the game cannot show, a name that is taken already,
         the name of a built-in theme, or an unknown language."""
+        # Texts the game can show, no second General, and a language the game knows.
         check_title("chat theme name", name)
         check_game_text("chat theme description", description, MAX_GROUP_TEXT_LENGTH)
         if is_built_in_chat_theme_name(name):
             raise DatabaseError(f"{name!r} is a chat theme the server always lists itself")
         if language != ALL_LANGUAGES and language not in GAME_LANGUAGES:
             raise DatabaseError(f"unknown game language {language!r}; known: {', '.join(GAME_LANGUAGES)}")
+        # The theme and its first permanent group together, so a theme never lacks one.
         try:
             with self._backend.transaction():
                 result = self._backend.execute(
                     "INSERT INTO chat_themes (name, description, language, created_at) VALUES (?, ?, ?, ?)",
                     (name, description, language, to_stored_time(self._clock())),
                 )
+                # Every theme starts with one permanent chat group named after it, unless a group of
+                # that name exists already: group names stay unique.
+                if not self.is_permanent_chat_group_name_taken(name[:MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH]):
+                    self._backend.execute(
+                        "INSERT INTO permanent_chat_groups (chat_theme_id, name, created_at) VALUES (?, ?, ?)",
+                        (result.last_row_id, name[:MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH], to_stored_time(self._clock())),
+                    )
         except ConstraintViolation as error:
             raise DatabaseError(f"a chat theme named {name!r} already exists") from error
         return ChatTheme(theme_id=result.last_row_id, name=name, description=description, language=language)
+
+    def add_permanent_chat_group(self, chat_theme_id: int | None, name: str) -> PermanentChatGroup:
+        """Keep one more chat group open in a theme (None: General). Raises DatabaseError for a
+        name the game cannot show, a name another permanent group has (in any case), or a theme
+        that does not exist."""
+        # A name the game can show after the "[Server] " mark, and not empty.
+        check_game_text("chat group name", name, MAX_PERMANENT_CHAT_GROUP_NAME_LENGTH)
+        if not name.strip():
+            raise DatabaseError("chat group name must not be empty")
+        # Chat group names are unique in the whole lobby, so players never face two groups of one name.
+        if self.is_permanent_chat_group_name_taken(name):
+            raise DatabaseError(f"a permanent chat group named {name!r} exists already")
+        # The theme's foreign key refuses a theme that does not exist.
+        try:
+            with self._backend.transaction():
+                result = self._backend.execute(
+                    "INSERT INTO permanent_chat_groups (chat_theme_id, name, created_at) VALUES (?, ?, ?)",
+                    (chat_theme_id, name, to_stored_time(self._clock())),
+                )
+        except ConstraintViolation as error:
+            raise DatabaseError(f"there is no chat theme {chat_theme_id}") from error
+        return PermanentChatGroup(result.last_row_id, chat_theme_id, name)
+
+    def is_permanent_chat_group_name_taken(self, name: str) -> bool:
+        """True when a permanent chat group has this name, compared without regard to case or the
+        spaces around it."""
+        wanted = name.strip().casefold()
+        return any(group.name.strip().casefold() == wanted for group in self.list_permanent_chat_groups())
+
+    def list_permanent_chat_groups(self) -> list[PermanentChatGroup]:
+        """Every permanent chat group, in the order they were added."""
+        rows = self._backend.fetch_all("SELECT id, chat_theme_id, name FROM permanent_chat_groups ORDER BY id")
+        return [PermanentChatGroup(row["id"], row["chat_theme_id"], row["name"]) for row in rows]
+
+    def delete_permanent_chat_group(self, group_row_id: int) -> None:
+        """Stop keeping a chat group open; the running server closes it once nobody is in it."""
+        with self._backend.transaction():
+            self._backend.execute("DELETE FROM permanent_chat_groups WHERE id = ?", (group_row_id,))
 
     def list_chat_themes(self) -> list[ChatTheme]:
         """Every ChatZone theme, in the order they were added."""
@@ -1333,10 +1420,12 @@ class LobbyDatabase:
     def move_board_theme(self, theme_id: int, is_up: bool) -> None:
         """Move a theme one place up or down among its language's themes, the way the web
         interface's Up and Down do; at either end it stays. Raises DatabaseError for an unknown theme."""
+        # The theme, and its language's themes in the board's order.
         themes = self.list_board_themes()
         theme = next((item for item in themes if item.theme_id == theme_id), None)
         if theme is None:
             raise DatabaseError(f"there is no board theme {theme_id}")
+        # Swapped with its neighbour, then stored as the new order.
         ids = [item.theme_id for item in themes if item.language == theme.language]
         self.set_board_theme_order(moved_one_place(ids, theme_id, is_up))
 
@@ -1405,6 +1494,7 @@ class LobbyDatabase:
     def move_board_message(self, message_id: int, is_up: bool) -> None:
         """Move a message one place up or down in its theme; at either end it stays. Raises
         DatabaseError for an unknown message."""
+        # The message, and its theme's messages in the board's order, then the new order.
         message = self.find_board_message(message_id)
         if message is None:
             raise DatabaseError(f"there is no board message {message_id}")
@@ -1425,11 +1515,26 @@ class LobbyDatabase:
             return None
         return board_message_from_row(row)
 
-    def delete_board_messages_but_newest(self, theme_id: int, keep_count: int) -> int:
-        """Delete a theme's messages but its newest keep_count; returns how many went. The server
-        keeps its own themes short this way."""
+    def update_board_message(self, message_id: int, title: str, body: str) -> None:
+        """Rewrite a message the server keeps up to date (the ladder's info); its place and whether
+        it is hidden stay. Raises DatabaseError for a text the game cannot show."""
+        check_title("message title", title)
+        check_game_text("message text", body, MAX_TEXT_MESSAGE_BYTES, allows_line_breaks=True)
+        with self._backend.transaction():
+            self._backend.execute(
+                "UPDATE board_messages SET title = ?, body = ? WHERE id = ?", (title, body, message_id)
+            )
+
+    def delete_board_messages_but_newest(self, theme_id: int, keep_count: int, kept_ids: Iterable[int] = ()) -> int:
+        """Delete a theme's messages but its newest keep_count and those in kept_ids; returns how
+        many went. The server keeps its own themes short this way."""
+        always_kept = set(kept_ids)
         # Newest by when they were posted (the id), whatever order admins gave them on the board.
-        messages = sorted(self.list_board_messages(theme_id), key=lambda message: message.message_id)
+        messages = sorted(
+            (message for message in self.list_board_messages(theme_id) if message.message_id not in always_kept),
+            key=lambda message: message.message_id,
+        )
+        # All but the newest keep_count go.
         surplus = messages[: max(0, len(messages) - keep_count)]
         with self._backend.transaction():
             for message in surplus:
@@ -1668,11 +1773,80 @@ class LobbyDatabase:
         off by a restart."""
         rows = self._backend.fetch_all(
             self.GAME_COLUMNS
-            + "WHERE games.ladder_type IS NOT NULL AND games.ladder_type <> 0 "
+            + "WHERE games.ladder_type IS NOT NULL AND games.ladder_type <> 0 AND games.is_ladder_skipped = 0 "
             "AND NOT EXISTS (SELECT 1 FROM ladder_results WHERE ladder_results.game_id = games.id) "
             "ORDER BY games.id",
         )
         return [game_record_from_row(row, []) for row in rows]
+
+    def mark_ladder_game_skipped(self, game_id: int) -> None:
+        """Note that a ladder game counts in no ladder because not every player had joined one: no
+        result is stored for it, and the server does not look at it again."""
+        with self._backend.transaction():
+            self._backend.execute("UPDATE games SET is_ladder_skipped = 1 WHERE id = ?", (game_id,))
+
+    def join_ladder(self, account_id: int, key: LadderKey) -> bool:
+        """Make the player a member of a ladder from now on; False when they are one already."""
+        now = self._clock()
+        # Checked and written in one transaction, so a double request cannot make two open
+        # memberships.
+        with self._backend.transaction():
+            if self._active_ladder_membership_id(account_id, key) is not None:
+                return False
+            self._backend.execute(
+                "INSERT INTO ladder_memberships (account_id, ladder, season_id, joined_at) VALUES (?, ?, ?, ?)",
+                (account_id, key.ladder, key.season_id, to_stored_time(now)),
+            )
+        return True
+
+    def leave_ladder(self, account_id: int, key: LadderKey) -> bool:
+        """End the player's membership of a ladder now; False when they were not a member. Their
+        results stay, so their opponents' ratings do not change."""
+        # The open membership gets its end; earlier ones keep theirs.
+        with self._backend.transaction():
+            membership_id = self._active_ladder_membership_id(account_id, key)
+            if membership_id is None:
+                return False
+            self._backend.execute(
+                "UPDATE ladder_memberships SET left_at = ? WHERE id = ?",
+                (to_stored_time(self._clock()), membership_id),
+            )
+        return True
+
+    def _active_ladder_membership_id(self, account_id: int, key: LadderKey) -> int | None:
+        """The row id of the player's current membership of a ladder, or None."""
+        # "season_id = ?" never matches NULL, hence the two forms.
+        if key.season_id is None:
+            row = self._backend.fetch_one(
+                "SELECT id FROM ladder_memberships WHERE account_id = ? AND ladder = ? AND season_id IS NULL "
+                "AND left_at IS NULL",
+                (account_id, key.ladder),
+            )
+        else:
+            row = self._backend.fetch_one(
+                "SELECT id FROM ladder_memberships WHERE account_id = ? AND ladder = ? AND season_id = ? "
+                "AND left_at IS NULL",
+                (account_id, key.ladder, key.season_id),
+            )
+        if row is None:
+            return None
+        return row["id"]
+
+    def list_ladder_memberships(self) -> list[LadderMembership]:
+        """Every membership, past ones included, oldest first: who was in which ladder when."""
+        # Every membership, past ones too: ratings are replayed against who was in when.
+        rows = self._backend.fetch_all(
+            "SELECT account_id, ladder, season_id, joined_at, left_at FROM ladder_memberships ORDER BY id"
+        )
+        return [
+            LadderMembership(
+                account_id=row["account_id"],
+                key=LadderKey(row["ladder"], row["season_id"]),
+                joined_at=from_stored_time(row["joined_at"]),
+                left_at=from_optional_stored_time(row["left_at"]),
+            )
+            for row in rows
+        ]
 
     def store_ladder_result(self, evaluation: Evaluation, decided_by_account_id: int | None = None) -> None:
         """Keep what the ladder made of a game, replacing an earlier result of the same game (an
@@ -1843,8 +2017,8 @@ class LobbyDatabase:
             raise DatabaseError(f"there is no season {season_id}")
 
     def delete_ladder_season(self, season_id: int) -> None:
-        """Delete a custom season. Its results stay: they count in the infinite season and in any
-        other season whose dates include them."""
+        """Delete a custom season and its memberships. Its results stay: they count in the
+        infinite season and in other seasons for the players who are members there."""
         with self._backend.transaction():
             self._backend.execute("DELETE FROM ladder_seasons WHERE id = ?", (season_id,))
 

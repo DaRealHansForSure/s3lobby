@@ -79,6 +79,20 @@ class MessageZoneTest(LobbyTestCase):
         self.assertTrue(text.lines[0].startswith("Alice, "))
         self.assertEqual(text.lines[2:], ("1 vs 1", "from 8 pm"))
 
+    def test_a_remembered_theme_is_joined_without_its_language_group(self) -> None:
+        """A game that kept its MessageZone from before a server restart joins a board theme it
+        remembers without joining the language group first. The server had not built the theme's
+        group yet and refused with "Der Wechsel in die Gruppe hat nicht geklappt" (seen in a run);
+        now it builds the board on demand and the join works."""
+        theme = self.database.add_board_theme("English", "Tournaments")
+        message = self.database.post_board_message(theme.theme_id, "Saturday cup", "1 vs 1", author="Alice")
+        alice, alice_id = self.player_in_room("Alice", 17, MESSAGE_ZONE_GROUP_ID)
+        english_index = BOARD_LANGUAGES.index("English")
+        remembered_id = board_theme_group_id(english_index, 0, theme.theme_id)
+        join_group(alice, remembered_id, alice_id)
+        listed = TextIdList.decode(alice.receive_next(MessageType.TEXT_ID_LIST))
+        self.assertEqual(listed.text_ids, (BOARD_MESSAGE_TEXT_ID_BASE + message.message_id,))
+
     def test_themes_come_in_the_board_s_order_and_hidden_ones_stay_away(self) -> None:
         """Admins put the ladder's theme or an important one on top. The game lists a parent's
         groups by ascending group id (0x5db570), not in the order they arrive, so the group ids

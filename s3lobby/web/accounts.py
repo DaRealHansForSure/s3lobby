@@ -21,6 +21,14 @@ from s3lobby.commands import kick_reason
 from s3lobby.constants import DEFAULT_BAN_HOURS, MAX_BAN_HOURS, MAX_GROUP_TEXT_LENGTH, MIN_BAN_HOURS
 from s3lobby.database import MAX_BAN_REASON_LENGTH, Account, Clan, DatabaseError, Setting, is_whole_number_text, utc_now
 from s3lobby.groups import game_row_colour
+from s3lobby.ladder_book import (
+    LadderBook,
+    LadderMembershipError,
+    join_ladder,
+    ladder_labels,
+    ladder_members,
+    leave_ladder,
+)
 from s3lobby.web.auth import current_admin, redirect_visitors_to_logon
 from s3lobby.web.games import games_of_account
 from s3lobby.web.lobby_view import online_player_names
@@ -120,7 +128,45 @@ def show_account(account_id: int) -> str:
         default_ban_hours=DEFAULT_BAN_HOURS,
         max_ban_hours=MAX_BAN_HOURS,
         max_ban_reason_length=MAX_BAN_REASON_LENGTH,
+        ladders=ladder_labels(database, account_id),
+        joinable_ladders=[member.ladder for member in ladder_members(database)],
     )
+
+
+@blueprint.post("/accounts/<int:account_id>/ladders/join")
+def join_ladder_for_account(account_id: int) -> Response:
+    """Make the player a member of the ladder the form names, as /ladder join does in the game."""
+    # The account from the address and the ladder from the form; an unknown account is a 404 page.
+    database = get_database()
+    account = require_account(account_id)
+    ladder = form_text("ladder")
+    # The rule lives in ladder_book, the same as for /ladder in the game; a refusal is shown as it
+    # is.
+    try:
+        join_ladder(LadderBook(database), database, account_id, ladder)
+    except LadderMembershipError as error:
+        flash(f"{account.name}: {error}.", "bad")
+        return redirect_to_account(account_id)
+    flash(f"{account.name} is in {ladder or 'Liga'} now.", "good")
+    return redirect_to_account(account_id)
+
+
+@blueprint.post("/accounts/<int:account_id>/ladders/leave")
+def leave_ladder_for_account(account_id: int) -> Response:
+    """Take the player out of a ladder; their results stay for their opponents."""
+    # The account from the address and the ladder from the form; an unknown account is a 404 page.
+    database = get_database()
+    account = require_account(account_id)
+    ladder = form_text("ladder")
+    # The rule lives in ladder_book, the same as for /ladder in the game; a refusal is shown as it
+    # is.
+    try:
+        leave_ladder(LadderBook(database), database, account_id, ladder)
+    except LadderMembershipError as error:
+        flash(f"{account.name}: {error}.", "bad")
+        return redirect_to_account(account_id)
+    flash(f"{account.name} is out of {ladder}; joining again starts at the start rating.", "good")
+    return redirect_to_account(account_id)
 
 
 @blueprint.post("/accounts/<int:account_id>/codes")

@@ -10,10 +10,12 @@ from s3lobby.constants import (
     CHAT_ZONE_GROUP_ID,
     DEFAULT_CHAT_THEME_NAME,
     GAME_LANGUAGES,
+    JOINED_GROUP_PARENT_ID,
+    PERMANENT_CHAT_GROUP_FLAGS,
     MessageType,
 )
-from s3lobby.database import DatabaseError
-from s3lobby.messages import CheckFileVersion, GroupAnnouncement, OwnPlayer
+from s3lobby.database import DatabaseError, Setting
+from s3lobby.messages import AddPlayerToGroup, CheckFileVersion, GroupAnnouncement, OwnPlayer, RemovePlayerFromGroup
 from s3lobby.wire import RawMessage
 from tests.support import (
     EDITION_MISSION_AND_GOLD,
@@ -130,6 +132,74 @@ class ChatZoneTest(LobbyTestCase):
         alice, alice_id = self.player_in_room("Alice", 17, CHAT_ZONE_GROUP_ID)
         theme = receive_theme(alice)
         join_group(alice, theme.group_id, alice_id)
+
+
+
+class PermanentChatGroupTest(LobbyTestCase):
+    """Chat groups the server keeps open in the themes (setting permanent_chat_groups)."""
+
+    def setUp(self) -> None:
+        """The test server with the setting on."""
+        super().setUp()
+        self.database.set_setting(Setting.PERMANENT_CHAT_GROUPS, "true")
+
+    def test_a_theme_offers_its_permanent_group_to_join_and_chat_in(self) -> None:
+        """Without it a player in an empty theme has nobody to talk to until someone opens a chat
+        group; with it General lists "[Server] General", which a player joins like any chat group."""
+        alice, alice_id = self.player_in_room("Alice", 17, CHAT_ZONE_GROUP_ID)
+        join_group(alice, CHAT_THEME_GROUP_ID_BASE, alice_id)
+        group = receive_permanent_group(alice, CHAT_THEME_GROUP_ID_BASE)
+        self.assertEqual((group.name, group.flags), ("[Server] General", PERMANENT_CHAT_GROUP_FLAGS))
+        join_chat_group(alice, group.group_id, alice_id)
+
+    def test_a_permanent_group_stays_open_when_empty(self) -> None:
+        """The housekeeping that closes abandoned chat groups leaves it alone, so the next player
+        still finds it."""
+        alice, alice_id = self.player_in_room("Alice", 17, CHAT_ZONE_GROUP_ID)
+        join_group(alice, CHAT_THEME_GROUP_ID_BASE, alice_id)
+        group = receive_permanent_group(alice, CHAT_THEME_GROUP_ID_BASE)
+        join_chat_group(alice, group.group_id, alice_id)
+        alice.send(RemovePlayerFromGroup(group.group_id, alice_id))
+        alice.receive_next(MessageType.REMOVE_PLAYER_FROM_GROUP)
+        # An hour later a player's empty chat group would be long closed.
+        self.server.close_abandoned_chat_groups(seconds_from_now=3600)
+        bob, bob_id = self.player_in_room("Bob", 42, CHAT_ZONE_GROUP_ID)
+        join_group(bob, CHAT_THEME_GROUP_ID_BASE, bob_id)
+        self.assertEqual(receive_permanent_group(bob, CHAT_THEME_GROUP_ID_BASE).group_id, group.group_id)
+
+    def test_switched_off_no_group_is_kept_open(self) -> None:
+        """Off by default until a run with the game confirms it: then General lists nothing."""
+        self.database.set_setting(Setting.PERMANENT_CHAT_GROUPS, "false")
+        alice, alice_id = self.player_in_room("Alice", 17, CHAT_ZONE_GROUP_ID)
+        join_group(alice, CHAT_THEME_GROUP_ID_BASE, alice_id)
+        alice.assert_nothing_matching(lambda message: message.message_type == MessageType.ADD_GROUP_TO_GROUP_2)
+
+
+def join_chat_group(client: FakeGameClient, group_id: int, player_id: int) -> None:
+    """Join a chat group like the game, and wait until the server answers with the group under
+    parent 0, as an AddGroupToGroup2 like every chat group."""
+    client.send(AddPlayerToGroup(group_id, player_id, player_address=("0.0.0.0", 0), player_name=""))
+
+    def is_joined(message: RawMessage) -> bool:
+        """Whether the message announces the joined chat group under parent 0."""
+        if message.message_type != MessageType.ADD_GROUP_TO_GROUP_2:
+            return False
+        announcement = GroupAnnouncement.decode(message)
+        return (announcement.parent_id, announcement.group_id) == (JOINED_GROUP_PARENT_ID, group_id)
+
+    client.receive_matching(is_joined)
+
+
+def receive_permanent_group(client: FakeGameClient, theme_group_id: int) -> GroupAnnouncement:
+    """The next chat group the client is shown inside a theme."""
+
+    def is_group_in_theme(message: RawMessage) -> bool:
+        """Whether the message lists a group inside the theme."""
+        if message.message_type != MessageType.ADD_GROUP_TO_GROUP_2:
+            return False
+        return GroupAnnouncement.decode(message).parent_id == theme_group_id
+
+    return GroupAnnouncement.decode(client.receive_matching(is_group_in_theme))
 
 
 if __name__ == "__main__":

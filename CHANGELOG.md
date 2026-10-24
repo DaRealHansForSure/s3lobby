@@ -6,16 +6,70 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-24
+
 ### Added
 
+- An Info page for admins and `s3lobby info [--format json]`: the version, Python and system, the
+  database with its schema version and migrations, whether the server runs, the lobby's numbers,
+  the ladder's members and the settings worth knowing.
+- A bar under the menu on every page with links to the page's big sections (Ladder page: Top 3,
+  Standings, Online now and more), shown when a page has at least two.
+- The Chat themes page shows beside "Permanent chat groups" whether their setting is on (green)
+  or off (red).
+- The log names every migration a database receives ("applied migration 0016
+  permanent_chat_groups"), and the server's start line gives the schema version.
+- More ladder chat commands: `/opponents` (Liga members online, closest to your rating first, also
+  "Online now" on the Ladder page), `/results` (your last results with rating changes), `/vs NAME`
+  (your record against one player), `/pending` (your games still waiting for a result),
+  `/season NAME` (a season's members, top three and your place), `/top clanliga` and
+  `/ladder rules`.
+- Who is in which ladder, everywhere: the Ladder page counts and names each ladder's members, the
+  player pages and the admin account pages list a player's ladders (with Join and Take out for
+  admins), and the ladder's MessageZone theme starts with a message on how to join, what counts
+  and how many joined, which the server keeps up to date and on top. The news block names the
+  member counts too.
+- Permanent chat groups: with the setting `permanent_chat_groups` (off until a run with the game
+  confirms it) every chat theme keeps chat groups open, marked "[Server]", that never close and
+  that players join to chat at once. Each theme starts with one named after it (General too);
+  admins add and remove them on the Chat themes page or with `s3lobby chat-theme add-group` and
+  `remove-group` (migration 0016).
 - `s3lobby board move-theme|move-message ID up|down` and `hide-theme`, `show-theme`,
   `hide-message`, `show-message`: the board's order and visibility from the command line, as on
   the web; `board list` marks hidden and server-written themes.
 
+### Changed
+
+- Chat group names are unique: a player cannot open a chat group whose name an open one already
+  has (in any case, a permanent group counting with and without its "[Server]" mark) or one that
+  carries the mark itself; the game shows that joining failed. Admins cannot add two permanent
+  groups of one name.
+- **Players take part only in the ladders they join.** `/ladder join` in the game (or
+  `/ladder join clanliga`, `/ladder join SEASON`), `/ladder leave` and `/ladder`; admins use the new
+  Ladder > Members page or `s3lobby ladder join|leave|members`. A ladder game whose players did not
+  all join a ladder it counts in is stored nowhere, the game hears "not valid for ladder", and the
+  players hear who had not joined. A player who leaves keeps their results for their opponents and
+  starts at the start rating when joining again. Migration 0015 adds the memberships. Results
+  stored before were played before anyone joined, so they count for nobody.
+
 ### Fixed
 
+- Joining a board theme the game remembers from before a server restart works: the game skips
+  the language group and joined the theme directly, which the server refused with "Der Wechsel in
+  die Gruppe hat nicht geklappt" until the player went through another tab (seen in a run). The
+  board's groups, and the chat themes with their permanent groups, are now built on demand.
+- Group ids cannot run out into the game's reserved id: once the last id is given out, opening
+  another game or chat group is refused with "Der Wechsel in die Gruppe hat nicht geklappt" and a
+  warning in the log; a permanent chat group whose id would reach the players' groups is not
+  opened.
 - A game's reports no longer call a ladder game "unranked here": the ladder ranks it, and the
   game's page shows the result.
+
+### Key commits
+
+- [`1245b09`](https://github.com/DaRealHansForSure/s3lobby/commit/1245b09) feat(ladder)!: rank only players who joined a ladder
+- [`a0fe963`](https://github.com/DaRealHansForSure/s3lobby/commit/a0fe963) feat(lobby): keep permanent chat groups open in the chat themes
+- [`88a50d2`](https://github.com/DaRealHansForSure/s3lobby/commit/88a50d2) feat(web): add an Info page with version, database and server state
 
 ## [0.11.0] - 2026-10-24
 
@@ -415,7 +469,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 - [`b76d102`](https://github.com/DaRealHansForSure/s3lobby/commit/b76d102) refactor: rework the lobby server into the s3lobby package
 - [`46582ce`](https://github.com/DaRealHansForSure/s3lobby/commit/46582ce) docs(protocol): move the lobby protocol document into the project
 
-[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/DaRealHansForSure/s3lobby/compare/v0.8.0...v0.9.0

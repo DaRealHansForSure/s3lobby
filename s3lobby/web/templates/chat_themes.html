@@ -29,7 +29,7 @@
           <td>{{ theme.name }}</td>
           <td>{{ theme.description or "-" }}</td>
           <td>{% if theme.language %}{{ theme.language }} games{% else %}All games{% endif %}</td>
-          <td class="cell-actions">{{ action_button(url_for('content.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--outline", confirm="Remove the chat theme " ~ theme.name ~ "?") }}</td>
+          <td class="cell-actions">{{ action_button(url_for('chat_themes.delete_chat_theme', theme_id=theme.theme_id), "Remove", "btn--outline", confirm="Remove the chat theme " ~ theme.name ~ "?") }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -37,9 +37,50 @@
   </div>
 </section>
 
+<section id="groups">
+  <div class="section-head"><h2>Permanent chat groups {% if are_groups_on %}<span class="badge badge--good" title="The setting &quot;Keep permanent chat groups open&quot; is on">on</span>{% else %}<span class="badge badge--bad" title="The setting &quot;Keep permanent chat groups open&quot; is off">off</span>{% endif %}</h2>
+  <p>Chat groups the server keeps open in a theme, marked [Server] in the game, so players can chat
+  at once instead of opening a group first. They never close and nobody can take them away; players
+  may still open their own next to them. Every new theme starts with one named after it. Also
+  <code>s3lobby chat-theme add-group</code>.
+  {% if not are_groups_on %}<strong>Switched off:</strong> they open once the setting "Keep permanent
+  chat groups open" is on, on the <a href="{{ url_for('server_settings.show_settings') }}">Settings</a>
+  page (Chat and Home tab).{% endif %}</p></div>
+  <div class="scroll-x">
+    <table class="table">
+      <thead><tr><th>Theme</th><th>Chat group</th><th class="cell-actions"></th></tr></thead>
+      <tbody>
+        {% for theme in built_in_themes %}{% for group in groups_by_theme.get(none, []) %}
+        <tr><td>{{ theme.name }}</td><td>[Server] {{ group.name }}</td>
+          <td class="cell-actions">{{ action_button(url_for('chat_themes.delete_permanent_chat_group', group_row_id=group.group_row_id), "Remove", "btn--outline", confirm="Stop keeping " ~ group.name ~ " open?") }}</td></tr>
+        {% endfor %}{% endfor %}
+        {% for theme in themes %}{% for group in groups_by_theme.get(theme.theme_id, []) %}
+        <tr><td>{{ theme.name }}</td><td>[Server] {{ group.name }}</td>
+          <td class="cell-actions">{{ action_button(url_for('chat_themes.delete_permanent_chat_group', group_row_id=group.group_row_id), "Remove", "btn--outline", confirm="Stop keeping " ~ group.name ~ " open?") }}</td></tr>
+        {% endfor %}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <form class="card" method="post" action="{{ url_for('chat_themes.add_permanent_chat_group') }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      <label class="field"><span class="label">Theme</span>
+        <select class="select" name="theme_id">
+          {% for theme in built_in_themes %}<option value="">{{ theme.name }}</option>{% endfor %}
+          {% for theme in themes %}<option value="{{ theme.theme_id }}">{{ theme.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field"><span class="label">Chat group</span>
+        <input class="input" type="text" name="name" maxlength="{{ max_group_name_length }}" required>
+      </label>
+    </div>
+    <div class="form-actions"><button class="btn btn--primary" type="submit">Add chat group</button></div>
+  </form>
+</section>
+
 <section>
   <div class="section-head"><h2>New theme</h2></div>
-  <form method="post" action="{{ url_for('content.add_chat_theme') }}">
+  <form method="post" action="{{ url_for('chat_themes.add_chat_theme') }}">
     {{ csrf_field() }}
     <div class="form-grid">
       <label class="field">

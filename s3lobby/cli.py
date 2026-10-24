@@ -200,6 +200,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_announce_command(commands, database_option)
     add_web_command(commands, database_option)
     add_database_commands(commands, database_option)
+    # s3lobby info: the installation at a glance, as the web interface's Info page shows it.
+    info = commands.add_parser(
+        "info", parents=[database_option], help="version, database, server and the lobby's numbers"
+    )
+    info.add_argument(
+        "--format", choices=admin.INFO_FORMATS, default=admin.INFO_TEXT_FORMAT, help="default: %(default)s"
+    )
+    info.set_defaults(admin_function=admin.show_info)
     return parser
 
 
@@ -347,9 +355,12 @@ def add_news_commands(commands: argparse._SubParsersAction, database_option: arg
 
 def add_chat_theme_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the chat-theme subcommands for the themes listed on the ChatZone tab."""
+    # s3lobby chat-theme ACTION: the themes on the ChatZone tab and the chat groups kept open in
+    # them.
     chat_theme = commands.add_parser("chat-theme", help="the themes listed on the ChatZone tab")
     actions = chat_theme.add_subparsers(dest="chat_theme_command", metavar="action", required=True)
 
+    # chat-theme add NAME: a new theme, for every game or the games of one language.
     add = actions.add_parser("add", parents=[database_option], help="add a chat theme")
     add.add_argument("name")
     add.add_argument("--description", default="", help="shown in the Description column")
@@ -361,19 +372,36 @@ def add_chat_theme_commands(commands: argparse._SubParsersAction, database_optio
     )
     add.set_defaults(admin_function=admin.add_chat_theme)
 
+    # chat-theme remove NAME and chat-theme list.
     remove = actions.add_parser("remove", parents=[database_option], help="remove a chat theme")
     remove.add_argument("name")
     remove.set_defaults(admin_function=admin.remove_chat_theme)
 
+    # chat-theme list: every theme with its permanent groups and their ids.
     listing = actions.add_parser("list", parents=[database_option], help="list chat themes")
     listing.set_defaults(admin_function=admin.list_chat_themes)
+
+    # Chat groups the server keeps open in a theme (setting permanent_chat_groups).
+    add_group = actions.add_parser(
+        "add-group", parents=[database_option], help="keep one more chat group open in a theme"
+    )
+    add_group.add_argument("theme", help='the theme\'s name, "General" for the built-in one')
+    add_group.add_argument("name")
+    add_group.set_defaults(admin_function=admin.add_permanent_chat_group)
+    remove_group = actions.add_parser(
+        "remove-group", parents=[database_option], help="stop keeping a chat group open"
+    )
+    remove_group.add_argument("group_id", type=int, help="the group's id from chat-theme list")
+    remove_group.set_defaults(admin_function=admin.remove_permanent_chat_group)
 
 
 def add_board_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the board subcommands for the themes and messages on the MessageZone tab."""
+    # s3lobby board ACTION: the MessageZone board's themes and messages.
     board = commands.add_parser("board", help="the message board on the MessageZone tab")
     actions = board.add_subparsers(dest="board_command", metavar="action", required=True)
 
+    # board add-theme LANGUAGE NAME and board remove-theme ID.
     add_theme = actions.add_parser("add-theme", parents=[database_option], help="add a theme for one language")
     add_theme.add_argument("language", choices=BOARD_LANGUAGES, help="language of the games that see it")
     add_theme.add_argument("name")
@@ -384,9 +412,11 @@ def add_board_commands(commands: argparse._SubParsersAction, database_option: ar
     remove_theme.add_argument("theme_id", type=int)
     remove_theme.set_defaults(admin_function=admin.remove_board_theme)
 
+    # board list, and board post and remove-message for the messages.
     listing = actions.add_parser("list", parents=[database_option], help="list themes and messages")
     listing.set_defaults(admin_function=admin.list_board)
 
+    # board post THEME_ID --title TITLE and the text from --text or --file.
     post = actions.add_parser("post", parents=[database_option], help="post a message to a theme")
     post.add_argument("theme_id", type=int)
     post.add_argument("--title", required=True)
@@ -394,6 +424,7 @@ def add_board_commands(commands: argparse._SubParsersAction, database_option: ar
     add_text_source(post)
     post.set_defaults(admin_function=admin.post_board_message)
 
+    # board remove-message ID.
     remove_message = actions.add_parser("remove-message", parents=[database_option], help="remove a message")
     remove_message.add_argument("message_id", type=int)
     remove_message.set_defaults(admin_function=admin.remove_board_message)
@@ -405,6 +436,7 @@ def add_board_commands(commands: argparse._SubParsersAction, database_option: ar
         move.add_argument("item_id", type=int, metavar=f"{kind}_id")
         move.add_argument("direction", choices=admin.MOVE_DIRECTIONS)
         move.set_defaults(admin_function=admin.move_board_item, board_item_kind=kind)
+        # hide-theme, show-theme, hide-message and show-message.
         for is_hidden, verb in ((True, "hide"), (False, "show")):
             visibility = actions.add_parser(
                 f"{verb}-{kind}", parents=[database_option], help=f"{verb} a {kind} in the game"
@@ -418,6 +450,8 @@ def add_board_commands(commands: argparse._SubParsersAction, database_option: ar
 def add_ladder_commands(commands: argparse._SubParsersAction, database_option: argparse.ArgumentParser) -> None:
     """Add the ladder subcommands: standings, results, admins' decisions and custom seasons
     (s3lobby/ladder_admin.py). Everything the web interface offers for the ladder is here too."""
+    # s3lobby ladder ACTION, with the options several actions share: the output format, the season,
+    # and the admin a decision is kept under.
     ladder = commands.add_parser("ladder", help="the ladder: standings, results, decisions, seasons")
     actions = ladder.add_subparsers(dest="ladder_command", metavar="action", required=True)
     output_option = argparse.ArgumentParser(add_help=False)
@@ -429,6 +463,7 @@ def add_ladder_commands(commands: argparse._SubParsersAction, database_option: a
     admin_option = argparse.ArgumentParser(add_help=False)
     admin_option.add_argument("--by", help="the admin account the decision is kept under")
 
+    # What the ladder shows: standings, results and statistics of a season.
     standings = actions.add_parser(
         "standings", parents=[database_option, output_option, season_option], help="the ranking of a season"
     )
@@ -440,6 +475,7 @@ def add_ladder_commands(commands: argparse._SubParsersAction, database_option: a
     )
     standings.set_defaults(admin_function=ladder_admin.show_standings)
 
+    # ladder results: newest first, by state.
     results = actions.add_parser(
         "results", parents=[database_option, output_option, season_option], help="ladder results, newest first"
     )
@@ -447,6 +483,7 @@ def add_ladder_commands(commands: argparse._SubParsersAction, database_option: a
     results.add_argument("--limit", type=int, help="show at most this many")
     results.set_defaults(admin_function=ladder_admin.show_results)
 
+    # ladder stats: races and maps.
     statistics = actions.add_parser(
         "stats", parents=[database_option, output_option, season_option], help="races and maps of a season"
     )
@@ -458,6 +495,7 @@ def add_ladder_commands(commands: argparse._SubParsersAction, database_option: a
     )
     statistics.set_defaults(admin_function=ladder_admin.show_statistics)
 
+    # One game's evaluation, and the admins' decisions on it.
     show = actions.add_parser("show", parents=[database_option], help="what the ladder made of one game")
     show.add_argument("game_id", type=int, help="the game's number, as on the Games page")
     show.set_defaults(admin_function=ladder_admin.show_game_result)
@@ -469,12 +507,24 @@ def add_ladder_commands(commands: argparse._SubParsersAction, database_option: a
     decide.add_argument("--winner", type=int, required=True, help="the winning team's number from the reports")
     decide.set_defaults(admin_function=ladder_admin.decide_game)
 
+    # void GAME_ID: a result counts nowhere any more.
     void = actions.add_parser(
         "void", parents=[database_option, admin_option], help="take a game's result out of every rating"
     )
     void.add_argument("game_id", type=int)
     void.add_argument("--reason", default="", help="kept with the result")
     void.set_defaults(admin_function=ladder_admin.void_game)
+
+    # Players take part only in the ladders they joined; this is what /ladder join does in the game.
+    ladder_choice = argparse.ArgumentParser(add_help=False)
+    ladder_choice.add_argument("name", help="the player")
+    ladder_choice.add_argument("--ladder", default="", help="liga (default), clanliga or a custom season's name")
+    join = actions.add_parser("join", parents=[database_option, ladder_choice], help="make a player a ladder member")
+    join.set_defaults(admin_function=ladder_admin.join_ladder_for)
+    leave = actions.add_parser("leave", parents=[database_option, ladder_choice], help="take a player out of a ladder")
+    leave.set_defaults(admin_function=ladder_admin.leave_ladder_for)
+    members = actions.add_parser("members", parents=[database_option, output_option], help="who is in which ladder")
+    members.set_defaults(admin_function=ladder_admin.list_members)
 
     add_ladder_season_commands(actions, database_option, output_option, admin_option)
 

@@ -7,7 +7,8 @@
   <div class="section-head">
     <h1>{{ in_game_colour(page.name, page.colour) }}</h1>
     <p>{% if page.clan_name %}Clan {{ page.clan_name }}. {% endif %}The games the lobby saw {{ page.name }} play, and
-    {{ page.name }}'s place in the ladder.</p>
+    {{ page.name }}'s place in the ladder.
+    {% if page.ladders %}Ladders: {{ page.ladders | join(", ") }}.{% else %}In no ladder.{% endif %}</p>
   </div>
   {% if page.standing %}
   <div class="grid">
@@ -37,7 +38,11 @@
     {% endif %}
   </div>
   {% else %}
-  <p class="empty-state">No place in the ladder yet: a counted Liga match puts {{ page.name }} on it.</p>
+  {% if "Liga" in page.ladders %}
+  <p class="empty-state">No place in the Liga yet: a counted match puts {{ page.name }} on it.</p>
+  {% else %}
+  <p class="empty-state">{{ page.name }} has not joined the Liga: players join with /ladder join in the game.</p>
+  {% endif %}
   {% endif %}
 </section>
 

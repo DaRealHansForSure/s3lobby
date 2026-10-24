@@ -13,7 +13,7 @@ from flask import Blueprint, abort, render_template
 
 from s3lobby.constants import LadderType
 from s3lobby.ladder import INFINITE_SEASON, Rating, Season, race_statistics, recent_form
-from s3lobby.ladder_book import LIGA, LadderBook, StandingRow
+from s3lobby.ladder_book import LIGA, LadderBook, StandingRow, ladder_labels
 from s3lobby.web.games import AccountGameRow, games_of_account
 from s3lobby.web.ladder_pages import (
     FormMark,
@@ -56,19 +56,24 @@ class PlayerPage:
     clanliga_record: Rating | None
     games: tuple[AccountGameRow, ...]
     races: tuple[RaceRow, ...] = ()
+    # The ladders the player is in now (players join them; only members' games count).
+    ladders: tuple[str, ...] = ()
 
 
 @blueprint.get("/players/<name>")
 def show_player(name: str) -> str:
     """A player's public page, found by name in any case."""
+    # The account by name in any case; an unknown name is a 404 page.
     database = get_database()
     account = database.find_account(name)
     if account is None:
         abort(404)
+    # The player's Liga place, last five results and colour; the rating chart only for a player
+    # with a place.
     book = LadderBook(database)
     rows = book.standing_rows(INFINITE_SEASON, LIGA)
     standing = next((row for row in rows if row.side_id == account.account_id), None)
-    evaluations = [record.evaluation for record in book.results()]
+    evaluations = book.evaluations_in_ladder()
     form = form_marks(recent_form(evaluations, account.account_id, LadderType.INDIVIDUAL))
     colour = name_colours(database, LIGA).get(account.account_id, "")
     chart = None
@@ -76,6 +81,7 @@ def show_player(name: str) -> str:
         view = StandingView(standing, colour, form, win_rate(standing))
         start_rating = database.get_ladder_settings().start_rating
         chart = rating_chart([view], book.ratings().liga, start_rating, database.now())
+    # Their place in every running custom season they have one in.
     season_places = []
     now = database.now()
     for season in database.list_ladder_seasons():
@@ -85,7 +91,14 @@ def show_player(name: str) -> str:
         season_row = next((row for row in season_rows if row.side_id == account.account_id), None)
         if season_row is not None:
             season_places.append(SeasonPlace(season, season_row, len(season_rows)))
+    # Their clan and the ladders they are in now.
     clan = database.find_clan_of_account(account.account_id)
+    ladders = tuple(ladder_labels(database, account.account_id))
+    # The personal Clanliga record shows only while the player is in the Clanliga.
+    clanliga_record = None
+    if "Clanliga" in ladders:
+        clanliga_record = book.ratings().clanliga_players.get(account.account_id)
+    # Everything together, with their games and the races they played in counted matches.
     page = PlayerPage(
         name=account.name,
         clan_name=clan.name if clan is not None else "",
@@ -96,8 +109,9 @@ def show_player(name: str) -> str:
         form=form,
         chart=chart,
         season_places=tuple(season_places),
-        clanliga_record=book.ratings().clanliga_players.get(account.account_id),
+        clanliga_record=clanliga_record,
         games=tuple(games_of_account(account.account_id)),
         races=tuple(race_row(statistic) for statistic in race_statistics(evaluations, account_id=account.account_id)),
+        ladders=ladders,
     )
     return render_template("player.html", page=page)

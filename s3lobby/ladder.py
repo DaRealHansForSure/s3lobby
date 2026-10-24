@@ -8,12 +8,17 @@ same facts.
 
 Ratings are never stored. compute_ratings replays the counted results in order, so an admin who
 voids or decides a result, or changes a setting, changes every rating at once and consistently.
+
+Players take part only in the ladders they joined (LadderMembership): Liga, Clanliga and each
+custom season separately. A match counts in a ladder only when every player in it was a member of
+that ladder when it was played, and a player who leaves and joins again starts at the start rating.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
+from functools import cached_property
 from datetime import datetime, timedelta
 
 from s3lobby.constants import (
@@ -371,6 +376,143 @@ class Season:
 INFINITE_SEASON = Season(season_id=None, name="Infinite season")
 
 
+# Ladders players join: the infinite season's Liga and Clanliga, and each custom season.
+LIGA_LADDER = "liga"
+CLANLIGA_LADDER = "clanliga"
+SEASON_LADDER = "season"
+
+
+@dataclass(frozen=True)
+class LadderKey:
+    """One ladder a player can join: Liga or Clanliga of the infinite season, or a custom season
+    (season_id set), which counts whatever ladders the season counts."""
+
+    ladder: str
+    season_id: int | None = None
+
+
+LIGA_KEY = LadderKey(LIGA_LADDER)
+CLANLIGA_KEY = LadderKey(CLANLIGA_LADDER)
+
+
+def ladder_key(season: Season, ladder_type: int) -> LadderKey:
+    """The ladder a result of this type counts in for a season: the infinite season's Liga or
+    Clanliga, or the custom season itself."""
+    # A custom season is one ladder, whatever it counts; the infinite season has one per ladder
+    # type.
+    if season.season_id is not None:
+        return LadderKey(SEASON_LADDER, season.season_id)
+    if ladder_type == LadderType.CLANS:
+        return CLANLIGA_KEY
+    return LIGA_KEY
+
+
+@dataclass(frozen=True)
+class LadderMembership:
+    """A player's time in one ladder: from joined_at until left_at (None while still in it)."""
+
+    account_id: int
+    key: LadderKey
+    joined_at: datetime
+    left_at: datetime | None = None
+
+    def covers(self, moment: datetime) -> bool:
+        """True when the player was in the ladder at that moment."""
+        if moment < self.joined_at:
+            return False
+        return self.left_at is None or moment < self.left_at
+
+
+@dataclass(frozen=True)
+class LadderRoll:
+    """Every membership there is, to look up who was in which ladder when. Frozen and hashable, so
+    ratings can be cached per roll."""
+
+    memberships: tuple[LadderMembership, ...] = ()
+
+    @cached_property
+    def _by_player_and_ladder(self) -> dict[tuple[int, LadderKey], list[LadderMembership]]:
+        """The memberships per player and ladder, built once: replaying ratings asks for every
+        player of every result."""
+        index: dict[tuple[int, LadderKey], list[LadderMembership]] = {}
+        for membership in self.memberships:
+            index.setdefault((membership.account_id, membership.key), []).append(membership)
+        return index
+
+    def period_start(self, account_id: int, key: LadderKey, moment: datetime) -> datetime | None:
+        """When the membership that covers the moment began, None when the player was not in the
+        ladder then. Results of different memberships never share a rating: rejoining starts over."""
+        for membership in self._by_player_and_ladder.get((account_id, key), ()):
+            if membership.covers(moment):
+                return membership.joined_at
+        return None
+
+    def open_period_start(self, account_id: int, key: LadderKey) -> datetime | None:
+        """When the player's current membership of the ladder began, None when they are not in it."""
+        for membership in self._by_player_and_ladder.get((account_id, key), ()):
+            if membership.left_at is None:
+                return membership.joined_at
+        return None
+
+    def current_members(self, key: LadderKey, now: datetime) -> frozenset[int]:
+        """The players in the ladder now."""
+        return frozenset(
+            membership.account_id
+            for membership in self.memberships
+            if membership.key == key and membership.covers(now)
+        )
+
+    def is_member(self, account_id: int, key: LadderKey, moment: datetime) -> bool:
+        """True when the player was in the ladder at that moment."""
+        return self.period_start(account_id, key, moment) is not None
+
+    def all_members(self, account_ids: Iterable[int], key: LadderKey, moment: datetime) -> bool:
+        """True when every one of the players was in the ladder at that moment."""
+        return all(self.is_member(account_id, key, moment) for account_id in account_ids)
+
+
+def results_in_ladder(
+    results: Iterable[Evaluation], season: Season, roll: LadderRoll | None
+) -> list[Evaluation]:
+    """The results that count in a season's ladder: all of them without a roll, else those whose
+    players were all members of it when they played. For form strips and statistics, which must
+    agree with the ratings."""
+    # Without memberships (a tool of its own) every result counts, as compute_ratings does then.
+    if roll is None:
+        return list(results)
+    # A result stays when every player in it was a member of the season's ladder when it was
+    # played.
+    kept = []
+    for result in results:
+        if result.played_at is None:
+            continue
+        account_ids = [player.account_id for player in result.players]
+        if roll.all_members(account_ids, ladder_key(season, result.ladder_type), result.played_at):
+            kept.append(result)
+    return kept
+
+
+def counting_ladders(
+    account_ids: Iterable[int], ladder_type: int, moment: datetime, seasons: Iterable[Season], roll: LadderRoll
+) -> list[LadderKey]:
+    """The ladders a match of these players counts in: the infinite season's Liga or Clanliga, and
+    every custom season running at the moment that counts this ladder, each only when all the
+    players were its members. Empty means the match is stored nowhere."""
+    # A game nobody joined in the lobby counts nowhere.
+    players = list(account_ids)
+    if not players:
+        return []
+    # The ladders the match could count in: the infinite season's Liga or Clanliga, and every
+    # custom season whose dates and ladders include a match of this type at this moment.
+    candidates = [ladder_key(INFINITE_SEASON, ladder_type)]
+    probe = Evaluation(0, ladder_type, LadderState.COUNTED, played_at=moment)
+    for season in seasons:
+        if season.season_id is not None and season.includes(probe):
+            candidates.append(ladder_key(season, ladder_type))
+    # Of those, the ones every player had joined.
+    return [key for key in candidates if roll.all_members(players, key, moment)]
+
+
 @dataclass
 class Rating:
     """One side's rating in one ladder and season, with its record. history holds the rating after
@@ -384,6 +526,9 @@ class Rating:
     last_change: float = 0.0
     last_played_at: datetime | None = None
     history: list[tuple[datetime, float]] = field(default_factory=list)
+    # When the membership this rating was earned in began (None without memberships): a rating
+    # from an earlier membership is not the player's any more (keep_current_memberships).
+    period_start: datetime | None = None
 
     def is_provisional(self, settings: LadderSettings) -> bool:
         """True while the rating rests on fewer results than settings.provisional_games."""
@@ -406,23 +551,46 @@ def expected_score(rating: float, opponent_rating: float) -> float:
 
 
 def compute_ratings(
-    results: Iterable[Evaluation], settings: LadderSettings, season: Season = INFINITE_SEASON
+    results: Iterable[Evaluation],
+    settings: LadderSettings,
+    season: Season = INFINITE_SEASON,
+    roll: LadderRoll | None = None,
 ) -> Ratings:
     """Replay the counted results of a season in the order they were played.
 
     Each side's K depends on its own number of results so far: a provisional side moves faster.
-    Results that are not counted, or not in the season, are skipped.
+    Results that are not counted, or not in the season, are skipped. With a roll, so are results
+    whose players were not all members of the season's ladder when they played, and a player's
+    rating starts over with each new membership. Without one (tools of their own, older tests)
+    every counted result counts.
     """
+    # The ratings this replay builds: players in Liga, clans in Clanliga, and each player's own
+    # Clanliga record.
     liga: dict[int, Rating] = {}
     clanliga: dict[int, Rating] = {}
     clanliga_players: dict[int, Rating] = {}
+    # The membership each player's current rating belongs to; a new one resets the rating.
+    periods: dict[tuple[str, int], datetime] = {}
+    # Only counted results of this season, replayed in the order they were played.
     counted = [result for result in results if result.state == LadderState.COUNTED and season.includes(result)]
     counted.sort(key=lambda result: (result.played_at, result.game_id))
     for result in counted:
+        # A result without a winning and a losing side moves nothing.
         winners = [player for player in result.players if player.has_won]
         losers = [player for player in result.players if not player.has_won]
         if not winners or not losers:
             continue
+        # With memberships: skip results whose players were not all in this ladder then, and start
+        # a player over when the result belongs to a new membership of theirs.
+        if roll is not None:
+            key = ladder_key(season, result.ladder_type)
+            account_ids = [player.account_id for player in result.players]
+            if result.played_at is None or not roll.all_members(account_ids, key, result.played_at):
+                continue
+            for account_id in account_ids:
+                start = roll.period_start(account_id, key, result.played_at)
+                start_over_on_new_membership(liga, clanliga_players, periods, account_id, start)
+        # Liga: one player against one player.
         if result.ladder_type == LadderType.INDIVIDUAL:
             apply_result(liga, winners[0].account_id, losers[0].account_id, losers[0].has_left, result, settings)
             continue
@@ -433,10 +601,61 @@ def compute_ratings(
             continue
         has_losing_team_left = all(player.has_left for player in losers)
         apply_result(clanliga, winning_clan, losing_clan, has_losing_team_left, result, settings)
+        # Each player's own Clanliga record: won and lost for the clan, without a rating.
         for player in result.players:
             record = clanliga_players.setdefault(player.account_id, Rating(rating=settings.start_rating))
             count_result(record, player.has_won, player.has_left, result.played_at)
+    # Each player's rating remembers the membership it was earned in.
+    for player_ratings in (liga, clanliga_players):
+        for account_id, rating in player_ratings.items():
+            rating.period_start = periods.get(("player", account_id))
     return Ratings(liga, clanliga, clanliga_players)
+
+
+def keep_current_memberships(ratings: Ratings, roll: LadderRoll, season: Season) -> Ratings:
+    """The ratings without those of players who left the ladder or whose rating comes from an
+    earlier membership: a player who leaves leaves the standings, and one who joins again starts at
+    the start rating (owner's decision). Clans' ratings stay: clans do not join, players do."""
+    # The season's two ladders the players' ratings belong to.
+    liga_key = ladder_key(season, LadderType.INDIVIDUAL)
+    clanliga_key = ladder_key(season, LadderType.CLANS)
+    # A rating stays only when it was earned in the player's current membership of the ladder.
+    liga = {
+        account_id: rating
+        for account_id, rating in ratings.liga.items()
+        if rating.period_start == roll.open_period_start(account_id, liga_key)
+    }
+    clanliga_players = {
+        account_id: rating
+        for account_id, rating in ratings.clanliga_players.items()
+        if rating.period_start == roll.open_period_start(account_id, clanliga_key)
+    }
+    return Ratings(liga, ratings.clanliga, clanliga_players)
+
+
+def start_over_on_new_membership(
+    liga: dict[int, Rating],
+    clanliga_players: dict[int, Rating],
+    periods: dict[tuple[str, int], datetime],
+    account_id: int,
+    start: datetime | None,
+) -> None:
+    """Forget a player's Liga rating and personal Clanliga record when this result belongs to a
+    later membership than the ones before: a player who left and joined again starts over (owner's
+    decision). The results stay, so opponents' ratings are not touched."""
+    # A result outside any membership (no roll) leaves the rating alone.
+    if start is None:
+        return
+    # Remember the membership this result belongs to; the first one, or the same one again, changes
+    # nothing.
+    period_key = ("player", account_id)
+    previous = periods.get(period_key)
+    periods[period_key] = start
+    if previous is None or previous == start:
+        return
+    # A later membership: the next result starts from the start rating.
+    liga.pop(account_id, None)
+    clanliga_players.pop(account_id, None)
 
 
 def apply_result(

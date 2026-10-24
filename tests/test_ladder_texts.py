@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from s3lobby.constants import MAX_TEXT_MESSAGE_BYTES, LadderState, LadderType, SeasonCounts
 from s3lobby.database import DatabaseError, LobbyDatabase, Setting, check_game_text
-from s3lobby.ladder import Evaluation, ResultPlayer
+from s3lobby.ladder import LIGA_KEY, SEASON_LADDER, Evaluation, LadderKey, ResultPlayer
 from s3lobby.ladder_book import LadderBook
 from s3lobby.ladder_texts import (
     BOARD_BYLINE_RESERVE_BYTES,
@@ -19,6 +19,7 @@ from s3lobby.ladder_texts import (
     text_size,
     week_start_of,
 )
+from tests.support import join_ladder_since
 
 # A Wednesday; its week started on Monday 19 October 2026.
 NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
@@ -46,6 +47,7 @@ class LadderTextsTest(unittest.TestCase):
         self.database = LobbyDatabase(":memory:", clock=self.clock)
         self.alice = self.database.create_account("Alice").account_id
         self.bob = self.database.create_account("Bob").account_id
+        join_ladder_since(self.database, [self.alice, self.bob])
         for day, winner, loser in ((12, self.alice, self.bob), (13, self.alice, self.bob), (14, self.alice, self.bob),
                                    (15, self.bob, self.alice)):
             self.store(day, winner, loser)
@@ -119,13 +121,16 @@ class LadderTextsTest(unittest.TestCase):
         """The summary of the last full week goes on the board in both languages, and only once."""
         self.writer.run()
         self.writer.run()
-        self.assertEqual(self.board_titles(ENGLISH), ["Week of 12 Oct 2026 to 18 Oct 2026"])
-        self.assertEqual(self.board_titles(GERMAN), ["Wochenbericht 12. Okt 2026 bis 18. Okt 2026"])
+        self.assertEqual(self.board_titles(ENGLISH), ["How the ladder works", "Week of 12 Oct 2026 to 18 Oct 2026"])
+        self.assertEqual(
+            self.board_titles(GERMAN), ["So funktioniert die Liga", "Wochenbericht 12. Okt 2026 bis 18. Okt 2026"]
+        )
 
     def test_a_season_start_and_end_are_written_with_an_announcement(self) -> None:
         """A season that started posts its start; once it ended, its end and one announcement."""
         season_start = NOW - timedelta(days=1)
         season = self.database.add_ladder_season("Autumn Cup", season_start, NOW + timedelta(days=1), SeasonCounts.LIGA)
+        join_ladder_since(self.database, [self.alice, self.bob], LadderKey(SEASON_LADDER, season.season_id))
         self.store(20, self.alice, self.bob)
         self.assertEqual(self.writer.run().announcements, ())
         self.assertIn("Autumn Cup begins", self.board_titles(ENGLISH))
@@ -144,11 +149,27 @@ class LadderTextsTest(unittest.TestCase):
         self.assertNotIn("Old Cup is over", self.board_titles(ENGLISH))
 
     def test_the_board_keeps_the_newest_messages(self) -> None:
-        """Older messages go, the setting's number stay."""
+        """Older messages go, the setting's number stay; the info message on top is never pruned."""
         self.database.set_setting(Setting.LADDER_BOARD_MESSAGES, "1")
         self.database.add_ladder_season("Autumn Cup", LAST_WEEK, NOW + timedelta(days=1), SeasonCounts.LIGA)
         self.writer.run()
-        self.assertEqual(len(self.board_titles(ENGLISH)), 1)
+        titles = self.board_titles(ENGLISH)
+        self.assertEqual((len(titles), titles[0]), (2, "How the ladder works"))
+
+    def test_the_info_message_counts_the_members_and_stays_on_top(self) -> None:
+        """The game has no other place to learn how to join; the info names the commands and how
+        many joined, and is rewritten, not posted again, when a player joins."""
+        self.writer.run()
+        theme = self.writer.server_themes()[ENGLISH]
+        [info] = [message for message in self.database.list_board_messages(theme.theme_id) if message.title == "How the ladder works"]
+        self.assertIn("Members: 2 in the Liga, 0 in the Clanliga.", info.body)
+        self.assertIn("/ladder join", info.body)
+        carol = self.database.create_account("Carol").account_id
+        self.database.join_ladder(carol, LIGA_KEY)
+        self.writer.run()
+        messages = self.database.list_board_messages(theme.theme_id)
+        self.assertEqual(messages[0].message_id, info.message_id)
+        self.assertIn("Members: 3 in the Liga", messages[0].body)
 
     def test_nobody_else_can_post_into_the_server_s_theme(self) -> None:
         """The theme the writer creates is the server's."""

@@ -16,9 +16,9 @@
         ("clans", "accounts.list_clans", "Clans"),
     ]),
     ("Content", [
-        ("news", "content.show_news", "News"),
-        ("chat_themes", "content.list_chat_themes", "Chat themes"),
-        ("board", "content.show_board", "Message board"),
+        ("news", "news.show_news", "News"),
+        ("chat_themes", "chat_themes.list_chat_themes", "Chat themes"),
+        ("board", "board.show_board", "Message board"),
         ("announcements", "server_settings.show_announcements", "Announcements"),
     ]),
     ("Play", [
@@ -26,11 +26,13 @@
         ("games", "games.list_games", "Games"),
     ]),
     ("Ladder", [
+        ("ladder_members", "ladder_admin.list_members", "Members"),
         ("ladder_games", "ladder_admin.list_ladder_games", "Games and disputes"),
         ("ladder_seasons", "ladder_admin.list_seasons", "Seasons"),
         ("ladder_settings", "server_settings.show_ladder_settings", "Settings"),
     ]),
     ("Settings", [("settings", "server_settings.show_settings", "Settings")]),
+    ("Info", [("info", "admin_home.show_info", "Info")]),
 ] %}
 <div class="app-nav-bar app-nav-bar--admin">
   <nav class="app-nav" aria-label="Admin sections">

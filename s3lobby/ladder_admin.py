@@ -26,9 +26,13 @@ from s3lobby.ladder_book import (
     CLANLIGA,
     LIGA,
     LadderBook,
+    LadderMembershipError,
     ResultRow,
     StandingRow,
+    join_ladder,
     last_season_day,
+    leave_ladder,
+    membership_rows,
     parse_season_day,
     parse_season_end,
 )
@@ -78,9 +82,11 @@ def show_statistics(database: LobbyDatabase, options: argparse.Namespace) -> Non
     """Print how often each race was played and won in a season's Liga, and how often each map was
     played and how long its matches took. JSON holds both lists; text and CSV print the one --of
     names."""
+    # Only results that count among the season's members, as the ratings do.
     book = LadderBook(database)
     season = find_season(book, options.season)
-    evaluations = [record.evaluation for record in book.results()]
+    evaluations = book.evaluations_in_ladder(season)
+    # Each race: how often played and won, and the win rate in percent.
     races = [
         {
             "race": RACE_NAMES.get(statistic.race, str(statistic.race)),
@@ -90,10 +96,12 @@ def show_statistics(database: LobbyDatabase, options: argparse.Namespace) -> Non
         }
         for statistic in race_statistics(evaluations, season)
     ]
+    # Each map: how often played and the average length of its matches.
     maps = [
         {"map": statistic.map_name, "played": statistic.played, "average_minutes": round(statistic.average_minutes, 1)}
         for statistic in map_statistics(evaluations, season)
     ]
+    # JSON holds both lists with the season and the format number; text and CSV the one --of names.
     if options.format == JSON_FORMAT:
         document = {
             "format": LADDER_JSON_FORMAT,
@@ -147,6 +155,35 @@ def void_game(database: LobbyDatabase, options: argparse.Namespace) -> None:
     except LookupError as error:
         raise AdminError(str(error)) from error
     print(f"Game {options.game_id} is void now; every rating follows.")
+
+
+def join_ladder_for(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Make a player a member of a ladder, as /ladder join does in the game."""
+    account = require_account(database, options.name)
+    try:
+        join_ladder(LadderBook(database), database, account.account_id, options.ladder)
+    except LadderMembershipError as error:
+        raise AdminError(f"{account.name}: {error}") from error
+    print(f"{account.name} joined {options.ladder or LIGA}.")
+
+
+def leave_ladder_for(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """End a player's membership of a ladder, as /ladder leave does in the game."""
+    account = require_account(database, options.name)
+    try:
+        leave_ladder(LadderBook(database), database, account.account_id, options.ladder)
+    except LadderMembershipError as error:
+        raise AdminError(f"{account.name}: {error}") from error
+    print(f"{account.name} left {options.ladder or LIGA}.")
+
+
+def list_members(database: LobbyDatabase, options: argparse.Namespace) -> None:
+    """Print who is in which ladder now, and since when."""
+    rows = [
+        {"name": row.name, "ladder": row.ladder, "joined_at": row.joined_at}
+        for row in membership_rows(database)
+    ]
+    print_rows(options.format, rows, ("ladder", "name", "joined_at"), None, "", "members")
 
 
 def list_seasons(database: LobbyDatabase, options: argparse.Namespace) -> None:

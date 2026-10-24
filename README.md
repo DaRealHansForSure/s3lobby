@@ -6,7 +6,7 @@
 
 **Bring the online lobby of the original The Settlers III back to life.**
 
-[![Release 0.11.0](https://img.shields.io/badge/release-0.11.0-1b3a6b?style=flat-square)](CHANGELOG.md)
+[![Release 0.12.0](https://img.shields.io/badge/release-0.12.0-1b3a6b?style=flat-square)](CHANGELOG.md)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1b3a6b?style=flat-square&logo=python&logoColor=white)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-17603f?style=flat-square)
 [![MIT License](https://img.shields.io/badge/license-MIT-17603f?style=flat-square)](LICENSE)
@@ -62,16 +62,19 @@ files: point the game at your server and log on.
 
 - **The original lobby, working again**: logon, the lobby rooms and game zones, chat, opening and
   joining games, chat groups with and without a password, clans, the Home tab with news,
-  statistics and an advert banner, the ChatZone and the MessageZone board.
+  statistics and an advert banner, the ChatZone and the MessageZone board, and optionally chat
+  groups the server keeps open in every chat theme.
 - **Clans and admins in colour**: the game's member lists draw marked clans and admins in green
   (the clan "BB" in blue, the colour the game kept for Blue Byte's staff).
 - **Accounts made by the server's admins**: players log on with an access code instead of a
   self-chosen password; codes are stored as salted scrypt hashes only.
 - **Server lines in the game's chat**: welcome message, announcements, and the chat commands
-  `/who`, `/clan`, `/help`, the ladder's `/rank`, `/top`, `/clanrank` and `/seasons`, and, for
-  admins, `/announce`, `/kick` and `/ban`.
-- **A ladder for Liga and Clanliga**: Elo ratings for players and clans, an infinite season and
-  custom seasons, disputes decided by admins, standings on the web, in the chat and as JSON.
+  `/who`, `/clan`, `/net`, `/help`, the ladder's `/ladder`, `/rank`, `/top`, `/clanrank`,
+  `/seasons`, `/season`, `/opponents`, `/results`, `/vs` and `/pending`, and, for admins,
+  `/announce`, `/kick` and `/ban`.
+- **A ladder for Liga and Clanliga**: players join the ladders they want with `/ladder join`, Elo
+  ratings for players and clans, an infinite season and custom seasons, disputes decided by
+  admins, standings on the web, in the chat and as JSON.
 - **Web interface**: public pages for the live lobby, the ladder and every player (their rating,
   races and games), and an admin area under `/admin` for accounts, clans, news, chat themes, the
   board, settings, announcements and the ladder, with Message, Kick and Ban for players online.
@@ -128,7 +131,9 @@ from Windows 10 in the LAN where noted:
 Implemented from the game's code, not yet tried with the real game: full games, another player
 joining a chat group with its password, the Home tab's news and statistics, the banner, the other
 chat commands, the game's Create Player button (`allow_create_player`), chat themes shown only
-to one language, and the ladder with the game's reports from two machines.
+to one language, the permanent chat groups (`permanent_chat_groups`), joining the ladder with
+`/ladder join` and the ladder's info message on the board, and the ladder with the game's
+reports from two machines.
 
 Not tested yet: players on different networks, where the DirectPlay connection has to cross the
 internet and its routers.
@@ -142,7 +147,8 @@ internet and its routers.
   still see them. Logging on again from the same PC works once the old connection has been quiet
   for 20 seconds, so the game's retries may take a few seconds longer. A server cannot tell a game
   that left this way from one that is only slow, so it waits.
-- **The ladder is not yet tried with the real game.** It ranks every ladder game, but the game
+- **The ladder is not yet tried with the real game.** It ranks the ladder games whose players all
+  joined a ladder they count in, but the game
   is only told that a result was stored once an admin switches `ladder_enabled` on; until a run
   confirms that answer it stays off, and the game still shows "Game not valid for ladder."
 
@@ -314,8 +320,13 @@ The ChatZone always lists the theme "General", which cannot be changed or remove
 the theme it was in last as soon as the tab opens and fails if it is gone. A new lobby also starts
 with a Meeting Room, a Beginners room and one room per language (Deutsch, English, Français,
 Italiano, Polski, Español), each shown only to games of that language; admins may remove them. The
-game names its language when it connects. On the board, new messages come first, and the
-server's own Liga theme starts on top; it can be hidden but not removed.
+game names its language when it connects. With the setting `permanent_chat_groups` on (off by
+default until a run with the game confirms it), each theme also keeps chat groups open, marked
+"[Server]", so players can chat at once instead of opening a group first: one named after the
+theme to begin with, more on the Chat themes page or with `s3lobby chat-theme add-group THEME
+NAME` (`remove-group ID`, ids from `chat-theme list`). Chat group names are unique: a player
+cannot open a group whose name an open group already has, or one marked "[Server]". On the board, new messages come first, and
+the server's own Liga theme starts on top; it can be hidden but not removed.
 
 The Home tab shows the news for the game's language (German, or the other text for every other
 language) and a statistics table of players and games. An advert banner can be shown too: the game
@@ -353,14 +364,20 @@ every player is told at once instead of waiting a minute for a timeout.
 ### The ladder
 
 Ladder games ("Liga" 1 on 1, "Clanliga" clan against clan) are ranked by the server, as Blue
-Byte's server once did: the game keeps no ladder itself, it only reports each match. A match
-counts when every player's game reports the same winner, it lasted long enough, and the players
-joined it in the lobby; reports that disagree make it disputed until an admin decides. Ratings are
+Byte's server once did: the game keeps no ladder itself, it only reports each match. Players take
+part only in the ladders they join (`/ladder join` in the game): the Liga, the Clanliga and each
+custom season separately, and nothing is stored for a match whose players did not all join one it
+counts in. A match counts when every player's game reports the same winner, it lasted long enough,
+and the players joined it in the lobby; reports that disagree make it disputed until an admin
+decides. A player who leaves a ladder keeps their results for their opponents and starts at the
+start rating when joining again. Ratings are
 Elo, everyone starts at 1000, and they are always recomputed from the results, so a decision or a
 changed setting applies at once. An infinite season always runs; admins can add custom seasons
 (cups, tournaments) that count only their dates. The rules in full: [docs/ladder.md](docs/ladder.md).
 
 ```sh
+s3lobby ladder join Alice                   # Alice takes part in the Liga (players: /ladder join)
+s3lobby ladder members                      # who is in which ladder
 s3lobby ladder standings                    # players' Liga ranking, infinite season
 s3lobby ladder standings --ladder clanliga --season "Autumn Cup" --format json
 s3lobby ladder results --state disputed
@@ -372,9 +389,15 @@ s3lobby ladder season add "Autumn Cup" --start 2026-10-01 --end 2026-11-30 --cou
 s3lobby setting set ladder_enabled true      # tell the game results are stored (untried)
 ```
 
-In the game, `/rank`, `/top`, `/clanrank` and `/seasons` answer in the chat. While the ladder is
-on, the server also writes it where the game has room for text: a MessageZone theme of its own
-("Liga" in German, "Ladder" otherwise) with season starts, season ends and a weekly summary, the
+In the game, `/rank`, `/top [SEASON] [clanliga]`, `/clanrank`, `/seasons` and `/season NAME` answer
+in the chat; `/opponents` names the Liga members online closest to your rating (the Ladder page
+shows them as "Online now"), `/results` your last results, `/vs NAME` your record against one
+player, `/pending` your games still waiting for a result, `/ladder rules` how it works; and
+`/ladder join` (or `/ladder join clanliga`, `/ladder join SEASON`) makes the player a member. The Ladder page
+lists who takes part, and each player's page and admin account page their ladders. While the
+ladder is on, the server also writes it where the game has room for text: a MessageZone theme of
+its own ("Liga" in German, "Ladder" otherwise), starting with a message on how to join and how
+many have joined, kept up to date, then season starts, season ends and a weekly summary, the
 top five under the Home tab's news, an announcement when a custom season ends, and lines at logon
 about a decided dispute (and, with `ladder_logon_line`, the player's place). Standings and results
 also come out as JSON or CSV (`--format`), for tools of your own. Until `ladder_enabled` is on, the
@@ -397,17 +420,22 @@ Settings):
 
 - a live lobby with each player's address and reachability, a search, and Message (a server line
   only that player sees), Kick and Ban for each player online;
-- accounts with access codes, bans and admin rights, and clans; long lists come in pages of 50,
-  accounts with a name search;
-- the Home tab news, the chat themes, and the message board, put in order by dragging or with Up
+- accounts with access codes, bans, admin rights and ladders (Join and Take out), and clans; long
+  lists come in pages of 50, accounts with a name search;
+- the Home tab news, the chat themes with their permanent chat groups, and the message board, put in order by dragging or with Up
   and Down, themes and messages hidden from the game or shown again;
 - settings, and announcements with whom each line was for and whether it arrived;
 - past games and match reports: each game with the setup its host chose (type, map, teams,
   computer opponents, player limit, Amazons, version), who joined it, when its match started and
   how it ended, its ladder result, and every report decoded field by field;
-- the ladder: disputed games to decide or void, custom seasons, and the ladder's settings.
+- the ladder: its members, disputed games to decide or void, custom seasons, and the ladder's
+  settings;
+- Info: the version, the database and its schema with every migration, whether the server runs,
+  the lobby's numbers and the settings worth knowing at a glance (`s3lobby info` prints the same,
+  as text or JSON).
 
-Kicks, bans, removals and the ladder's decisions ask for a confirmation in a dialog first.
+Kicks, bans, removals and the ladder's decisions ask for a confirmation in a dialog first. Long
+pages have a row of links under the menu to their sections.
 
 ```sh
 .venv/bin/pip install '.[web]'
@@ -452,16 +480,16 @@ game's member lists draw in those colours.
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/ladder-dark.png">
-        <img src="docs/images/ladder-light.png" alt="The public Ladder page: the top three, a rating chart, the standings with form and win rate, the last results, and races and maps">
+        <img src="docs/images/ladder-light.png" alt="The public Ladder page: the top three, a rating chart, the standings with form and win rate, the last results, who is online and who takes part in each ladder">
       </picture>
-      <p align="center"><b>Ladder</b>: standings, ratings, last results, races and maps.</p>
+      <p align="center"><b>Ladder</b>: standings, ratings, results, members.</p>
     </td>
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/player-dark.png">
-        <img src="docs/images/player-light.png" alt="A player's public page: place and rating, record, rating over time, the races played and the games with opponents and results">
+        <img src="docs/images/player-light.png" alt="A player's public page: place and rating, record, the ladders they joined, rating over time, the races played and the games with opponents and results">
       </picture>
-      <p align="center"><b>A player</b>: rating over time, races and games.</p>
+      <p align="center"><b>A player</b>: rating over time, ladders, races and games.</p>
     </td>
   </tr>
   <tr>
@@ -483,20 +511,27 @@ game's member lists draw in those colours.
   <tr>
     <td width="50%">
       <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/ladder-members-dark.png">
+        <img src="docs/images/ladder-members-light.png" alt="The ladder's Members page: how many joined each ladder, who is in which since when with Take out, and a form to add a player">
+      </picture>
+      <p align="center"><b>Ladder members</b>: who joined which ladder.</p>
+    </td>
+    <td width="50%">
+      <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
         <img src="docs/images/board-light.png" alt="The message board page: themes and messages in the order the game shows them, with Up, Down, Hide and Remove, the server's Ladder theme on top">
       </picture>
       <p align="center"><b>Message board</b>: drag into order, hide or show.</p>
     </td>
+  </tr>
+  <tr>
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/chat-themes-dark.png">
-        <img src="docs/images/chat-themes-light.png" alt="The chat themes page: General built in, the default rooms with the language each is shown to, and the form for a new theme">
+        <img src="docs/images/chat-themes-light.png" alt="The chat themes page: General built in, the default rooms with the language each is shown to, the permanent chat groups kept open in each theme, and the forms for new ones">
       </picture>
-      <p align="center"><b>Chat themes</b>: General built in, rooms per language.</p>
+      <p align="center"><b>Chat themes</b>: rooms per language, permanent groups.</p>
     </td>
-  </tr>
-  <tr>
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/games-dark.png">
@@ -504,6 +539,8 @@ game's member lists draw in those colours.
       </picture>
       <p align="center"><b>Games</b>: every game opened in the lobby, one line each.</p>
     </td>
+  </tr>
+  <tr>
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/game-details-dark.png">
@@ -511,21 +548,28 @@ game's member lists draw in those colours.
       </picture>
       <p align="center"><b>A game</b>: timeline, winners, ladder result, teams and setup.</p>
     </td>
-  </tr>
-  <tr>
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/account-dark.png">
-        <img src="docs/images/account-light.png" alt="An account's page: its access codes, clan and rights, ban, and the games it joined with team, race and result">
+        <img src="docs/images/account-light.png" alt="An account's page: its access codes, clan and rights, its ladders with Join and Take out, ban, and the games it joined with team, race and result">
       </picture>
-      <p align="center"><b>An account</b>: access codes, clan, rights, ban and games.</p>
+      <p align="center"><b>An account</b>: access codes, clan, rights, ladders, ban, games.</p>
     </td>
+  </tr>
+  <tr>
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/clans-dark.png">
         <img src="docs/images/clans-light.png" alt="The Clans page: clans with their members, which ones the game lists in green or blue, and the buttons to change that">
       </picture>
       <p align="center"><b>Clans</b>: members, and the colour the game lists them in.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/info-dark.png">
+        <img src="docs/images/info-light.png" alt="The admins' Info page: the version, whether the server runs, the schema version, the system, the lobby's numbers, the ladder's members, the settings worth knowing and the migrations">
+      </picture>
+      <p align="center"><b>Info</b>: version, schema, server and numbers.</p>
     </td>
   </tr>
 </table>
@@ -652,6 +696,9 @@ security problem? Please report it privately to the maintainer rather than in a 
 layer the game builds on top of UDP, every message, and the order of a lobby session. Every
 statement there names the address in the game's executable it was read from.
 
+[docs/issue-log.md](docs/issue-log.md) records every problem met in runs with the game, in the
+tests and in the tools: what was seen, the cause, the fix and the evidence, open ones included.
+
 The code follows the same layers:
 
 | Module | Responsibility |
@@ -676,6 +723,7 @@ The code follows the same layers:
 | `s3lobby/backends/` | SQLite and MySQL behind one interface, chosen by the database location: `base.py`, `location.py`, `sqlite.py`, `mysql.py` |
 | `s3lobby/migrations.py`, `s3lobby/schema/` | the schema as numbered migration files per database |
 | `s3lobby/live.py` | the running lobby as the server writes it for the web interface |
+| `s3lobby/server_info.py` | the installation at a glance, for the Info page and `s3lobby info` |
 | `s3lobby/cli.py`, `s3lobby/admin.py` | the command line |
 | `s3lobby/web/` | the web interface (Flask) |
 

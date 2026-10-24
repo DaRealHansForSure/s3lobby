@@ -382,7 +382,9 @@ and partly seen in runs:
    1, 0x435ac0; seen in runs: 2 for 1 vs 1, 1 for Human vs Computer), the long game block and the
    game description. Chat groups are opened the same way (CreateGame 0x5ca7d0, called from
    0x5dd5b9), without a game block.
-2. The server picks the id, sends the group back to the host with parent 0 and Result 0xc with
+2. The server picks the id (s3lobby counts up from 0x100000; past 0xfffffffe, as 0xffffffff is
+   the game's own request for an id, a new group is refused with Result 0xb), sends the group back
+   to the host with parent 0 and Result 0xc with
    the id, and shows it in the zone with its counters. The host's setup keeps its game in an
    empty slot (SwitchZone 5 with an empty CGroup, 0x454780) until that Result fills it
    (0x452b53); the setup updates (0x45506c), "show game in GameZone" (0x456370) and the match
@@ -539,6 +541,18 @@ database starts with the rooms the game's manual describes (migration 0014): Mee
 Beginners and one per game language (Deutsch, English, Français, Italiano, Polski, Español; Korean
 has no letters in Windows-1252); admins may remove them.
 
+With the setting `permanent_chat_groups` on, the server keeps chat groups of its own open in the
+themes: announced like a chat group a player opens without a password (AddGroupToGroup2, flags
+0x300073, no player limit), with the name marked "[Server] " and "Always open" as second text,
+under ids from 0xe0000 (above the board themes, below the players' groups at 0x100000). They never
+close when empty and a RemoveGroupFromGroup for them is ignored. Chat group names are unique
+among the open chat groups (in any case, a permanent group with and without its mark), and a
+player's group may not carry the "[Server]" mark: such a new group is answered with Result 0xb
+like a failed join, the only refusal the game has for opening a group. Empty player chat groups stay
+listed for minutes too, so an empty listed chat group is nothing new to the game (seen in runs);
+a group no player opened is *inferred* to work the same and waits for a run, hence the setting
+is off by default.
+
 A theme may be meant for the games of one language. The game names its language only in the
 patch check (CheckFileVersion, third value), which comes on the connection before the logon from
 the same address and port (seen in a run), so the lobby remembers the language per address and
@@ -582,6 +596,12 @@ listed in that language group are the themes; a theme's text id list (0x14) hold
 (0x453bb8), which the client asks for one by one with 0x16 and shows with a header built from its
 own texts "Message ... of ..." (0x9005c..0x9005e). Without a theme selected it shows "No message
 theme selected" (0x90059), for an empty theme "No messages for this selection" (0x9005b).
+
+A game that keeps its MessageZone across a new logon (the game stayed open while the server
+restarted) joins a theme it remembers right away, without joining the language group first (seen
+in a run). s3lobby builds the board's groups on demand when a join names one it has not built
+yet, so such a join works; the ids follow the board's order, so a remembered id still names the
+same theme while the order is unchanged.
 
 The order of the themes is the game's own: a group keeps its visible groups in a sorted array
 (CGroup +0xb8, binary search at 0x44d730) whose "less than" compares the group ids (CGroup's
@@ -642,8 +662,13 @@ answered with 0x26 for an admin). An earlier server line warning about board cha
   host when opening the game or when an UpdateGroup with a new description turns it into a ladder
   game, a joiner when joining. With it on, a ladder report that can count (two teams, no computer
   opponents, not marked invalid by the game) gets 0x6c, and the players hear the result once every
-  report is in (*inferred* that the game shows 0x6c as intended: untried). The description decides, as the host rewrites it on every change of the setup;
-  the game block keeps the choice made when the game was opened.
+  report is in (*inferred* that the game shows 0x6c as intended: untried). Players take part only
+  in the ladders they joined (docs/ladder.md): with the setting on, a report from a game whose
+  players are not all members of a ladder it could count in gets 0x6a as well; a player who joins
+  such a game hears once "You have not joined the Liga (Clanliga) ..." instead of the "not ranked"
+  line, and after the match the players hear "Ladder: GAME does not count (NAME had not joined
+  ...)". The description decides, as the host rewrites it on every change of the setup; the game
+  block keeps the choice made when the game was opened.
 
 ## Session sequence
 

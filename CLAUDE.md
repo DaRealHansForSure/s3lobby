@@ -13,10 +13,17 @@ another project; its history was carried over, so the early commits describe tha
 - `s3lobby/messages.py`: one frozen dataclass per message with `encode()` and `decode()`.
 - `s3lobby/connection.py`: the reliable layer for one client. No network access, testable with a
   fake clock.
-- `s3lobby/lobby.py`: players, rooms, zones, games; one handler per lobby message type.
+- `s3lobby/lobby.py`: players, rooms, zones, games; one handler per lobby message type; keeps the
+  chat themes and the permanent chat groups (`_sync_permanent_chat_groups`) in line with the
+  database and runs the ladder's evaluation and texts in its housekeeping.
+- `s3lobby/groups.py` (one group and its announcements), `s3lobby/logon.py` (who may log on,
+  Create Player), `s3lobby/commands.py` (the chat commands, the ladder's included),
+  `s3lobby/guards.py` (rate limits and a throttled log).
 - `s3lobby/database.py`: LobbyDatabase, everything the lobby stores: accounts with access codes,
-  clans, news, chat themes, board, sessions, games, game reports, settings. Its SQL is written once
-  with `?` placeholders in the part of SQL that SQLite and MySQL share.
+  clans, news, chat themes and their permanent chat groups, board, sessions, games, game reports,
+  announcements, settings, and the ladder's results, seasons, events and memberships. Its SQL is
+  written once with `?` placeholders in the part of SQL that SQLite and MySQL share. Opening a
+  database logs every migration it receives.
 - `s3lobby/backends/`: where the data lives, chosen by the database location (a path, or
   `mysql://user@host/name?tls=verify`). `base.py`: the `DatabaseBackend` interface, `DatabaseError`
   and its subclasses; `location.py`: parsing and describing locations; `sqlite.py`: `SqliteBackend`
@@ -39,16 +46,26 @@ another project; its history was carried over, so the early commits describe tha
   when it changed, the web interface reads it. The two processes share nothing but the database.
 - `s3lobby/ladder.py`, `s3lobby/ladder_book.py`, `s3lobby/ladder_admin.py`: the ladder
   (docs/ladder.md), with `ladder_texts.py` for the texts it writes into the board, the news and the
-  chat (once per event, through `record_ladder_event`). `ladder.py` holds the rules as pure functions (when a game counts, Elo, seasons,
-  standings, clan strength); `ladder_book.py` (LadderBook) feeds them from the database, stores
-  results, and builds the views with names every front end shows; `ladder_admin.py` is `s3lobby
-  ladder`. Ratings are never stored, always replayed from the results.
+  chat (once per event, through `record_ladder_event`; the board's info message is rewritten in
+  place). `ladder.py` holds the rules as pure functions (when a game counts, memberships with
+  `LadderRoll`, `counting_ladders` and `keep_current_memberships`, Elo, seasons, standings, clan
+  strength); `ladder_book.py` (LadderBook) feeds them from the database, stores results, joins
+  and leaves ladders (`join_ladder`, `leave_ladder`, `ladder_members`), and builds the views with
+  names every front end shows; `ladder_admin.py` is `s3lobby ladder`. Players take part only in
+  the ladders they join. Ratings are never stored, always replayed from the results.
+- `s3lobby/server_info.py`: the installation at a glance (version, schema, server, numbers) for
+  the web interface's Info page and `s3lobby info`.
+- `scripts/`: `start.sh` and `stop.sh` (server and web interface together), `run-game-wine.sh` and
+  `game-language.sh` (the game under Wine for tests), `readme_screenshots.py` (the README's
+  pictures).
 - `s3lobby/web/`: the Flask web interface (`app.py` factory, one blueprint module per area,
   `templates/`, `static/`). Public: the live lobby, `/ladder`, `/players/NAME` and `/logon`;
   everything else under `/admin` (`ADMIN_PATH_PREFIX`) with the dropdown menus of
   `templates/admin_base.html`, long lists paged by `paging.py`, SortableJS bundled in
   `static/vendor/` (the CSP allows no outside scripts).
 - `docs/protocol.md`: the protocol as read from the game, with the S3.EXE address of every fact.
+- `docs/issue-log.md`: every problem met in runs, tests and tools, with its cause, fix and
+  evidence (owner's rule, 2026-10-24: record every issue there as it comes up, newest first).
 - `tests/`: unittest. `support.py` has a background server and a fake game client.
 
 ## Commands
@@ -107,6 +124,13 @@ SQLite needs nothing extra.
   missing). Inside functions, a comment above every step a junior programmer would not understand
   at once: the reason for a check, what a number or flag means for the game, why an order
   matters. No comments that restate the code.
+- No big chunk of code without a comment in the middle (owner's rule, 2026-10-24). A function
+  body with more than one step gets a short comment above each step: every loop, every branch
+  with a purpose of its own, every query or lookup, saying what that step is for in this
+  function ("games still waiting: the player joined them but no result is stored yet"), not
+  what the syntax does. A docstring alone does not cover a body of several steps; as a rule of
+  thumb no stretch of more than about five lines goes without one. Check new and changed code for
+  this before every commit.
 - Never commit game files, the game's executable, or recordings that contain them.
 - Network safety, learned from the security review (`a05c8b9`, `e91a88f`):
   - Anything answered before a logon is no bigger than the request: sender addresses can be
@@ -116,7 +140,8 @@ SQLite needs nothing extra.
   - Text from clients is relayed byte for byte, but passes `wire.readable_text` before it is
     stored or shown: undefined Windows-1252 bytes arrive as surrogates, which UTF-8 cannot encode.
   - A setting that makes the server send something no run with the real game has seen yet
-    (`check_reachability`, `ladder_enabled`) is off by default until a run confirms it;
+    (`check_reachability`, `ladder_enabled`, `permanent_chat_groups`) is off by default until a
+    run confirms it;
     `allow_create_player` is off by default for the reasons in SECURITY.md.
 - The lobby works with and without the web interface, and anyone with the code can build their
   own tools on it. Every rule lives in a module the server and the command line use (the web
@@ -152,6 +177,12 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 - Git flow: `main` holds releases only, `develop` the work in progress. Every change goes on a
   branch from `develop` (`feature/...`, `fix/...`, `docs/...`, `refactor/...`) and is merged back
   with `git merge --no-ff BRANCH -m "Merge branch 'BRANCH' into develop"`.
+- Before every release and every merge into `main` (owner's rule, 2026-10-24): bring the docs up
+  to date with the code (README, SECURITY.md, CLAUDE.md, docs/ladder.md, docs/protocol.md, the
+  changelog; an audit of the changes since the last release finds what is outdated) and retake the
+  README screenshots with `.venv/bin/python scripts/readme_screenshots.py`, which fills a demo
+  lobby, renders every pictured page in light and dark, crops the pictures and copies them into
+  `docs/images`. A page the README does not picture yet but should goes into its list.
 - Releases follow SemVer: minor for features or anything that changes behaviour, patch for fixes
   only. **Never release 1.0.0 (or any 1.x) until the owner explicitly says so**, whatever is
   finished or tested; until then every release stays 0.x. A release is a
@@ -202,7 +233,8 @@ it rejected; find the handler for its message types in S3.EXE (dispatch table in
 - Checking web pages by eye: render them with headless Chrome (`google-chrome --headless=new
   --window-size=1280,900 --screenshot=FILE file://PAGE.html`) from HTML fetched with Flask's test
   client, `/static/` rewritten to file paths; check light and dark (`data-theme` on `<html>`) and
-  375 px wide. The README screenshots come from a demo database, never the owner's data.
+  375 px wide. The README screenshots come from a demo database, never the owner's data
+  (`scripts/readme_screenshots.py`).
 
 ## Open review findings
 
@@ -215,7 +247,8 @@ number can still slip in an ordinary action; admin commands are safe through /co
 
 ## Unexplained, left for later
 
-Seen in runs, not understood, not worked on (owner's decision, 2026-10-23):
+Seen in runs, not understood, not worked on (owner's decision, 2026-10-23); docs/issue-log.md
+keeps them with the issues of the same family:
 
 - After a server restart while the game (Wine, Bob) stayed logged on and was then logged on
   again, its join of the MessageZone (block 2, AddPlayerToGroup 4) was resent every half second
@@ -231,5 +264,7 @@ Seen in runs, not understood, not worked on (owner's decision, 2026-10-23):
 
 - A run with the real game for the ladder: a Liga match between two machines played to the end and
   one where the loser quits (does the stayer's report mark the leaver with slot state 3?), a
-  Clanliga 2 on 2, and `ladder_enabled` on to see the game show 0x6c. Only then may the setting
-  default to on.
+  Clanliga 2 on 2, and `ladder_enabled` on to see the game show 0x6c, and 0x6a for a match with a
+  player who has not joined. Only then may the setting default to on.
+- A run with `permanent_chat_groups` on: is a chat group no player opened listed, joined and
+  chatted in like any other? Only then may that setting default to on.
