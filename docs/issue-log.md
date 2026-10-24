@@ -41,6 +41,20 @@ A run that restarts the server while a game sits in each tab would show the whol
 
 ## The game
 
+### 2026-10-24: the ChatZone's theme list stays empty (open)
+
+- **Seen:** sometimes, after switching tabs, the ChatZone showed no themes while the group list
+  below showed the theme's group ("[Server] Deutsch"). Wine, Bob, lobby.log 13:11:08.
+- **Cause:** open; the server's answer was complete. The game joined the ChatZone and the theme
+  it was in last in one block, and the server answered in one block with the ChatZone, its four
+  themes, the joined theme and the permanent group in it. The game's list stayed empty anyway,
+  so it is the game's display; *inferred*: it sometimes draws the screen before the theme list
+  is filled.
+- **Fix:** open. An idea to try only with evidence: answer the remembered theme's join in a block
+  of its own, after the ChatZone's is acknowledged. Next step: note the time of a bad and a good
+  switch and compare the two blocks.
+- **Evidence:** lobby.log line by line around 13:11:08.917 (server block 0x1e).
+
 ### 2026-10-24: permanent chat groups "do not appear"
 
 - **Seen:** no "[Server]" groups in the ChatZone after the feature was built.
