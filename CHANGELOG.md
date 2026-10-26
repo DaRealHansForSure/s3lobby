@@ -10,6 +10,8 @@ version may change behaviour; the owner decides when 1.0.0 comes.
 
 - A Credits section in the README for the people who made The Settlers III, with a thank-you to
   Volker Wertich; the demo players in the screenshots now carry their names.
+- `scripts/run-game-wine.sh -h` (or `--help`) shows the script's options; before, `-h` was passed
+  on to the game and started it.
 
 ## [0.12.1] - 2026-10-24
 
