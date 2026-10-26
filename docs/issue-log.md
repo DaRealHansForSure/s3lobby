@@ -160,6 +160,23 @@ A run that restarts the server while a game sits in each tab would show the whol
 
 ## Tools and tests
 
+### 2026-10-26: the game started by an agent shows only a blue window or ends at once
+
+- **Seen:** `scripts/run-game-wine.sh` started from an agent's shell printed "Started", but the
+  Wine desktop stayed blue, or the game was gone a moment later with an empty `s3-1.log`.
+  Started from the owner's own terminal the same command works.
+- **Cause:** two things in the agent's shell, not in the script. The shell carries the Flow
+  AppImage's `LD_LIBRARY_PATH` (`/tmp/.mount_Flow-*/usr/lib`), which breaks Wine's drawing; and
+  the processes a tool call starts are killed when the call ends. A plain `systemd-run --user`
+  is no cure on its own: the script exits once the game is up, and systemd then stops the
+  whole unit with the game in it.
+- **Fix:** no code change. Start it as a user service without that variable and with
+  `--foreground`, so the unit lives as long as the game: `env -u LD_LIBRARY_PATH systemd-run
+  --user --unit=s3-window-1 --collect --setenv=DISPLAY=... --setenv=WAYLAND_DISPLAY=...
+  scripts/run-game-wine.sh --game-folder FOLDER --serial SERIAL --window 1 --foreground`.
+- **Evidence:** 2026-10-26 18:21 to 18:23, blue window and an empty log twice; started this way,
+  S3.EXE ran from the game folder and the owner saw it load.
+
 ### 2026-10-24: the Info screenshot shows the owner's home folder
 
 - **Seen:** the README's Info picture showed the demo database as an absolute path, and with it
