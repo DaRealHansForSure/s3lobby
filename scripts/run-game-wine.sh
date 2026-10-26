@@ -14,6 +14,7 @@
 #   run-game-wine.sh --wine-debug           Wine's own messages too (errors and warnings of every part)
 #   run-game-wine.sh --foreground           keep the shell until the game ends
 #   run-game-wine.sh --stop                 end every copy running in the prefix (wineserver -k)
+#   run-game-wine.sh -h, --help             show this text
 #
 # Each copy runs in a Wine virtual desktop, a normal window on the monitor, and the game fills that
 # window completely. The GOG copy draws through cnc-ddraw (ddraw.dll, settings in ddraw.ini next to
@@ -30,6 +31,11 @@
 # The GOG copy saves a serial typed into it in a form it cannot read back, so it asks again at the
 # next start; --serial puts the value back in the form the game reads (the serial four times).
 set -euo pipefail
+
+# Prints the comment at the top of this file, the script's documentation, without its "# ".
+print_help() {
+    sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d' | sed -E 's/^# ?//'
+}
 
 readonly WINE_DEBUG_CHANNELS="err+all,warn+all,fixme-all"
 # Ubuntu keeps wineserver off the PATH.
@@ -66,6 +72,10 @@ game_folder="${S3_GAME_FOLDER:-}"
 serial_number=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        -h|--help)
+            print_help
+            exit 0
+            ;;
         --window)
             window_name="${2:?--window needs a name, for example 1}"
             shift 2

@@ -221,7 +221,7 @@ scripts/start.sh --follow  # then show the lobby's log as it grows
 ```
 
 Two scripts help testing with the real game under Wine: `scripts/run-game-wine.sh` starts a copy
-in a window of its own (`--window 2` for a second one, `--help` in its first lines), and
+in a window of its own (`--window 2` for a second one, `--help` for every option), and
 `scripts/game-language.sh GAME_FOLDER en` makes a test copy of the game an English one (the game
 takes its language from its voice files; `--restore` undoes it).
 
