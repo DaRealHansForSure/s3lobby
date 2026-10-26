@@ -8,7 +8,7 @@
 #   run-game-wine.sh --game-folder DIR      the game in it (or S3_GAME_FOLDER); default PREFIX/drive_c/S3
 #   run-game-wine.sh --monitor NAME         centre on this monitor, remembered for the next starts
 #   run-game-wine.sh --window NAME          a second copy: NAME 2 opens a little lower and further right
-#   run-game-wine.sh --size 1024x768        another window size
+#   run-game-wine.sh --size 1024x768        another window size than the game's own 800x600
 #   run-game-wine.sh --language en          the game's language, a two letter code (game-language.sh)
 #   run-game-wine.sh --serial SERIAL        write this serial into the registry before each start
 #   run-game-wine.sh --wine-debug           Wine's own messages too (errors and warnings of every part)
@@ -34,15 +34,10 @@ set -euo pipefail
 readonly WINE_DEBUG_CHANNELS="err+all,warn+all,fixme-all"
 # Ubuntu keeps wineserver off the PATH.
 readonly WINESERVER_PATH="/usr/lib/x86_64-linux-gnu/wine/wineserver"
-# Window sizes to choose from, all 4:3 like the game's 800x600 (0x40d25a, 0x40d264): the largest
-# that fits WINDOW_SHARE_PERCENT of the monitor, and the primary monitor as well, is used. Wine
-# offers a virtual desktop only sizes that fit the primary monitor; it refused 1600x1200 next to a
-# 1920x1080 primary ("Failed to set primary display settings") and went full screen instead.
-readonly WINDOW_SIZES=("1280x960" "1024x768" "800x600")
-readonly WINDOW_SHARE_PERCENT=85
-# The window, and the game in it, at this share of the fitting size: 50 gives 640x480 on a
-# 2560x1440 monitor (fitting size 1280x960). cnc-ddraw scales the game's 800x600 to the window.
-readonly WINDOW_SCALE_PERCENT=50
+# The window without --size: the game's own 800x600 (0x40d25a, 0x40d264), so cnc-ddraw draws it
+# pixel for pixel. A larger --size must fit the primary monitor: Wine refused a 1600x1200 desktop
+# next to a 1920x1080 primary ("Failed to set primary display settings") and went full screen.
+readonly DEFAULT_WINDOW_SIZE="800x600"
 # A second numbered window opens this much lower and further right than the first.
 readonly WINDOW_CASCADE_PIXELS=48
 # How long to wait for the Wine desktop window before giving up on moving it.
@@ -151,29 +146,6 @@ monitor_geometry() {
         }'
 }
 
-# The largest size of WINDOW_SIZES that fits WINDOW_SHARE_PERCENT of the monitor ($1 x $2) and
-# all of the primary monitor ($3 x $4), as "WIDTH HEIGHT".
-fitting_window_size() {
-    local monitor_width="$1" monitor_height="$2" primary_width="$3" primary_height="$4" size width height
-    for size in "${WINDOW_SIZES[@]}"; do
-        width="${size%x*}"
-        height="${size#*x}"
-        local fits_monitor=false fits_primary=false
-        if [ $((width * 100)) -le $((monitor_width * WINDOW_SHARE_PERCENT)) ] \
-            && [ $((height * 100)) -le $((monitor_height * WINDOW_SHARE_PERCENT)) ]; then
-            fits_monitor=true
-        fi
-        if [ "$width" -le "$primary_width" ] && [ "$height" -le "$primary_height" ]; then
-            fits_primary=true
-        fi
-        if [ "$fits_monitor" = true ] && [ "$fits_primary" = true ]; then
-            echo "$width $height"
-            return
-        fi
-    done
-    echo "800 600"
-}
-
 # Sets KEY=VALUE pairs in the [ddraw] section of ddraw.ini, keeping its CRLF line ends and every
 # other line as it is.
 set_ddraw_settings() {
@@ -270,20 +242,14 @@ if [ -z "$geometry" ]; then
     exit 1
 fi
 read -r monitor_left monitor_top monitor_width monitor_height <<<"$geometry"
-read -r _ _ primary_width primary_height <<<"$(monitor_geometry "")"
 
 echo "Wine prefix:  $WINEPREFIX"
 echo "WINEDEBUG:    $WINEDEBUG"
 echo "Monitor:      ${monitor_name:-primary} (${monitor_width}x${monitor_height} at $monitor_left,$monitor_top)"
 
-if [ -n "$window_size" ]; then
-    window_width="${window_size%x*}"
-    window_height="${window_size#*x}"
-else
-    read -r window_width window_height <<<"$(fitting_window_size "$monitor_width" "$monitor_height" "$primary_width" "$primary_height")"
-    window_width=$((window_width * WINDOW_SCALE_PERCENT / 100))
-    window_height=$((window_height * WINDOW_SCALE_PERCENT / 100))
-fi
+window_size="${window_size:-$DEFAULT_WINDOW_SIZE}"
+window_width="${window_size%x*}"
+window_height="${window_size#*x}"
 cascade=0
 if [[ "$window_name" =~ ^[0-9]+$ ]] && [ "$window_name" -gt 1 ]; then
     cascade=$(((window_name - 1) * WINDOW_CASCADE_PIXELS))
